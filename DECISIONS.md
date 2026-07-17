@@ -32,3 +32,6 @@ M1 brief omitted §5.2. Integrator added `packages/protocol/src/transport_adapte
 
 ### D8 — E2EE deferred to [S3]: matrix crypto native module unloadable on darwin-arm64
 matrix-bot-sdk's `@matrix-org/matrix-sdk-crypto-nodejs` has no published binary for this platform and its postinstall downloader is blocked. Transport ships a probe-then-patch stub (real binary wins where loadable; suppression only when the probe throws) — see docs/TRANSPORT.md §5. Agent DM rooms are E2EE-capable in design, NOT encrypted in v0; PRIVACY.md rung-0 residuals already state homeserver payload visibility without E2EE.
+
+### D9 — UI investment capped (Jakob, mid-sprint)
+Jakob already has a UI for something else; this sprint's UI stays minimal — good enough for the §2 snapshot gallery only. No further UI polish loops; in-flight error-handling fix is the last UI change. Long-term, the daemon's REST/WS API (docs/API.md) is the reusable surface for whatever UI Jakob adopts.
