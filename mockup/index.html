@@ -69,9 +69,29 @@
   .cosmic .btn-ghost{color:#BFE6F7}
   .btn[disabled]{opacity:.45; cursor:default}
 
-  .hdr{padding:54px 22px 12px; display:flex; align-items:baseline; justify-content:space-between}
+  .hdr{padding:54px 22px 12px; display:flex; align-items:center; justify-content:space-between}
   .hdr h2{font-size:26px; font-weight:600; letter-spacing:.01em}
   .loc{font-size:13px; color:var(--ink-soft)}
+  .hdr-right{display:flex; align-items:center; gap:12px}
+  .bell{position:relative; background:none; border:0; cursor:pointer; color:var(--ink-soft); padding:4px}
+  .bell svg{width:22px; height:22px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round}
+  .bdg{position:absolute; top:-3px; right:-4px; background:var(--coral); color:#fff; font-size:10px;
+       font-weight:700; border-radius:999px; padding:1px 5px; min-width:16px; text-align:center}
+  .bdg.zero{display:none}
+  /* activity */
+  #activity .scroll{padding:0 16px 120px}
+  .act-row{background:#fff; border-radius:16px; padding:14px 15px; margin:0 2px 10px;
+           box-shadow:0 2px 12px rgba(36,27,46,.06); font-size:13.5px; line-height:1.5}
+  .act-row.done{opacity:.72}
+  .act-row .who-line{font-weight:600; margin-bottom:2px}
+  .act-row .act-btns{display:flex; gap:8px; margin-top:11px; flex-wrap:wrap}
+  .btn-sm{padding:9px 16px; font-size:13px}
+  .act-res{margin-top:9px; font-size:12.5px; color:#137a54; font-weight:600}
+  /* offers */
+  .offer-owner{display:flex; align-items:center; gap:8px; margin-top:8px; font-size:12.5px; color:var(--ink-soft)}
+  .offer-owner .ava{width:26px; height:26px; font-size:11px; box-shadow:none}
+  .res-chip{font-size:11px; font-weight:700; border-radius:999px; padding:3px 10px; background:var(--mist); color:var(--violet-deep)}
+  .res-chip.loan{background:#FDEEE9; color:#a3472f}
 
   /* ============ discover ============ */
   #discover .scroll{padding:0 16px 120px}
@@ -345,24 +365,46 @@
 
   <!-- ============ DISCOVER ============ -->
   <div class="screen" id="discover">
-    <div class="hdr"><h2>Discover</h2><span class="loc">Buenos Aires ▾</span></div>
+    <div class="hdr"><h2>Discover</h2>
+      <span class="hdr-right"><span class="loc">Buenos Aires ▾</span>
+        <button class="bell" data-bellbtn aria-label="Activity" data-anchor="ACT-1"><svg viewBox="0 0 24 24"><path d="M12 3.5c-3 0-5 2.3-5 5.2 0 4.3-1.6 5.6-2.4 6.6h14.8c-.8-1-2.4-2.3-2.4-6.6 0-2.9-2-5.2-5-5.2z"/><path d="M10 18.5a2 2 0 0 0 4 0"/></svg><span class="bdg zero" data-bdg>0</span></button>
+      </span>
+    </div>
     <div class="scroll">
       <div class="seg" data-anchor="DIS-1">
-        <button class="on" id="segList">List</button>
-        <button id="segMap">Map</button>
+        <button class="on" id="segGath">Gatherings</button>
+        <button id="segOff">Offers</button>
       </div>
-      <div class="chips">
-        <button class="chip on">This week</button>
-        <button class="chip">Ecstatic Dance</button>
-        <button class="chip">Biodanza</button>
-        <button class="chip">Contact Improv</button>
-        <button class="chip">Hangouts</button>
+      <div id="gathWrap">
+        <div class="seg">
+          <button class="on" id="segList">List</button>
+          <button id="segMap">Map</button>
+        </div>
+        <div class="chips">
+          <button class="chip on">This week</button>
+          <button class="chip">Ecstatic Dance</button>
+          <button class="chip">Biodanza</button>
+          <button class="chip">Contact Improv</button>
+          <button class="chip">Hangouts</button>
+        </div>
+        <div id="mapWrap" data-anchor="DIS-4"><canvas id="mapCanvas" width="356" height="300"></canvas></div>
+        <div id="listWrap"></div>
+        <p class="map-cap" id="listCap">Public events in your city. What your web opens, appears here too — quietly.</p>
       </div>
-      <div id="mapWrap" data-anchor="DIS-4"><canvas id="mapCanvas" width="356" height="300"></canvas></div>
-      <div id="listWrap"></div>
-      <p class="map-cap" id="listCap">Public events in your city. What your web opens, appears here too — quietly.</p>
+      <div id="offersWrap" style="display:none">
+        <div id="offersList"></div>
+        <p class="map-cap">What your web shares. Ask, borrow, bring it back — and both of you say whether it felt complete.</p>
+      </div>
     </div>
     <button class="fab" id="hostFab">＋ Host</button>
+  </div>
+
+  <!-- ============ ACTIVITY ============ -->
+  <div class="screen" id="activity">
+    <div class="hdr"><h2>Activity</h2>
+      <span class="hdr-right"><button class="btn btn-ghost btn-sm" id="actBack">Close</button></span>
+    </div>
+    <div class="scroll" id="actList" data-anchor="ACT-2"></div>
   </div>
 
   <!-- ============ HOST A GATHERING ============ -->
@@ -373,7 +415,11 @@
 
   <!-- ============ YOUR WEB ============ -->
   <div class="screen" id="web">
-    <div class="hdr"><h2>Your Web</h2><span class="loc" id="webCount"></span></div>
+    <div class="hdr"><h2>Your Web</h2>
+      <span class="hdr-right"><span class="loc" id="webCount"></span>
+        <button class="bell" data-bellbtn aria-label="Activity"><svg viewBox="0 0 24 24"><path d="M12 3.5c-3 0-5 2.3-5 5.2 0 4.3-1.6 5.6-2.4 6.6h14.8c-.8-1-2.4-2.3-2.4-6.6 0-2.9-2-5.2-5-5.2z"/><path d="M10 18.5a2 2 0 0 0 4 0"/></svg><span class="bdg zero" data-bdg>0</span></button>
+      </span>
+    </div>
     <div class="scroll">
       <div class="rings-wrap" id="rings" data-anchor="WEB-1"></div>
       <p class="web-cap">People you have met, and the people they hold.<br>Tap anyone to see the path between you.</p>
@@ -399,13 +445,20 @@
 
   <!-- ============ PEOPLE ============ -->
   <div class="screen" id="people">
-    <div class="hdr"><h2>People</h2><span class="loc" id="pplCount"></span></div>
+    <div class="hdr"><h2>People</h2>
+      <span class="hdr-right"><span class="loc" id="pplCount"></span>
+        <button class="bell" data-bellbtn aria-label="Activity"><svg viewBox="0 0 24 24"><path d="M12 3.5c-3 0-5 2.3-5 5.2 0 4.3-1.6 5.6-2.4 6.6h14.8c-.8-1-2.4-2.3-2.4-6.6 0-2.9-2-5.2-5-5.2z"/><path d="M10 18.5a2 2 0 0 0 4 0"/></svg><span class="bdg zero" data-bdg>0</span></button>
+      </span>
+    </div>
     <div class="scroll" id="pplList" data-anchor="PPL-1"></div>
   </div>
 
   <!-- ============ YOU ============ -->
   <div class="screen" id="you">
-    <div class="hdr"><h2>You</h2></div>
+    <div class="hdr"><h2>You</h2>
+      <span class="hdr-right"><button class="bell" data-bellbtn aria-label="Activity"><svg viewBox="0 0 24 24"><path d="M12 3.5c-3 0-5 2.3-5 5.2 0 4.3-1.6 5.6-2.4 6.6h14.8c-.8-1-2.4-2.3-2.4-6.6 0-2.9-2-5.2-5-5.2z"/><path d="M10 18.5a2 2 0 0 0 4 0"/></svg><span class="bdg zero" data-bdg>0</span></button>
+      </span>
+    </div>
     <div class="scroll">
       <div class="you-hero" data-anchor="YOU-1">
         <div class="ava" id="youAva" style="width:84px;height:84px;font-size:32px;background:linear-gradient(135deg,var(--violet),var(--electric))">Y</div>
@@ -421,6 +474,7 @@
         <p>When this is on, someone your people connect with can see your name in their second ring. Off, and you appear only as a private count.
         <button class="btn btn-electric" id="dialBtn" style="padding:8px 18px; font-size:13px; margin-top:10px" aria-pressed="true">On</button></p>
       </div>
+      <div class="verse" data-anchor="YOU-3" id="youOffers"></div>
       <div class="sov">
         <b>Yours, not ours.</b> Your people, your events, your web — stored here, carried by you, shown only when you choose. There is no account to close because there is no account.
       </div>
@@ -587,6 +641,8 @@
     if (id==="meet") renderCeremony("idle");
     if (id==="web") renderRings();
     if (id==="people") renderPeople();
+    if (id==="activity") renderActivity();
+    if (id==="you") renderYouOffers();
   }
   $("tabs").addEventListener("click", function(e){
     var b = e.target.closest("[data-go]");
@@ -672,6 +728,24 @@
     $("keysTitle").textContent = state.signup==="advanced" ? "Your recovery verse" : "Your keys";
     $("tabs").style.display = "flex";
     $("coach").style.display = "flex";
+    if (!state.seeded){
+      state.seeded = true;
+      pushActivity({
+        icon:"🍫", who:"Rafa", anchor:"RES-6",
+        txt:"asks: may he offer your <b>ceremonial cacao</b> onward to his own web — one ring further, through him? You'd approve each borrower.",
+        actions:[
+          {label:"Allow", kind:"electric", fn:function(it){
+            offerById("cacao").extended = true;
+            it.done = true; it.res = "Allowed ✓ — your cacao now reaches Rafa’s web through him. Withdraw anytime.";
+            renderActivity(); renderOffers();
+          }},
+          {label:"Not now", kind:"ghost", fn:function(it){
+            it.done = true; it.res = "Kept close. Rafa sees a gentle no.";
+            renderActivity();
+          }}
+        ]
+      });
+    }
     show("discover"); renderList();
   }
   function guestMode(){
@@ -1001,16 +1075,189 @@
     renderHost(); show("host");
   };
 
+  /* ---------- offers + loans ---------- */
+  var OFFERS = [
+    {id:"speakers", t:"PA speakers (pair)", d:"Warm full-range pair, battery option — carried them to fifty dance floors.", owner:"Lucía", ownerId:"lucia", tier:"Friends", state:"available"},
+    {id:"djtable", t:"DJ table + mixer", d:"Folding table, 4-channel mixer, cabling included.", owner:"Rafa", ownerId:"rafa", tier:"Friends", state:"available"},
+    {id:"cacao", t:"Ceremonial cacao (1kg blocks)", d:"Your own offering to the web.", owner:"You", mine:true, tier:"Friends", state:"available"},
+    {id:"venue", t:"Garden venue (up to 40)", d:"Quiet garden with a wooden deck — mornings and sunsets.", owner:"Sofía", ownerId:"sofia", tier:"Friends", via:"Maria", needsWeb:true, state:"available"}
+  ];
+  function offerById(id){ return OFFERS.filter(function(o){return o.id===id;})[0]; }
+
+  function renderOffers(){
+    var w = $("offersList"); w.innerHTML = "";
+    OFFERS.forEach(function(o){
+      if (o.needsWeb && !state.unlocked) return;
+      var d = document.createElement("div");
+      d.className = "card";
+      d.setAttribute("data-anchor","RES-1");
+      var stateChip =
+        o.state==="requested" ? '<span class="res-chip loan">Requested</span>' :
+        o.state==="lent" ? '<span class="res-chip loan">'+(o.mine?"On loan":"Borrowed by you")+'</span>' :
+        o.extended ? '<span class="res-chip">Also offered via Rafa</span>' : '';
+      d.innerHTML = "<h3>"+o.t+"</h3><div class='meta'>"+o.d+"</div>" +
+        '<div class="offer-owner"><span class="ava" style="background:'+(o.mine?"linear-gradient(135deg,#9A37F0,#12A8E3)":AVA_GRADS[o.ownerId])+'">'+(o.mine?state.name.charAt(0).toUpperCase():o.owner.charAt(0))+'</span>' +
+        (o.mine ? "Yours" : o.owner + (o.via ? " · via "+o.via : "")) + "</div>" +
+        '<span class="badge pub" style="margin-right:6px">'+o.tier+'</span>' + stateChip;
+      d.onclick = function(){ offerSheet(o); };
+      w.appendChild(d);
+    });
+  }
+
+  function offerSheet(o){
+    if (o.mine){
+      openSheet('<div class="grab"></div><div data-anchor="RES-3"><h3>'+o.t+'</h3>' +
+        '<div class="meta">Offered to: <b>'+o.tier+'</b> · state: <b>'+(o.state==="available"?"Available":o.state)+'</b>' +
+        (o.extended ? ' · also reaches Rafa’s web (you can withdraw that anytime)' : '') + '</div>' +
+        '<div class="path">You decide who can even see this — same doors as gatherings. Requests arrive in Activity; nothing is public.</div></div>');
+      return;
+    }
+    var canReq = o.state==="available";
+    openSheet('<div class="grab"></div><div data-anchor="RES-2"><h3>'+o.t+'</h3>' +
+      '<div class="meta">'+o.owner+(o.via? " · via "+o.via : "")+' · offered to '+o.tier+'</div>' +
+      '<div class="path">'+o.d+'</div>' +
+      (canReq
+        ? '<button class="btn btn-coral" id="reqBtn">Ask to borrow</button>'
+        : '<div class="act-res">'+(o.state==="requested"?"Requested — waiting for "+o.owner:"Borrowed by you — mark it returned in Activity")+'</div>') +
+      '</div>');
+    var rb = document.getElementById("reqBtn");
+    if (rb) rb.onclick = function(){
+      o.state = "requested";
+      closeSheet();
+      $("coachText").innerHTML = "Request sent to <b>"+o.owner+"</b> — watch the bell";
+      $("coach").style.display = "flex";
+      setTimeout(function(){
+        o.state = "lent";
+        pushActivity({
+          icon:"🔊", who:o.owner, txt:o.owner+" lent you the "+o.t.toLowerCase()+". Arrange pickup — and bring them back whole.",
+          actions:[{label:"Mark returned", kind:"coral", fn:function(item){
+            o.state = "returned";
+            item.done = true; item.res = "Returned ✓";
+            pushActivity({
+              icon:"🌀", who:"Completion", anchor:"RES-5",
+              txt:"The "+o.t.toLowerCase()+" came back to "+o.owner+". Do you feel complete?",
+              actions:[
+                {label:"Complete", kind:"electric", fn:function(it){
+                  o.state="available"; it.done=true;
+                  it.res = "You felt complete ✓ · "+o.owner+" felt complete ✓ — held between the two of you.";
+                  renderActivity();
+                }},
+                {label:"Not yet — say more", kind:"ghost", fn:function(it){
+                  it.done=true;
+                  it.res = "Noted. What’s unresolved stays within your Close friends only — never public, never a number.";
+                  renderActivity();
+                }}
+              ]
+            });
+            renderActivity();
+          }}]
+        });
+        renderOffers();
+      }, 1600);
+      renderOffers();
+    };
+  }
+
+  /* ---------- activity ---------- */
+  state.activity = [];
+  function pushActivity(item){
+    item.done = item.done || false;
+    state.activity.unshift(item);
+    updateBell();
+    if (state.screen==="activity") renderActivity();
+  }
+  function updateBell(){
+    var n = state.activity.filter(function(a){return !a.done;}).length;
+    var bdgs = document.querySelectorAll("[data-bdg]");
+    for (var i=0;i<bdgs.length;i++){
+      bdgs[i].textContent = n;
+      bdgs[i].classList.toggle("zero", n===0);
+    }
+  }
+  function renderActivity(){
+    var w = $("actList"); w.innerHTML = "";
+    if (!state.activity.length){
+      w.innerHTML = '<p class="map-cap" style="padding:20px 8px">Nothing waiting on you. The bell only rings when someone needs <i>you</i> — no streaks, no noise.</p>';
+      return;
+    }
+    state.activity.forEach(function(item){
+      var d = document.createElement("div");
+      d.className = "act-row" + (item.done ? " done" : "");
+      if (item.anchor) d.setAttribute("data-anchor", item.anchor);
+      d.innerHTML = '<div class="who-line">'+(item.icon||"·")+' '+item.who+'</div>' + item.txt +
+        (item.res ? '<div class="act-res">'+item.res+'</div>' : '');
+      if (!item.done && item.actions){
+        var btns = document.createElement("div");
+        btns.className = "act-btns";
+        item.actions.forEach(function(a){
+          var b = document.createElement("button");
+          b.className = "btn btn-sm btn-" + (a.kind||"electric");
+          b.textContent = a.label;
+          b.onclick = function(){ a.fn(item); updateBell(); };
+          btns.appendChild(b);
+        });
+        d.appendChild(btns);
+      }
+      w.appendChild(d);
+    });
+    updateBell();
+  }
+  document.addEventListener("click", function(e){
+    var b = e.target.closest("[data-bellbtn]");
+    if (!b) return;
+    if (state.guest){
+      openSheet('<div class="grab"></div><h3>Activity needs a web</h3><div class="meta">Join first — requests, lends, and check-ins from your people land here.</div>');
+      return;
+    }
+    state.prev = state.screen==="activity" ? state.prev : state.screen;
+    show("activity");
+  });
+  $("actBack").onclick = function(){ show(state.prev || "discover"); };
+
+  /* discover top segments */
+  $("segGath").onclick = function(){
+    $("segGath").classList.add("on"); $("segOff").classList.remove("on");
+    $("gathWrap").style.display = ""; $("offersWrap").style.display = "none";
+  };
+  $("segOff").onclick = function(){
+    if (state.guest){
+      openSheet('<div class="grab"></div><h3>Offers live inside the web</h3><div class="meta">Speakers, DJ tables, cacao, venues — shared between people who have actually met. Join to see what your people offer.</div>');
+      return;
+    }
+    $("segOff").classList.add("on"); $("segGath").classList.remove("on");
+    $("gathWrap").style.display = "none"; $("offersWrap").style.display = "";
+    renderOffers();
+  };
+
+  /* you: what you offer */
+  function renderYouOffers(){
+    var cacao = offerById("cacao");
+    var speakers = offerById("speakers");
+    var mineState = cacao.state==="available" ? "Available" : cacao.state;
+    $("youOffers").innerHTML =
+      '<h3>What you offer</h3>' +
+      '<p style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px">Ceremonial cacao (1kg blocks)' +
+      '<span class="res-chip">'+mineState+(cacao.extended?" · via Rafa too":"")+'</span></p>' +
+      '<p style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;border-top:1px solid rgba(36,27,46,.08);padding-top:8px">Borrowed by you' +
+      '<span class="res-chip'+(speakers.state==="lent"?" loan":"")+'">'+(speakers.state==="lent" ? "Lucía’s speakers" : "nothing right now")+'</span></p>' +
+      '<button class="btn btn-ghost btn-sm" id="addRes" style="margin-top:10px;padding-left:0">＋ Offer something</button>';
+    $("addRes").onclick = function(){
+      openSheet('<div class="grab"></div><div data-anchor="RES-3"><h3>Offer something</h3>' +
+        '<div class="meta">Name it, photograph it, choose its doors (same tiers as gatherings: The Commons / Friends / Close friends), and it appears to the people you chose. Mock-only in this prototype.</div></div>');
+    };
+  }
+
   /* ---------- sheet ---------- */
   function openSheet(html){
     $("sheet").innerHTML = html;
     $("sheet").classList.add("on");
     $("veil").classList.add("on");
   }
-  $("veil").onclick = function(){
+  function closeSheet(){
     $("sheet").classList.remove("on");
     $("veil").classList.remove("on");
-  };
+  }
+  $("veil").onclick = closeSheet;
 
   /* ---------- ceremony ---------- */
   function fakeQR(canvas){
