@@ -78,8 +78,16 @@
   .bdg{position:absolute; top:-3px; right:-4px; background:var(--coral); color:#fff; font-size:10px;
        font-weight:700; border-radius:999px; padding:1px 5px; min-width:16px; text-align:center}
   .bdg.zero{display:none}
-  /* activity */
-  #activity .scroll{padding:0 16px 120px}
+  /* chat (activity + threads) */
+  #chat .scroll{padding:0 16px 120px}
+  .thread-bubs{display:flex; flex-direction:column; gap:8px; margin:12px 0}
+  .bub{max-width:80%; padding:9px 13px; border-radius:16px; font-size:13.5px; line-height:1.45}
+  .bub.them{background:#fff; align-self:flex-start; border-bottom-left-radius:5px; box-shadow:0 1px 6px rgba(36,27,46,.08)}
+  .bub.me{background:var(--electric); color:#fff; align-self:flex-end; border-bottom-right-radius:5px}
+  .msg-input{width:100%; border:1.5px solid rgba(36,27,46,.15); border-radius:999px; padding:11px 16px;
+             font-family:inherit; font-size:14px; background:#fff; margin-top:6px}
+  .msg-input:focus{outline:none; border-color:var(--electric)}
+  .chat-head{font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-soft); margin:14px 6px 8px}
   .act-row{background:#fff; border-radius:16px; padding:14px 15px; margin:0 2px 10px;
            box-shadow:0 2px 12px rgba(36,27,46,.06); font-size:13.5px; line-height:1.5}
   .act-row.done{opacity:.72}
@@ -215,7 +223,8 @@
     display:flex; align-items:stretch; justify-content:space-around; padding:6px 8px 22px; z-index:30;
   }
   .tab{background:none; border:0; font-family:inherit; font-size:10.5px; font-weight:600; color:var(--ink-soft);
-       display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; width:60px}
+       display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer; width:60px; position:relative}
+  .tab .bdg{position:absolute; top:-2px; right:8px}
   .tab svg{width:24px; height:24px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round}
   .tab.on{color:var(--violet)}
   .tab-meet{
@@ -382,11 +391,7 @@
 
   <!-- ============ DISCOVER ============ -->
   <div class="screen" id="discover">
-    <div class="hdr"><h2>Discover</h2>
-      <span class="hdr-right"><span class="loc">Buenos Aires ▾</span>
-        <button class="bell" data-bellbtn aria-label="Activity" data-anchor="ACT-1"><svg viewBox="0 0 24 24"><path d="M12 3.5c-3 0-5 2.3-5 5.2 0 4.3-1.6 5.6-2.4 6.6h14.8c-.8-1-2.4-2.3-2.4-6.6 0-2.9-2-5.2-5-5.2z"/><path d="M10 18.5a2 2 0 0 0 4 0"/></svg><span class="bdg zero" data-bdg>0</span></button>
-      </span>
-    </div>
+    <div class="hdr"><h2>Discover</h2><span class="loc">Buenos Aires ▾</span></div>
     <div class="scroll">
       <div class="seg" data-anchor="DIS-1">
         <button class="on" id="segGath">Gatherings</button>
@@ -416,12 +421,14 @@
     <button class="fab" id="hostFab">＋ Host</button>
   </div>
 
-  <!-- ============ ACTIVITY ============ -->
-  <div class="screen" id="activity">
-    <div class="hdr"><h2>Activity</h2>
-      <span class="hdr-right"><button class="btn btn-ghost btn-sm" id="actBack">Close</button></span>
+  <!-- ============ CHAT (threads + activity) ============ -->
+  <div class="screen" id="chat">
+    <div class="hdr"><h2>Chat</h2><span class="loc">held between you</span></div>
+    <div class="scroll">
+      <div id="threadList"></div>
+      <div class="chat-head">Waiting on you</div>
+      <div id="actList" data-anchor="ACT-2"></div>
     </div>
-    <div class="scroll" id="actList" data-anchor="ACT-2"></div>
   </div>
 
   <!-- ============ HOST A GATHERING ============ -->
@@ -432,15 +439,21 @@
 
   <!-- ============ YOUR WEB ============ -->
   <div class="screen" id="web">
-    <div class="hdr"><h2>Your Web</h2>
-      <span class="hdr-right"><span class="loc" id="webCount"></span>
-        <button class="bell" data-bellbtn aria-label="Activity"><svg viewBox="0 0 24 24"><path d="M12 3.5c-3 0-5 2.3-5 5.2 0 4.3-1.6 5.6-2.4 6.6h14.8c-.8-1-2.4-2.3-2.4-6.6 0-2.9-2-5.2-5-5.2z"/><path d="M10 18.5a2 2 0 0 0 4 0"/></svg><span class="bdg zero" data-bdg>0</span></button>
-      </span>
-    </div>
+    <div class="hdr"><h2>Your Web</h2><span class="loc" id="webCount"></span></div>
     <div class="scroll">
-      <div class="rings-wrap" id="rings" data-anchor="WEB-1"></div>
-      <p class="web-cap">People you have met, and the people they hold.<br>Tap anyone to see the path between you.</p>
-      <div id="intWrap"></div>
+      <div class="seg" style="margin:2px 16px 6px">
+        <button class="on" id="segRings">Rings</button>
+        <button id="segPeople">People</button>
+      </div>
+      <div id="ringsView">
+        <div class="rings-wrap" id="rings" data-anchor="WEB-1"></div>
+        <p class="web-cap">People you have met, and the people they hold.<br>Tap anyone to see the path between you.</p>
+        <div id="intWrap"></div>
+      </div>
+      <div id="peopleView" style="display:none">
+        <div id="pplList" data-anchor="PPL-1" style="padding:8px 16px 0"></div>
+        <p class="map-cap" style="padding:6px 22px" id="pplCap"></p>
+      </div>
     </div>
   </div>
 
@@ -461,22 +474,9 @@
     </div>
   </div>
 
-  <!-- ============ PEOPLE ============ -->
-  <div class="screen" id="people">
-    <div class="hdr"><h2>People</h2>
-      <span class="hdr-right"><span class="loc" id="pplCount"></span>
-        <button class="bell" data-bellbtn aria-label="Activity"><svg viewBox="0 0 24 24"><path d="M12 3.5c-3 0-5 2.3-5 5.2 0 4.3-1.6 5.6-2.4 6.6h14.8c-.8-1-2.4-2.3-2.4-6.6 0-2.9-2-5.2-5-5.2z"/><path d="M10 18.5a2 2 0 0 0 4 0"/></svg><span class="bdg zero" data-bdg>0</span></button>
-      </span>
-    </div>
-    <div class="scroll" id="pplList" data-anchor="PPL-1"></div>
-  </div>
-
   <!-- ============ YOU ============ -->
   <div class="screen" id="you">
-    <div class="hdr"><h2>You</h2>
-      <span class="hdr-right"><button class="bell" data-bellbtn aria-label="Activity"><svg viewBox="0 0 24 24"><path d="M12 3.5c-3 0-5 2.3-5 5.2 0 4.3-1.6 5.6-2.4 6.6h14.8c-.8-1-2.4-2.3-2.4-6.6 0-2.9-2-5.2-5-5.2z"/><path d="M10 18.5a2 2 0 0 0 4 0"/></svg><span class="bdg zero" data-bdg>0</span></button>
-      </span>
-    </div>
+    <div class="hdr"><h2>You</h2></div>
     <div class="scroll">
       <div class="you-hero" data-anchor="YOU-1">
         <div class="ava" id="youAva" style="width:84px;height:84px;font-size:32px;background:linear-gradient(135deg,var(--violet),var(--electric))">Y</div>
@@ -505,16 +505,16 @@
     <button class="tab on" data-go="discover">
       <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5"/></svg>
       Discover</button>
-    <button class="tab" data-go="web">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="12" r="7" stroke-dasharray="2 3"/><circle cx="12" cy="12" r="10.5" stroke-dasharray="2 3"/></svg>
-      Your Web</button>
+    <button class="tab" data-go="chat" data-anchor="ACT-1">
+      <svg viewBox="0 0 24 24"><path d="M4.5 7C4.5 5.3 5.8 4 7.5 4h9c1.7 0 3 1.3 3 3v6c0 1.7-1.3 3-3 3h-6.3L6 19.6V16h-.3c-.7-.5-1.2-1.3-1.2-2.2z"/></svg>
+      Chat<span class="bdg zero" data-bdg>0</span></button>
     <button class="tab-meet" data-go="meet" aria-label="Meet someone">
       <svg viewBox="0 0 24 24"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg>
       <span>Meet</span>
     </button>
-    <button class="tab" data-go="people">
-      <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3.5 20c.5-3.5 2.8-5.5 5.5-5.5s5 2 5.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.7c2.3.3 3.9 2 4.3 4.8"/></svg>
-      People</button>
+    <button class="tab" data-go="web">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="12" r="7" stroke-dasharray="2 3"/><circle cx="12" cy="12" r="10.5" stroke-dasharray="2 3"/></svg>
+      Web</button>
     <button class="tab" data-go="you">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8"/><path d="M5.5 20.5c.7-4 3.4-6.2 6.5-6.2s5.8 2.2 6.5 6.2"/></svg>
       You</button>
@@ -656,9 +656,8 @@
     var tabs = document.querySelectorAll(".tab");
     for (var j=0;j<tabs.length;j++) tabs[j].classList.toggle("on", tabs[j].getAttribute("data-go")===id);
     if (id==="meet") renderCeremony("idle");
-    if (id==="web") renderRings();
-    if (id==="people") renderPeople();
-    if (id==="activity") renderActivity();
+    if (id==="web"){ renderRings(); renderPeople(); }
+    if (id==="chat") renderChat();
     if (id==="you") renderYouOffers();
   }
   $("tabs").addEventListener("click", function(e){
@@ -1042,7 +1041,7 @@
       {id:"tomas", n:"Tomás", c:"Contact Improv Jam · June", s:"out", sl:"Pending"}
     ];
     if (state.met) ppl.unshift({id:"maria", n:"Maria", c:"Ecstatic Dance Palermo · today", s:"mutual", sl:"Connected"});
-    $("pplCount").textContent = ppl.length + " met in person";
+    $("pplCap").textContent = ppl.length + " people, all met in person. Tap anyone for their card.";
     ppl.forEach(function(p){
       var b = document.createElement("button");
       b.className = "prow";
@@ -1256,7 +1255,7 @@
     item.done = item.done || false;
     state.activity.unshift(item);
     updateBell();
-    if (state.screen==="activity") renderActivity();
+    if (state.screen==="chat") renderActivity();
   }
   function updateBell(){
     var n = state.activity.filter(function(a){return !a.done;}).length;
@@ -1294,17 +1293,46 @@
     });
     updateBell();
   }
-  document.addEventListener("click", function(e){
-    var b = e.target.closest("[data-bellbtn]");
-    if (!b) return;
-    if (state.guest){
-      openSheet('<div class="grab"></div><h3>Activity needs a web</h3><div class="meta">Join first — requests, lends, and check-ins from your people land here.</div>');
-      return;
-    }
-    state.prev = state.screen==="activity" ? state.prev : state.screen;
-    show("activity");
-  });
-  $("actBack").onclick = function(){ show(state.prev || "discover"); };
+  /* chat: threads + activity feed */
+  var THREADS = {
+    lucia: [["them","Bringing the speakers Sunday — can you carry the stands?"],["me","Claro! See you at the park 🌞"]],
+    maria: [["them","So good to meet you today ✨"]]
+  };
+  function renderChat(){
+    var w = $("threadList"); w.innerHTML = "";
+    var rows = [{id:"lucia", n:"Lucía", last:THREADS.lucia[THREADS.lucia.length-1][1]}];
+    if (state.met) rows.unshift({id:"maria", n:"Maria", last:THREADS.maria[THREADS.maria.length-1][1]});
+    rows.forEach(function(t){
+      var b = document.createElement("button");
+      b.className = "prow";
+      b.innerHTML = '<div class="ava" style="background:'+AVA_GRADS[t.id]+'">'+t.n.charAt(0)+'</div>' +
+        '<div class="who"><b>'+t.n+'</b><i>'+t.last+'</i></div>';
+      b.onclick = function(){ openThread(t.id, t.n); };
+      w.appendChild(b);
+    });
+    renderActivity();
+  }
+  function openThread(id, name){
+    var bubs = (THREADS[id]||[]).map(function(m){
+      return '<div class="bub '+m[0]+'">'+m[1]+'</div>';
+    }).join("");
+    openSheet('<div class="grab"></div><h3>'+name+'</h3>' +
+      '<div class="meta">End-to-end between the two of you — carried by your own thread.</div>' +
+      '<div class="thread-bubs">'+bubs+'</div>' +
+      '<input class="msg-input" placeholder="Message '+name+'…" aria-label="Message '+name+'">');
+  }
+
+  /* web segments: rings | people */
+  $("segRings").onclick = function(){
+    $("segRings").classList.add("on"); $("segPeople").classList.remove("on");
+    $("ringsView").style.display = ""; $("peopleView").style.display = "none";
+    renderRings();
+  };
+  $("segPeople").onclick = function(){
+    $("segPeople").classList.add("on"); $("segRings").classList.remove("on");
+    $("peopleView").style.display = ""; $("ringsView").style.display = "none";
+    renderPeople();
+  };
 
   /* discover top segments */
   $("segGath").onclick = function(){
