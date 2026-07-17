@@ -106,12 +106,17 @@ export function buildStateSnapshot(persona: { name: string; peer_id: string; acc
  * /api/audit (I6, human-readable). I4 gives the owner unrestricted visibility
  * into requests THEY received (actor: "owner"); I2 requires the asker's own
  * audit trail (actor: "asker", i.e. requests THIS persona sent) to redact
- * peer identity and the PENDING-vs-PASS distinction. In practice every
- * actor:"asker" entry this daemon ever writes is already redaction-safe by
- * construction (see lifecycle/asker.ts — such entries only ever describe
- * aggregate facts). `redact_for_asker` plus this filter is the defense-in-
- * depth backstop, checked by a dedicated test that scans the serialized
- * response for configured peer ids and the literal "PENDING".
+ * peer identity and the PENDING-vs-PASS distinction.
+ *
+ * That guarantee is enforced entirely at WRITE time, not here: every
+ * actor:"asker" entry goes through audit/audit.ts's `logAsker`, which throws
+ * if `detail` would contain a peer id or the word "PENDING" — so by the time
+ * an entry reaches `store.getAudit()`, it is already safe. This function
+ * does no read-time filtering or redaction of its own (it does not even look
+ * at `redact_for_asker` or `actor`); it is a plain, unconditional map from
+ * `AuditRecord` to the wire shape. The dedicated test that scans the
+ * serialized response for configured peer ids and the literal "PENDING" is
+ * therefore verifying `logAsker`'s write-time guard, not any behavior here.
  */
 export function buildAuditApiView(entries: AuditRecord[]): AuditApiEntry[] {
   return entries.map((e) => ({ ts: e.ts, decision: e.action, detail: e.detail }));

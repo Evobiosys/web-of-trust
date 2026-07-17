@@ -195,9 +195,36 @@ export class Daemon {
     );
   }
 
+  /**
+   * Fires at the ask's own TTL. Two cases, BOTH must notify (WS
+   * `state_changed`) so a WS-only client refetches and sees the right view:
+   *   - internal_state still "open" (nobody replied at all, or not everyone
+   *     did): forces the STATUS_ALL_IN resolution here, same as if the last
+   *     peer's STATUS had just arrived.
+   *   - internal_state already "pending" (someone matched + sent PENDING,
+   *     but no CONSENT ever arrived — including the I3 decline-after-
+   *     dispatch case, which leaves internal_state at "pending" forever by
+   *     design, see api/sanitize.ts): nothing to mutate here — the
+   *     degradation to "no_one_this_time" happens at the VIEW layer purely
+   *     from `now` vs `created_at + ttl_ms` — but a client watching WS only
+   *     (never polling) still needs a nudge to go re-fetch /api/state and
+   *     observe that degraded view. Without this, such a client would show
+   *     stale "waiting" forever once the state machine itself stops
+   *     changing.
+   */
   private resolveAskOnTtl(requestId: string): void {
     const ask = this.store.getAsk(requestId);
-    if (!ask || ask.internal_state !== "open") return; // already resolved or withdrawn
+    if (!ask) return;
+    if (ask.internal_state !== "open") {
+      // Not stuck in "open" — either already resolved to "pending"/"pass"/etc
+      // in the normal way, or genuinely withdrawn/consented/roomed. Only the
+      // still-"pending" case has a view-layer-only change to announce at
+      // this exact moment; the others already notified when they happened.
+      if (ask.internal_state === "pending") {
+        this.notifyChange();
+      }
+      return;
+    }
     const anyPending = ask.peers.some((p) => p.state === "pending" || p.state === "consented");
     ask.internal_state = transitionAskerState("open", { type: "STATUS_ALL_IN", anyPending });
     this.store.putAsk(ask);
@@ -209,6 +236,7 @@ export class Daemon {
       `TTL reached: aggregate resolved to ${anyPending ? "waiting for someone to help" : "no one this time"}.`,
       ask.peers.map((p) => p.peer)
     );
+    this.notifyChange();
   }
 
   private askerHandleStatus(from: string, requestId: string, state: "PASS" | "PENDING"): void {

@@ -162,3 +162,53 @@ describe("Daemon lifecycle — I2 sanitization", () => {
     }
   });
 });
+
+describe("Daemon lifecycle — TTL resolution notifies WS clients (state_changed)", () => {
+  it("all-quiet case: TTL fires while still 'open' (nobody replied in time) — notifies, and /api/state then shows no_one_this_time", async () => {
+    // TTL shorter than the uniform STATUS delay, so the ask's own TTL timer
+    // fires before Ben's PASS ever dispatches — ask is genuinely still
+    // "open" at TTL.
+    const { scheduler, anna, benStore } = await setupDuo({ statusDelayMs: 10_000, defaultAskTtlMs: 2_000 });
+    benStore.putItem(SCREWDRIVER);
+
+    const changeEvents: number[] = [];
+    let count = 0;
+    anna.setOnChange(() => {
+      count += 1;
+      changeEvents.push(count);
+    });
+
+    await anna.sendAsk("Hat wer in meiner Nähe einen Akkuschrauber?");
+    const countBeforeTtl = count;
+
+    await scheduler.advance(2_000); // ask's own TTL fires; Ben's PASS (at 10s) hasn't dispatched yet
+
+    expect(count).toBeGreaterThan(countBeforeTtl); // TTL fired a notifyChange
+    expect(anna.getStateSnapshot().asks[0].state).toBe("no_one_this_time");
+  });
+
+  it("decline-after-PENDING case: TTL fires while internal_state stays 'pending' forever — still notifies, and the view degrades to no_one_this_time", async () => {
+    const { scheduler, anna, ben, benStore } = await setupDuo({ statusDelayMs: 2_000, defaultAskTtlMs: 5_000 });
+    benStore.putItem(SCREWDRIVER);
+
+    const changeEvents: number[] = [];
+    let count = 0;
+    anna.setOnChange(() => {
+      count += 1;
+      changeEvents.push(count);
+    });
+
+    await anna.sendAsk("Hat wer in meiner Nähe einen Akkuschrauber?");
+    await scheduler.advance(2_000); // uniform PENDING dispatches; ask internal_state -> "pending"
+
+    const benState = ben.getStateSnapshot();
+    await ben.decline(benState.consent_cards[0].card_id); // decline AFTER dispatch: I3 silence, no wire message
+    expect(anna.getStateSnapshot().asks[0].state).toBe("waiting"); // still "pending" internally
+
+    const countBeforeTtl = count;
+    await scheduler.advance(3_000); // ask's TTL (5000ms total) elapses; internal_state never left "pending"
+
+    expect(count).toBeGreaterThan(countBeforeTtl); // TTL still fired a notifyChange, even with no state mutation
+    expect(anna.getStateSnapshot().asks[0].state).toBe("no_one_this_time");
+  });
+});
