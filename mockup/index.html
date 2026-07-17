@@ -222,6 +222,21 @@
   .lvl-pill{border:1.5px solid rgba(255,255,255,.35); background:transparent; color:var(--mist); border-radius:999px;
             padding:9px 14px; font-size:12.5px; font-family:inherit; font-weight:600; cursor:pointer}
   .lvl-pill.on{background:var(--mint); border-color:var(--mint); color:#0d3527}
+  /* composer */
+  .chan-row{display:flex; gap:8px; margin-top:16px}
+  .chan{border:1.5px solid rgba(255,255,255,.3); background:transparent; color:var(--mist); border-radius:999px;
+        padding:7px 13px; font-size:12px; font-family:inherit; font-weight:600; cursor:pointer}
+  .chan.on{background:rgba(255,255,255,.92); color:var(--violet-deep); border-color:transparent}
+  .adv-link{background:none; border:0; color:#BFA9DC; font-size:12.5px; font-family:inherit; cursor:pointer;
+            text-decoration:underline; text-underline-offset:3px; margin-top:14px}
+  .perm-panel{width:100%; margin-top:12px; text-align:left}
+  .perm-row{background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22); border-radius:12px;
+            padding:10px 13px; display:flex; justify-content:space-between; align-items:center; gap:10px;
+            width:100%; margin-bottom:7px; color:var(--mist); font-size:12.5px; font-family:inherit; cursor:pointer}
+  .perm-row .tog{flex-shrink:0; font-weight:700; font-size:11px; border-radius:999px; padding:3px 10px;
+                 background:rgba(79,215,160,.25); color:#9FF0CE}
+  .perm-row.off .tog{background:rgba(255,255,255,.12); color:#B9A6CE}
+  .asym{color:#a3472f; font-weight:600}
   /* weaving */
   .thread-line{width:230px; height:60px; margin-top:40px}
   /* celebration */
@@ -475,7 +490,13 @@
     met: false,
     unlocked: false,
     mariaLevel: null,
-    screen: "onb"
+    screen: "onb",
+    offerLevel: "Contact",
+    chan: "qr",
+    adv: false,
+    permCtx: true,
+    permOffers: true,
+    permRing: true
   };
 
   var AVA_GRADS = {
@@ -777,7 +798,7 @@
       {id:"rafa", n:"Rafa", lvl:"Friend", deg:330}
     ];
     var ring2 = [
-      {id:"bruno", n:"Bruno", via:"Lucía", deg:235},
+      {id:"bruno", n:"Bruno", via:"Lucía", deg:235, asym:true},
       {ghost:true, n:"+3", via:"Lucía", deg:200}
     ];
     if (state.met){
@@ -837,8 +858,11 @@
             '<div class="meta">'+n.via+' holds more people who chose not to be shown through their connections. Each person sets that dial for themselves — you have one too, under You.</div>');
         };
       } else {
+        if (n.asym) b.setAttribute("data-anchor","WEB-4");
         b.innerHTML = '<div class="ava" style="background:'+AVA_GRADS[n.id]+'">'+n.n.charAt(0)+'</div>' +
-          '<span>'+n.n+'</span>' + (n.lvl ? '<em class="lvl">'+n.lvl+'</em>' : (n.via ? '<em class="lvl">via '+n.via+'</em>' : ''));
+          '<span>'+n.n+'</span>' +
+          (n.lvl ? '<em class="lvl">'+n.lvl+'</em>' : (n.via ? '<em class="lvl">via '+n.via+'</em>' : '')) +
+          (n.asym ? '<em class="lvl asym" style="color:#a3472f">⚠ sees you: no</em>' : '');
         b.onclick = function(){ personSheet(n, ringIdx); };
       }
       wrap.appendChild(b);
@@ -870,6 +894,9 @@
       var via = n.via;
       html += '<div class="meta">In your second ring — you haven’t met yet.</div>' +
         '<div class="path">You ⟷ <b>'+via+'</b> ⟷ <b>'+n.n+'</b><br><span style="color:var(--ink-soft)">'+via+' knows them in person. Meet them to add your own connection.</span></div>' +
+        (n.asym ? '<div class="path" style="border-left-color:#E0906F"><b style="color:#a3472f">⚠ Sees you: no.</b><br>' +
+          '<span style="color:var(--ink-soft)">'+n.n+' turned their dial off for this path, so they can’t see you here. ' +
+          'Visibility is mutual by default — when it isn’t, it’s always shown, never silent.</span></div>' : '') +
         '<button class="btn btn-ghost">Ask '+via+' to introduce you</button>';
     }
     openSheet(html);
@@ -1010,16 +1037,58 @@
     var el = $("cerInner");
     el.setAttribute("data-anchor", step==="idle" ? "CER-1" : "CER-4");
     if (step==="idle"){
+      var lv = state.offerLevel;
+      var chanVisual = state.chan==="qr"
+        ? '<div class="qr-card" data-anchor="CER-3"><canvas id="qr" width="190" height="190"></canvas></div>'
+        : '<div class="qr-card" data-anchor="CER-3" style="width:226px;height:226px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--violet-deep);font-weight:600;font-size:14px;text-align:center;padding:20px">' +
+          (state.chan==="nfc" ? "📳<br>Hold your phones together" :
+           state.chan==="airdrop" ? "📡<br>Share via AirDrop —<br>they accept on their phone" :
+           "🔗<br>A one-time link to send<br>any way you like") + '</div>';
       el.innerHTML =
         '<span class="eyebrow">Meet</span>' +
         '<h2>Add someone you just met</h2>' +
-        '<p class="sub">On the floor, in the circle, over chai. This takes twenty seconds, face to face.</p>' +
-        '<div class="qr-card" data-anchor="CER-3"><canvas id="qr" width="210" height="210"></canvas></div>' +
+        '<div class="lvl-row" style="margin-top:14px">' +
+        '<button class="lvl-pill'+(lv==="Contact"?" on":"")+'" data-l="Contact">Contact</button>' +
+        '<button class="lvl-pill'+(lv==="Friend"?" on":"")+'" data-l="Friend">Friend</button>' +
+        '<button class="lvl-pill'+(lv==="Close friend"?" on":"")+'" data-l="Close friend">Close friend</button>' +
+        '</div>' +
+        '<p class="sub" style="margin-top:8px">' +
+        (lv==="Contact" ? "You’ll hold each other’s cards. The easy default — grow it later." :
+         lv==="Friend" ? "You’ll be in each other’s web: friend gatherings, offers, second rings." :
+         "The inner room: close gatherings and more intimate sharing.") + '</p>' +
+        chanVisual +
+        '<div class="chan-row">' +
+        '<button class="chan'+(state.chan==="qr"?" on":"")+'" data-c="qr">QR</button>' +
+        '<button class="chan'+(state.chan==="nfc"?" on":"")+'" data-c="nfc">NFC</button>' +
+        '<button class="chan'+(state.chan==="airdrop"?" on":"")+'" data-c="airdrop">AirDrop</button>' +
+        '<button class="chan'+(state.chan==="link"?" on":"")+'" data-c="link">Link</button>' +
+        '</div>' +
+        '<button class="adv-link" id="advBtn" data-anchor="CER-2">' + (state.adv ? "Hide advanced" : "Advanced: what they may reach") + '</button>' +
+        (state.adv ?
+          '<div class="perm-panel" data-anchor="CER-2">' +
+          '<button class="perm-row'+(state.permCtx?"":" off")+'" data-p="permCtx">Ecstatic-dance context only — widen later if you choose<span class="tog">'+(state.permCtx?"On":"Off")+'</span></button>' +
+          '<button class="perm-row'+(state.permOffers?"":" off")+'" data-p="permOffers">May see my offers at their level<span class="tog">'+(state.permOffers?"On":"Off")+'</span></button>' +
+          '<button class="perm-row'+(state.permRing?"":" off")+'" data-p="permRing">May see my second ring (people who consent)<span class="tog">'+(state.permRing?"On":"Off")+'</span></button>' +
+          '<p style="font-size:11px;color:#A78CC9;margin:4px 2px 0">Skippable — everything here can be adjusted per person, later, under People.</p>' +
+          '</div>' : '') +
         '<p class="offline-note">Works with no signal. The floor doesn’t need wifi.</p>' +
         '<div class="actions">' +
         '<button class="btn btn-electric" id="scanBtn">Scan theirs instead</button>' +
         '</div>';
-      fakeQR($("qr"));
+      if (state.chan==="qr") fakeQR($("qr"));
+      var lp = el.querySelectorAll(".lvl-pill");
+      for (var li=0; li<lp.length; li++) lp[li].onclick = function(){
+        state.offerLevel = this.getAttribute("data-l"); renderCeremony("idle");
+      };
+      var ch = el.querySelectorAll(".chan");
+      for (var ci=0; ci<ch.length; ci++) ch[ci].onclick = function(){
+        state.chan = this.getAttribute("data-c"); renderCeremony("idle");
+      };
+      $("advBtn").onclick = function(){ state.adv = !state.adv; renderCeremony("idle"); };
+      var pr = el.querySelectorAll(".perm-row");
+      for (var pi=0; pi<pr.length; pi++) pr[pi].onclick = function(){
+        var k = this.getAttribute("data-p"); state[k] = !state[k]; renderCeremony("idle");
+      };
       $("scanBtn").onclick = function(){ renderCeremony("scan"); };
     } else if (step==="scan"){
       el.innerHTML =
@@ -1047,13 +1116,15 @@
         '<button class="btn btn-ghost" id="cancel2">Cancel</button>' +
         '</div>';
       var pills = el.querySelectorAll(".lvl-pill");
+      function pickLevel(pill){
+        for (var j=0;j<pills.length;j++) pills[j].classList.remove("on");
+        pill.classList.add("on");
+        state.mariaLevel = pill.getAttribute("data-l");
+        $("confirmBtn").disabled = false;
+      }
       for (var i=0;i<pills.length;i++){
-        pills[i].onclick = function(){
-          for (var j=0;j<pills.length;j++) pills[j].classList.remove("on");
-          this.classList.add("on");
-          state.mariaLevel = this.getAttribute("data-l");
-          $("confirmBtn").disabled = false;
-        };
+        pills[i].onclick = function(){ pickLevel(this); };
+        if (pills[i].getAttribute("data-l")===state.offerLevel) pickLevel(pills[i]);
       }
       $("cancel2").onclick = function(){ renderCeremony("idle"); };
       $("confirmBtn").onclick = function(){ renderCeremony("weaving"); };
