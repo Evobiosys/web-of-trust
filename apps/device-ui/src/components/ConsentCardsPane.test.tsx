@@ -82,4 +82,48 @@ describe("ConsentCardsPane", () => {
     expect(within(card).queryByTestId("consent-yes")).not.toBeInTheDocument();
     expect(within(card).queryByTestId("consent-no")).not.toBeInTheDocument();
   });
+
+  it("shows an inline error and keeps the typed conditions when Yes fails", async () => {
+    const user = userEvent.setup();
+    const onConsent = vi.fn().mockRejectedValue(new Error("network down"));
+    render(<ConsentCardsPane cards={[makeCard()]} onConsent={onConsent} onDecline={vi.fn()} />);
+
+    const card = screen.getByTestId("consent-card-card-1");
+    const conditionsInput = within(card).getByTestId("consent-conditions") as HTMLInputElement;
+    await user.type(conditionsInput, "back by Sunday");
+    await user.click(within(card).getByTestId("consent-yes"));
+
+    expect(await within(card).findByTestId("action-error")).toHaveTextContent(
+      "Couldn't reach your agent — try again.",
+    );
+    expect(conditionsInput.value).toBe("back by Sunday");
+  });
+
+  it("shows an inline error when No fails", async () => {
+    const user = userEvent.setup();
+    const onDecline = vi.fn().mockRejectedValue(new Error("network down"));
+    render(<ConsentCardsPane cards={[makeCard()]} onConsent={vi.fn()} onDecline={onDecline} />);
+
+    const card = screen.getByTestId("consent-card-card-1");
+    await user.click(within(card).getByTestId("consent-no"));
+
+    expect(await within(card).findByTestId("action-error")).toHaveTextContent(
+      "Couldn't reach your agent — try again.",
+    );
+    // The card is still actionable (not silently marked declined on failure).
+    expect(within(card).getByTestId("consent-yes")).toBeInTheDocument();
+  });
+
+  it("clears the error once the conditions are edited again", async () => {
+    const user = userEvent.setup();
+    const onConsent = vi.fn().mockRejectedValue(new Error("network down"));
+    render(<ConsentCardsPane cards={[makeCard()]} onConsent={onConsent} onDecline={vi.fn()} />);
+
+    const card = screen.getByTestId("consent-card-card-1");
+    await user.click(within(card).getByTestId("consent-yes"));
+    expect(await within(card).findByTestId("action-error")).toBeInTheDocument();
+
+    await user.type(within(card).getByTestId("consent-conditions"), "x");
+    expect(within(card).queryByTestId("action-error")).not.toBeInTheDocument();
+  });
 });

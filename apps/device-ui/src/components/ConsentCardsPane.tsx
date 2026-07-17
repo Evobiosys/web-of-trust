@@ -18,12 +18,17 @@ function ConsentCardItem({
 }) {
   const [conditions, setConditions] = useState("");
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const inactive = card.state === "inactive";
 
   const handleYes = async () => {
     setBusy(true);
+    setError(null);
     try {
       await onConsent(card.card_id, conditions.trim() || undefined);
+    } catch {
+      // Keep the typed conditions intact on failure — nothing was sent.
+      setError("Couldn't reach your agent — try again.");
     } finally {
       setBusy(false);
     }
@@ -31,8 +36,11 @@ function ConsentCardItem({
 
   const handleNo = async () => {
     setBusy(true);
+    setError(null);
     try {
       await onDecline(card.card_id);
+    } catch {
+      setError("Couldn't reach your agent — try again.");
     } finally {
       setBusy(false);
     }
@@ -74,7 +82,10 @@ function ConsentCardItem({
             data-testid="consent-conditions"
             type="text"
             value={conditions}
-            onChange={(event) => setConditions(event.target.value)}
+            onChange={(event) => {
+              setConditions(event.target.value);
+              setError(null);
+            }}
             placeholder="Any conditions? (e.g. back by Sunday)"
             aria-label={`Conditions for ${card.requester.display}'s request`}
           />
@@ -86,6 +97,19 @@ function ConsentCardItem({
               No
             </button>
           </div>
+          {error && (
+            <p className="action-error" data-testid="action-error" role="alert">
+              {error}{" "}
+              <button
+                type="button"
+                className="action-error__dismiss"
+                onClick={() => setError(null)}
+                aria-label="Dismiss error"
+              >
+                ×
+              </button>
+            </p>
+          )}
         </>
       )}
     </li>

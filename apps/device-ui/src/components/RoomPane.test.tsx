@@ -35,4 +35,30 @@ describe("RoomPane", () => {
 
     expect(onSendMessage).toHaveBeenCalledWith("room-1", "Thank you!");
   });
+
+  it("shows an inline error and preserves the draft when sending fails", async () => {
+    const user = userEvent.setup();
+    const onSendMessage = vi.fn().mockRejectedValue(new Error("network down"));
+    render(<RoomPane rooms={[room]} onSendMessage={onSendMessage} />);
+
+    const input = screen.getByTestId("room-message-input") as HTMLInputElement;
+    await user.type(input, "Thank you!");
+    await user.click(screen.getByTestId("room-send"));
+
+    expect(await screen.findByTestId("action-error")).toHaveTextContent("Couldn't reach your agent — try again.");
+    expect(input.value).toBe("Thank you!");
+  });
+
+  it("clears the error once the draft is edited again", async () => {
+    const user = userEvent.setup();
+    const onSendMessage = vi.fn().mockRejectedValue(new Error("network down"));
+    render(<RoomPane rooms={[room]} onSendMessage={onSendMessage} />);
+
+    await user.type(screen.getByTestId("room-message-input"), "hi");
+    await user.click(screen.getByTestId("room-send"));
+    expect(await screen.findByTestId("action-error")).toBeInTheDocument();
+
+    await user.type(screen.getByTestId("room-message-input"), "!");
+    expect(screen.queryByTestId("action-error")).not.toBeInTheDocument();
+  });
 });

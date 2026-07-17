@@ -5,21 +5,26 @@ import { AskChip } from "./AskChip";
 export interface StewardPaneProps {
   log: StewardLogEntry[];
   asks: Ask[];
-  onSend: (text: string) => unknown;
+  onSend: (text: string) => void | Promise<void>;
 }
 
 export function StewardPane({ log, asks, onSend }: StewardPaneProps) {
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const text = value.trim();
     if (!text || sending) return;
     setSending(true);
+    setError(null);
     try {
       await onSend(text);
       setValue("");
+    } catch {
+      // Keep the user's draft intact on failure — nothing sent, nothing lost.
+      setError("Couldn't reach your agent — try again.");
     } finally {
       setSending(false);
     }
@@ -54,13 +59,25 @@ export function StewardPane({ log, asks, onSend }: StewardPaneProps) {
         )}
       </div>
 
+      {error && (
+        <p className="action-error" data-testid="action-error" role="alert">
+          {error}{" "}
+          <button type="button" className="action-error__dismiss" onClick={() => setError(null)} aria-label="Dismiss error">
+            ×
+          </button>
+        </p>
+      )}
+
       <form className="steward-composer" onSubmit={handleSubmit}>
         <input
           data-testid="steward-input"
           className="steward-composer__input"
           type="text"
           value={value}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => {
+            setValue(event.target.value);
+            setError(null);
+          }}
           placeholder="Ask your steward anything…"
           aria-label="Message to your steward"
         />

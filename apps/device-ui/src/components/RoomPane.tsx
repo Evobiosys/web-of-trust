@@ -12,6 +12,7 @@ export function RoomPane({ rooms, onSendMessage }: RoomPaneProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [value, setValue] = useState("");
   const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const activeRoom = rooms.find((r) => r.room_id === selectedId) ?? rooms[0] ?? null;
 
@@ -20,9 +21,13 @@ export function RoomPane({ rooms, onSendMessage }: RoomPaneProps) {
     const text = value.trim();
     if (!text || !activeRoom || sending) return;
     setSending(true);
+    setError(null);
     try {
       await onSendMessage(activeRoom.room_id, text);
       setValue("");
+    } catch {
+      // Keep the drafted message intact on failure — nothing was sent.
+      setError("Couldn't reach your agent — try again.");
     } finally {
       setSending(false);
     }
@@ -70,7 +75,10 @@ export function RoomPane({ rooms, onSendMessage }: RoomPaneProps) {
                   data-testid="room-message-input"
                   type="text"
                   value={value}
-                  onChange={(event) => setValue(event.target.value)}
+                  onChange={(event) => {
+                    setValue(event.target.value);
+                    setError(null);
+                  }}
                   placeholder="Message the room…"
                   aria-label="Message the shared room"
                 />
@@ -78,6 +86,19 @@ export function RoomPane({ rooms, onSendMessage }: RoomPaneProps) {
                   Send
                 </button>
               </form>
+              {error && (
+                <p className="action-error" data-testid="action-error" role="alert">
+                  {error}{" "}
+                  <button
+                    type="button"
+                    className="action-error__dismiss"
+                    onClick={() => setError(null)}
+                    aria-label="Dismiss error"
+                  >
+                    ×
+                  </button>
+                </p>
+              )}
             </>
           )}
         </>

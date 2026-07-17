@@ -34,7 +34,13 @@ export function App() {
         </p>
       ) : (
         <main className="app__grid grid gap-4 p-4 md:grid-cols-2">
-          <StewardPane log={state.steward_log} asks={state.asks} onSend={sendSteward} />
+          <StewardPane
+            log={state.steward_log}
+            asks={state.asks}
+            onSend={async (text) => {
+              await sendSteward(text);
+            }}
+          />
           <InventoryPane items={state.items} trustEdges={state.trust_edges} />
           <ConsentCardsPane cards={state.consent_cards} onConsent={sendConsent} onDecline={sendDecline} />
           <RoomPane rooms={state.rooms} onSendMessage={sendRoomMessage} />

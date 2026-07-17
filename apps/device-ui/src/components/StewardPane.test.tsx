@@ -68,4 +68,31 @@ describe("StewardPane", () => {
 
     expect(await screen.findByText("hi back")).toBeInTheDocument();
   });
+
+  it("shows an inline error and preserves the draft when onSend rejects", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockRejectedValue(new Error("network down"));
+    render(<StewardPane log={[]} asks={[]} onSend={onSend} />);
+
+    const input = screen.getByTestId("steward-input") as HTMLInputElement;
+    await user.type(input, "Hat wer einen Akkuschrauber?");
+    await user.click(screen.getByTestId("steward-send"));
+
+    expect(await screen.findByTestId("action-error")).toHaveTextContent("Couldn't reach your agent — try again.");
+    // The draft is preserved — nothing was sent, nothing should be lost.
+    expect(input.value).toBe("Hat wer einen Akkuschrauber?");
+  });
+
+  it("clears the error once the user edits the draft again", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn().mockRejectedValue(new Error("network down"));
+    render(<StewardPane log={[]} asks={[]} onSend={onSend} />);
+
+    await user.type(screen.getByTestId("steward-input"), "hi");
+    await user.click(screen.getByTestId("steward-send"));
+    expect(await screen.findByTestId("action-error")).toBeInTheDocument();
+
+    await user.type(screen.getByTestId("steward-input"), "!");
+    expect(screen.queryByTestId("action-error")).not.toBeInTheDocument();
+  });
 });
