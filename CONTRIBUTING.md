@@ -29,12 +29,20 @@ in exactly three places, always together:
 2. an entry in the in-file `ANCHORS` JS registry (title, one-line contract, doc ref),
 3. a row in `docs/60-anchors.md`.
 
-Add or change a surface → update all three in the same commit. Check sync with:
+Add or change a surface → update all three in the same commit. Check sync with (anchors are
+applied both as static `data-anchor="…"` attributes and via `setAttribute`/item fields at render
+time, so the check compares the JS registry to the doc, then confirms every ID has at least one
+usage site beyond the registry):
 
 ```sh
-grep -o 'data-anchor="[A-Z]\{3\}-[0-9]\+"' mockup/index.html | grep -o '[A-Z]\{3\}-[0-9]*' | sort -u > /tmp/dom.txt
-grep -oE '\| (ONB|DIS|HST|CER|WEB|INT|PPL|RES|ACT|YOU|PLC)-[0-9]+' docs/60-anchors.md | grep -oE '[A-Z]{3}-[0-9]+' | sort -u > /tmp/doc.txt
-diff /tmp/dom.txt /tmp/doc.txt   # must be empty
+grep -oE '"(ONB|DIS|HST|CER|WEB|INT|PPL|RES|ACT|YOU|PLC)-[0-9]+":' mockup/index.html \
+  | grep -oE '[A-Z]{3}-[0-9]+' | sort -u > /tmp/js.txt
+grep -oE '^\| (ONB|DIS|HST|CER|WEB|INT|PPL|RES|ACT|YOU|PLC)-[0-9]+' docs/60-anchors.md \
+  | grep -oE '[A-Z]{3}-[0-9]+' | sort -u > /tmp/doc.txt
+diff /tmp/js.txt /tmp/doc.txt          # must be empty
+for id in $(cat /tmp/doc.txt); do      # every ID must appear at a usage site too
+  [ "$(grep -c "$id" mockup/index.html)" -ge 2 ] || echo "USAGE-MISSING: $id"
+done
 ```
 
 ID scheme: per-domain prefixes (`ONB DIS HST CER WEB INT PPL RES ACT YOU PLC`), monotonically

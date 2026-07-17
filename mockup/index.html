@@ -1208,7 +1208,7 @@
       setTimeout(function(){
         o.state = "lent";
         pushActivity({
-          icon:"🔊", who:o.owner, txt:o.owner+" lent you the "+o.t.toLowerCase()+". Arrange pickup — and bring them back whole.",
+          icon:"🔊", who:o.owner, anchor:"RES-4", txt:o.owner+" lent you the "+o.t.toLowerCase()+". Arrange pickup — and bring them back whole.",
           actions:[{label:"Mark returned", kind:"coral", fn:function(item){
             o.state = "returned";
             item.done = true; item.res = "Returned ✓";
