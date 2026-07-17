@@ -172,6 +172,20 @@
              border:1.5px dashed rgba(92,79,107,.4); box-shadow:none; width:40px; height:40px}
   .web-cap{padding:12px 26px 0; text-align:center; font-size:13px; color:var(--ink-soft); line-height:1.5}
 
+  /* ============ introductions ============ */
+  .int-head{padding:22px 26px 6px; font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-soft); text-align:center}
+  .int-card{background:linear-gradient(135deg,#F6FBF8,#F7F3FB); border-radius:16px; padding:14px 15px;
+            margin:6px 18px 10px; box-shadow:0 2px 10px rgba(36,27,46,.05); font-size:13.5px; line-height:1.5}
+  .int-card .act-btns{display:flex; gap:8px; margin-top:10px}
+  /* ============ placeholders (future circles) ============ */
+  .plc-btn{opacity:.55; border:1.5px dashed rgba(36,27,46,.3); background:transparent; color:var(--ink-soft);
+           border-radius:999px; padding:10px 18px; font-size:13.5px; font-family:inherit; font-weight:600;
+           cursor:pointer; width:100%; margin-top:10px}
+  .tagchips{display:flex; gap:6px; flex-wrap:wrap; margin-top:12px}
+  .tagchip{font-size:11px; border:1px dashed rgba(36,27,46,.3); border-radius:999px; padding:3px 9px;
+           color:var(--ink-soft); opacity:.6}
+  /* host rings viz */
+  .hviz{display:block; margin:2px auto 10px}
   /* ============ people ============ */
   #people .scroll{padding:0 16px 120px}
   .prow{display:flex; align-items:center; gap:13px; background:#fff; border-radius:16px; padding:13px 14px;
@@ -423,6 +437,7 @@
     <div class="scroll">
       <div class="rings-wrap" id="rings" data-anchor="WEB-1"></div>
       <p class="web-cap">People you have met, and the people they hold.<br>Tap anyone to see the path between you.</p>
+      <div id="intWrap"></div>
     </div>
   </div>
 
@@ -475,6 +490,7 @@
         <button class="btn btn-electric" id="dialBtn" style="padding:8px 18px; font-size:13px; margin-top:10px" aria-pressed="true">On</button></p>
       </div>
       <div class="verse" data-anchor="YOU-3" id="youOffers"></div>
+      <button class="plc-btn" data-anchor="PLC-3" data-plc="tags" style="margin-top:14px">＃ Blanket permissions by tag — held for a future circle</button>
       <div class="sov">
         <b>Yours, not ours.</b> Your people, your events, your web — stored here, carried by you, shown only when you choose. There is no account to close because there is no account.
       </div>
@@ -517,18 +533,15 @@
 </div>
 
 <div class="notes">
-  <h2>Workshop state</h2>
+  <h2>For collaborators</h2>
   <ul>
-    <li><b>Locked:</b> private events are fully invisible until your web opens them — no teasers, no locked cards.</li>
-    <li><b>Locked:</b> discovery list+map is the home screen; ceremony is the center button.</li>
-    <li><b>Locked:</b> rings + named paths, never a full-graph hairball.</li>
+    <li><b>Spec mode</b> (toggle above, or open with <b>#spec</b>): every specified surface gets an ID badge — tap it for the contract + doc reference.</li>
+    <li><b>Docs live in the repo:</b> 00-overview (start here) · 10-ux-decisions · 20-data-contract · 30-architecture-decisions (open, yours) · 60-anchors (registry).</li>
+    <li><b>Golden demo path</b> is in the README. Try both: meet Maria as <i>Contact</i> (nothing opens) and as <i>Friend</i> (the Moon Ceremony appears).</li>
   </ul>
   <ul class="open">
-    <li><b>Locked (r2):</b> mixed voice — plain verbs for actions ("Add", "Connected", "Pending"), weave poetry only at the celebration and in Your Web.</li>
-    <li><b>Locked (r3):</b> levels gate depth — hosts set a minimum closeness. Try it: pick "Contact" for Maria and the Moon Ceremony stays closed.</li>
-    <li><b>Locked (r4):</b> second ring shows only the willing — opted-in names plus "+N held privately"; everyone gets the dial (see You screen).</li>
-    <li><b>Added (r5):</b> host-side create flow — ＋ Host on Discover: visibility bar + steps + live reach estimate.</li>
-    <li><b>Open:</b> event detail + RSVP, level wording, onboarding depth.</li>
+    <li><b>Hard rules baked in:</b> private = invisible, never locked · no scores/ratings anywhere · no automated-system wording in the interface · asymmetry always labeled.</li>
+    <li><b>Placeholders</b> (dashed, greyed): amends flow, tags + blanket permissions — spec stubs in docs/70.</li>
   </ul>
 </div>
 </div>
@@ -949,6 +962,35 @@
     you.style.left = C+"px"; you.style.top = C+"px";
     you.innerHTML = '<div class="ava" style="background:linear-gradient(135deg,#9A37F0,#12A8E3)">'+state.name.charAt(0).toUpperCase()+'</div><span>'+state.name+'</span>';
     wrap.appendChild(you);
+    renderIntros();
+  }
+
+  function renderIntros(){
+    var w = $("intWrap");
+    if (state.introDone === "dismissed" || state.guest){ w.innerHTML = ""; return; }
+    w.innerHTML = '<div class="int-head">Threads that could meet</div>' +
+      '<div class="int-card" data-anchor="INT-1">' +
+      (state.introDone === "done"
+        ? '<b>Introduced ✓</b> Rafa and Lucía each hold the other’s card now. The rest is theirs.'
+        : '<b>Rafa</b> is looking for speakers for Sunday. <b>Lucía</b> has a pair — they don’t know each other, but they both know you.' +
+          '<div class="act-btns">' +
+          '<button class="btn btn-sm btn-electric" id="introGo">Introduce them</button>' +
+          '<button class="btn btn-sm btn-ghost" id="introNo">Let it be</button>' +
+          '</div>') +
+      '</div>';
+    var g = document.getElementById("introGo");
+    if (g) g.onclick = function(){
+      openSheet('<div class="grab"></div><div data-anchor="INT-2"><h3>Introduce Rafa and Lucía</h3>' +
+        '<div class="meta">You’d share each of their cards with the other — nothing more. They each choose whether to meet. Neither is connected to the other until they do their own twenty seconds, face to face.</div>' +
+        '<button class="btn btn-coral" id="introConfirm">Share both cards</button>' +
+        '<button class="btn btn-ghost" id="introCancel">Cancel</button></div>');
+      document.getElementById("introConfirm").onclick = function(){
+        state.introDone = "done"; closeSheet(); renderIntros();
+      };
+      document.getElementById("introCancel").onclick = closeSheet;
+    };
+    var n = document.getElementById("introNo");
+    if (n) n.onclick = function(){ state.introDone = "dismissed"; renderIntros(); };
   }
 
   function levelLabel(){
@@ -962,8 +1004,10 @@
                 (n.id==="lucia" ? "Biodanza — Casa Luna · May" : "Ecstatic Dance Palermo · June");
       html += '<div class="meta">'+(n.lvl||levelLabel())+' · met at '+ctx+'</div>' +
         '<div class="path">You ⟷ <b>'+n.n+'</b><br><span style="color:var(--ink-soft)">Connected in person, confirmed both ways — you hold each other’s thread.</span></div>' +
+        '<div class="tagchips" data-anchor="PLC-2"><span class="tagchip">#ecstatic</span><span class="tagchip">#dj</span><span class="tagchip">#facilitator</span><span class="tagchip">＋ tag</span></div>' +
         '<button class="btn btn-electric">Open their card</button>' +
-        '<button class="btn btn-ghost">Vouch for something they do</button>';
+        '<button class="btn btn-ghost">Vouch for something they do</button>' +
+        '<button class="plc-btn" data-anchor="PLC-1" data-plc="flag">⚑ Raise a flag — held for a future circle</button>';
     } else {
       var via = n.via;
       html += '<div class="meta">In your second ring — you haven’t met yet.</div>' +
@@ -993,11 +1037,14 @@
         '<div class="who"><b>'+p.n+'</b><i>'+p.c+'</i></div>' +
         '<span class="shield '+p.s+'">'+p.sl+'</span>';
       b.onclick = function(){
-        openSheet('<div class="grab"></div><h3>'+p.n+'</h3>' +
+        openSheet('<div class="grab"></div><div data-anchor="PPL-2"><h3>'+p.n+'</h3>' +
           '<div class="meta">'+p.c+'</div>' +
           '<div class="path"><b>Their card</b><br><span style="color:var(--ink-soft)">What '+p.n+' chooses to share with you: how to reach them, where they dance, what they offer. Updates itself when they change it.</span></div>' +
+          '<div class="tagchips" data-anchor="PLC-2"><span class="tagchip">#ecstatic</span><span class="tagchip">＋ tag</span></div>' +
           '<button class="btn btn-electric">Message</button>' +
-          (p.s==="out" ? '<button class="btn btn-ghost">Waiting for '+p.n+' to confirm</button>' : ''));
+          '<button class="btn btn-ghost">Grow this connection</button>' +
+          (p.s==="out" ? '<button class="btn btn-ghost">Waiting for '+p.n+' to confirm</button>' : '') +
+          '<button class="plc-btn" data-anchor="PLC-1" data-plc="flag">⚑ Raise a flag — held for a future circle</button></div>');
       };
       w.appendChild(b);
     });
@@ -1010,12 +1057,24 @@
     {k:"friends", t:"Friends", s:"Friends or closer — the usual bar"},
     {k:"close",   t:"Close friends", s:"The inner room"}
   ];
-  var REACH = { pub:{1:"the whole city",2:"the whole city",3:"the whole city"},
-                commons:{1:"about 6 people",2:"about 23 people",3:"about 87 people"},
-                friends:{1:"about 4 people",2:"about 14 people",3:"about 52 people"},
-                close:{1:"about 2 people",2:"about 6 people",3:"about 19 people"} };
+  var REACH = { pub:{},
+                commons:{1:"about 6",2:"about 23",3:"about 87"},
+                friends:{1:"about 4",2:"about 14",3:"about 52"},
+                close:{1:"about 2",2:"about 6",3:"about 19"} };
   var hostState = { vis:"friends", steps:2 };
 
+  function ringsViz(){
+    var v = hostState.vis;
+    var glow = {pub:[1,1,1,1], commons:[1,1,1,0], friends:[1,1,0,0], close:[1,0,0,0]}[v];
+    function ring(r, on){
+      return '<circle cx="60" cy="60" r="'+r+'" fill="'+(on?"rgba(79,215,160,.16)":"none")+'"' +
+        ' stroke="'+(on?"#4FD7A0":"rgba(36,27,46,.15)")+'" stroke-width="1.6"' + (on?'':' stroke-dasharray="3 5"') + '/>';
+    }
+    return '<svg class="hviz" width="120" height="120" viewBox="0 0 120 120" aria-hidden="true">' +
+      ring(54, glow[3]) + ring(40, glow[2]) + ring(26, glow[1]) +
+      '<circle cx="60" cy="60" r="10" fill="'+(glow[0]?"#4FD7A0":"rgba(36,27,46,.2)")+'"/>' +
+      '</svg>';
+  }
   function renderHost(){
     var f = $("hostForm");
     var visHtml = "";
@@ -1024,22 +1083,38 @@
         '<span class="dot"></span><span>'+v.t+'<small>'+v.s+'</small></span></button>';
     });
     f.innerHTML =
+      '<div data-anchor="HST-1">' +
       '<div class="fld"><label>Name</label><input id="hn" value="Sunset Rooftop Dance"></div>' +
       '<div class="fld"><label>When</label><input id="hw" value="Sat 18:30"></div>' +
       '<div class="fld"><label>Where</label><input id="hp" value="Roof of Casa Verde — shared on arrival"></div>' +
-      '<p class="eyebrow" style="margin:16px 0 8px">Who can see this?</p>' + visHtml +
-      '<p class="eyebrow" style="margin:16px 0 8px">How far through the web</p>' +
-      '<div class="stepper"><button id="stDown">−</button><b id="stVal">'+hostState.steps+'</b>' +
-      '<span style="font-size:13px;color:var(--ink-soft)">steps from your circle</span><button id="stUp">＋</button></div>' +
-      '<div class="reach" id="reach"></div>' +
-      '<button class="btn btn-coral" style="width:100%" id="hostGo">Open the doors</button>' +
+      '</div>' +
+      '<div data-anchor="HST-2">' +
+      '<p class="eyebrow" style="margin:16px 0 8px">Who can see this?</p>' +
+      ringsViz() + visHtml +
+      '<p style="font-size:12px;color:var(--ink-soft);margin:2px 4px 0">' +
+      ({pub:"The whole city — no web needed.",
+        commons:"Everyone woven into your community’s web, however lightly.",
+        friends:"Only friends or closer. For everyone else, this gathering doesn’t exist.",
+        close:"Only your close friends. The quietest room."}[hostState.vis]) + '</p>' +
+      '</div>' +
+      '<div class="reach" id="reach" data-anchor="HST-4"></div>' +
+      '<button class="adv-link" id="hostAdv" data-anchor="HST-3" style="color:var(--electric-deep)">' +
+      (hostState.adv ? "Hide advanced" : "Advanced: how far through the web") + '</button>' +
+      (hostState.adv ?
+        '<div class="stepper" style="margin-top:10px"><button id="stDown">−</button><b id="stVal">'+hostState.steps+'</b>' +
+        '<span style="font-size:13px;color:var(--ink-soft)">steps from your circle — how many handshakes away the doors reach</span><button id="stUp">＋</button></div>'
+        : '') +
+      '<button class="btn btn-coral" style="width:100%;margin-top:14px" id="hostGo" data-anchor="HST-5">Open the doors</button>' +
       '<button class="btn btn-ghost" style="width:100%" id="hostCancel">Cancel</button>';
     var opts = f.querySelectorAll(".vis-opt");
     for (var i=0;i<opts.length;i++) opts[i].onclick = function(){
       hostState.vis = this.getAttribute("data-v"); renderHost();
     };
-    $("stDown").onclick = function(){ if (hostState.steps>1){ hostState.steps--; renderHost(); } };
-    $("stUp").onclick = function(){ if (hostState.steps<3){ hostState.steps++; renderHost(); } };
+    $("hostAdv").onclick = function(){ hostState.adv = !hostState.adv; renderHost(); };
+    if (hostState.adv){
+      $("stDown").onclick = function(){ if (hostState.steps>1){ hostState.steps--; renderHost(); } };
+      $("stUp").onclick = function(){ if (hostState.steps<3){ hostState.steps++; renderHost(); } };
+    }
     updateReach();
     $("hostGo").onclick = function(){
       state.hosted = {
@@ -1058,12 +1133,16 @@
     var r = $("reach");
     if (hostState.vis==="pub"){
       r.innerHTML = "<b>Open doors.</b> Anyone in Buenos Aires can find this.";
-    } else {
-      var v = VIS.filter(function(x){return x.k===hostState.vis;})[0];
-      r.innerHTML = "<b>" + REACH[hostState.vis][hostState.steps] + "</b> can see this right now — " +
-        v.t.toLowerCase() + ", within " + hostState.steps + " step" + (hostState.steps>1?"s":"") +
-        " of your circle. Everyone else: nothing exists.";
+      return;
     }
+    var names = {commons:["Lucía","Rafa","Tomás","Bruno"], friends:["Lucía","Rafa"], close:["Lucía"]}[hostState.vis].slice();
+    if (state.met && hostState.vis!=="close") names.push("Maria");
+    if (state.met && hostState.vis==="close" && state.mariaLevel==="Close friend") names.push("Maria");
+    var v = VIS.filter(function(x){return x.k===hostState.vis;})[0];
+    r.innerHTML = "<b>" + names.join(", ") + "</b> and " + REACH[hostState.vis][hostState.steps] +
+      " more can see this right now — " + v.t.toLowerCase() + ", within " + hostState.steps +
+      " step" + (hostState.steps>1?"s":"") + " of your circle. Those who consent show by name; " +
+      "the rest count privately. Everyone else: nothing exists.";
   }
   $("hostFab").onclick = function(){
     if (state.guest){
@@ -1258,6 +1337,16 @@
     $("veil").classList.remove("on");
   }
   $("veil").onclick = closeSheet;
+  document.addEventListener("click", function(e){
+    var p = e.target.closest("[data-plc]");
+    if (!p) return;
+    var kind = p.getAttribute("data-plc");
+    openSheet('<div class="grab"></div><h3>Held for a future circle</h3>' +
+      '<div class="meta">' + (kind==="flag"
+        ? "When someone causes harm in a trusted space, there will be a path that repairs rather than punishes — context-scoped, no public marks, restoration named by the people affected. It isn’t designed yet, on purpose: the community shapes it first. Spec stub: docs/70."
+        : "Tags will let you group your people (#dj, #facilitator…) and grant sharing permissions to a whole tag at once — atomic underneath, bulk on top. Spec stub: docs/70.") +
+      '</div>');
+  });
 
   /* ---------- ceremony ---------- */
   function fakeQR(canvas){
