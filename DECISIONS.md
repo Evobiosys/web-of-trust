@@ -26,3 +26,6 @@ Sprint repo = `web-of-trust/Code/` (its own git repo, nested inside the personal
 
 ### D6 — better-sqlite3 fallback
 Node is v26. If `better-sqlite3` lacks prebuilds / fails to compile, agent-core falls back to the built-in `node:sqlite` module behind the same store interface.
+
+### D7 — TransportAdapter added to frozen protocol (main-thread approval)
+M1 brief omitted §5.2. Integrator added `packages/protocol/src/transport_adapter.ts` (TransportAdapter, TransportConfig, RoomContext — type-only, additive, no behavior) after the 0.1.0 freeze. Version stays 0.1.0.

@@ -6,3 +6,4 @@ export * from "./state-machine.js";
 export * from "./policy.js";
 export * from "./scheduling.js";
 export * from "./decision-log.js";
+export * from "./transport_adapter.js";
