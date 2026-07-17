@@ -29,3 +29,6 @@ Node is v26. If `better-sqlite3` lacks prebuilds / fails to compile, agent-core 
 
 ### D7 — TransportAdapter added to frozen protocol (main-thread approval)
 M1 brief omitted §5.2. Integrator added `packages/protocol/src/transport_adapter.ts` (TransportAdapter, TransportConfig, RoomContext — type-only, additive, no behavior) after the 0.1.0 freeze. Version stays 0.1.0.
+
+### D8 — E2EE deferred to [S3]: matrix crypto native module unloadable on darwin-arm64
+matrix-bot-sdk's `@matrix-org/matrix-sdk-crypto-nodejs` has no published binary for this platform and its postinstall downloader is blocked. Transport ships a probe-then-patch stub (real binary wins where loadable; suppression only when the probe throws) — see docs/TRANSPORT.md §5. Agent DM rooms are E2EE-capable in design, NOT encrypted in v0; PRIVACY.md rung-0 residuals already state homeserver payload visibility without E2EE.
