@@ -1,0 +1,9 @@
+{
+  "akkuschrauber": ["akkuschrauber", "cordless screwdriver", "cordless drill", "screwdriver drill"],
+  "leiter": ["leiter", "ladder"],
+  "zelt": ["zelt", "tent"],
+  "luftpumpe": ["luftpumpe", "bicycle pump", "bike pump", "air pump"],
+  "sup": ["stand-up-paddle", "stand up paddle", "sup", "paddleboard", "paddle board"],
+  "schraubenzieher": ["schraubenzieher", "screwdriver"],
+  "bohrmaschine": ["bohrmaschine", "drill"]
+}
