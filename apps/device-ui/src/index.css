@@ -1,0 +1,308 @@
+@import "tailwindcss";
+
+:root {
+  --accent: #d97706; /* amber-600, default (Anna, warm) */
+  --accent-bg: #fffbeb;
+  color-scheme: light;
+}
+
+.accent-warm {
+  --accent: #d97706; /* amber-600 */
+  --accent-bg: #fffbeb;
+}
+
+.accent-cool {
+  --accent: #0284c7; /* sky-600 */
+  --accent-bg: #f0f9ff;
+}
+
+.accent-neutral {
+  --accent: #059669; /* emerald-600 */
+  --accent-bg: #ecfdf5;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.app {
+  min-height: 100vh;
+}
+
+.app__header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  background: var(--accent);
+  color: white;
+}
+
+.app__header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.app__connection {
+  font-size: 0.75rem;
+  opacity: 0.85;
+}
+
+.app__error {
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.25rem;
+}
+
+.app__loading {
+  padding: 2rem;
+  text-align: center;
+  color: #52525b;
+}
+
+.pane {
+  background: white;
+  border: 1px solid #e4e4e7;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pane__title {
+  margin: 0;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+}
+
+.empty-state {
+  color: #71717a;
+  font-size: 0.9rem;
+  font-style: italic;
+}
+
+.action-error {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.8rem;
+  color: #991b1b;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 0.375rem;
+}
+
+.action-error__dismiss {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0;
+}
+
+.ask-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ask-chip {
+  border: 1px solid var(--accent);
+  background: var(--accent-bg);
+  border-radius: 0.375rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.ask-chip--withdrawn {
+  opacity: 0.6;
+}
+
+.ask-chip__text--struck {
+  text-decoration: line-through;
+}
+
+.ask-chip__label {
+  font-weight: 600;
+}
+
+.steward-log {
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.steward-log__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.steward-log__entry {
+  display: flex;
+  gap: 0.4rem;
+  font-size: 0.9rem;
+}
+
+.steward-log__entry--user .steward-log__role {
+  color: var(--accent);
+}
+
+.steward-log__role {
+  font-weight: 600;
+  min-width: 4.5rem;
+}
+
+.steward-composer,
+.room-composer {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.steward-composer__input,
+.room-composer input,
+.consent-card input {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid #d4d4d8;
+  border-radius: 0.375rem;
+}
+
+.steward-composer__send,
+.room-composer button,
+.consent-card__actions button {
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.375rem;
+  border: none;
+  background: var(--accent);
+  color: white;
+  cursor: pointer;
+}
+
+.steward-composer__send:disabled,
+.room-composer button:disabled,
+.consent-card__actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.item-list,
+.consent-card-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.item-card,
+.consent-card {
+  border: 1px solid #e4e4e7;
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.item-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.provenance-badge {
+  font-size: 0.7rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  background: #e4e4e7;
+  color: #3f3f46;
+}
+
+.item-card__tags {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.tag-pill {
+  font-size: 0.7rem;
+  background: var(--accent-bg);
+  color: var(--accent);
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+}
+
+.item-card__meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.5rem;
+  font-size: 0.8rem;
+  margin: 0;
+  color: #52525b;
+}
+
+.item-card__meta dt {
+  font-weight: 600;
+}
+
+.item-card__meta dd {
+  margin: 0;
+}
+
+.consent-card--inactive {
+  opacity: 0.5;
+  background: #fafafa;
+}
+
+.consent-card__header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+}
+
+.consent-card__hint {
+  font-size: 0.8rem;
+  font-style: italic;
+  color: #52525b;
+}
+
+.consent-card__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.room-list {
+  display: flex;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.room-messages {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+}

@@ -3,5 +3,36 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "scripts": { "build": "echo 'device-ui scaffold — real Vite app lands at M3'", "test": "echo 'no tests yet'", "typecheck": "echo ok" }
+  "scripts": {
+    "dev": "vite",
+    "dev:anna": "vite --port 5173",
+    "dev:ben": "vite --port 5174",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "mock:anna": "node mock/mock_server.mjs --persona=anna --port=4101 --scene=0",
+    "mock:ben": "node mock/mock_server.mjs --persona=ben --port=4102 --scene=0"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.6.0",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.0",
+    "ws": "^8.18.0"
+  }
 }
