@@ -1,199 +1,135 @@
-# Hackathon Alpha Implementation Plan — chat-first UX + relay + app skins + LAN alpha
+# Hackathon Alpha Implementation Plan — REVISION 2 (Zach mockup = the client)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** By tomorrow evening, Jakob and hackathon friends can alpha-test on their own devices (phones/laptops on one LAN): a chat-first UX (ported from Zach's synchrolabs reference in `Code/ecstatic-world`), passive resource sharing with one-degree-removed relay, and multiple app skins (ecstatic-world, housing, family, business) over the same daemon.
+**Goal:** By tomorrow evening, Jakob + hackathon friends alpha-test on their devices (phones on one LAN): Zach's v6/v7 mobile mockup (`reference/zach-mockup-v7.html` — THE UX version of truth) running as a real client against the agent-daemon backend, with app skins (ecstatic/housing/family/business) and one-degree-removed sharing.
 
-**Architecture:** The existing agent-daemon REST/WS API (docs/API.md) stays the single backend surface (DECISIONS.md D9). The device UI front is rebuilt chat-first following the synchrolabs interaction pattern; an app-profile config layer supplies skin/copy/trust-defaults per app. Backend gains the two-hop relay consent chain ([S5], I8) and alpha-enablement endpoints (trust management, CORS, LAN bind). A single-process alpha server hosts N in-memory-connected daemons so the demo cannot die on Matrix/network problems; Matrix transport stays intact as the multi-host path.
+**Revision 2 rationale (supersedes R1 Tasks 4/5):** Jakob's stated priority order: (1) Zach's UX implementations — functionality that does not require agents, (2) chats in general, (3) agents, (4) Matrix. Zach's mockup is a complete 5-tab app (Discover / Chat / Meet / Web / You) with its own spec-anchor registry (ANCHORS in the mockup source). We port the mockup itself (vanilla JS, adapted) as `apps/mobile-ui` instead of rebuilding in React. OpenVTC = seam + VRC-shaped export only this sprint (Jakob's answer). Matrix homeserver: local synapse container now, matrix.myceli.al later.
 
-**Tech Stack:** TypeScript end-to-end, pnpm workspaces, node:http + ws (daemon), React 19 + Vite + Tailwind 4 (UI, plus new dep `motion`), zod (protocol), node:test (daemon/protocol), vitest (UI), podman (containers).
+**Architecture:** `apps/mobile-ui` (vanilla JS + Vite, ported mockup) ⇄ `ApiClient` (fixture mode = mockup's demo data; live mode = daemon REST/WS) ⇄ agent-daemon (extended: trust levels, LISTING/LOAN/DM envelopes) ⇄ transport (InMemory hub for one-host alpha; Matrix/synapse for multi-host). Old `apps/device-ui` stays untouched (demo gallery).
+
+**Mockup hard rules (bind every UI task):** private = invisible, never locked · no scores/ratings anywhere · no automated-system wording in the interface · asymmetry always labeled ("sees you: no").
 
 ## Global Constraints
 
-- Invariants I1–I9 of `CLAUDE.md` bind every task. Most load-bearing here: **I2** (asker-facing UI/API: never per-peer identity/inventory/response state pre-consent), **I3** (declined vs no-match byte-identical `PASS`, uniform schedule), **I8** (relays use the same consent chain; every hop consents; noted person pinged at first relay, never at note creation; consent reply can carry `conditions` — D1.6), **I9** (defaults: `ask_each_time`, `audience: "trusted"`, `expires_at` +1y).
-- UI talks ONLY to its own agent's REST/WS (docs/API.md). It never talks Matrix or other agents.
-- Envelope stays `v: "0.1"`. Relay is composition of existing message types (fresh REQUEST per hop, §6.1 of the handover) — **no new envelope types**.
-- Package filters: `@resource-web/protocol`, `@resource-web/transport`, `@resource-web/agent-daemon`, `@resource-web/device-ui`, `@resource-web/dashboard`.
-- Test commands: daemon/protocol `pnpm --filter <pkg> test` (node:test); UI `pnpm --filter @resource-web/device-ui test` (vitest). Typecheck: `pnpm -r typecheck` (or `pnpm --filter <pkg> exec tsc --noEmit`).
-- Container runtime is **podman**, not docker (`DOCKER ?= podman`, D3). Node is v26.
-- UX source of truth: `../ecstatic-world/synchrolabs-reference/temp-synchrolabs-chat-main/` (read `src/app/page.tsx`, `src/components/prompt-kit/*`, `src/messages/en.json`). Port the **pattern** into the existing Vite app; do NOT adopt Next.js.
-- Decisions → append to `DECISIONS.md`. Temptations → `FUTURE.md`. Never claim more privacy than implemented (I7).
-- Commits: small, conventional prefixes (`feat:`, `fix:`, `docs:`), per-task branch merged by the integrator.
-- The daemon package keeps deps lean (node:http, ws — no express).
+- Invariants I1–I9 (`CLAUDE.md`) still bind. I3 (indistinguishable No) applies to ask-matching; listings are owner-published, so visibility filtering happens on the OWNER's side before send (a peer below tier receives NOTHING — mirroring "private = invisible").
+- UX truth: `reference/zach-mockup-v7.html`. When porting a screen, preserve its copy, layout, class names, and interaction flow. Deviations only where real data requires; keep the poetic voice ("held between you", "Woven.").
+- Protocol: additive changes only, integrator-approved (log like D7): TrustEdge.level, audience values, LISTING/LOAN/DM envelope types. Version string stays "0.1".
+- Package filters: `@resource-web/{protocol,transport,agent-daemon,device-ui,dashboard}` + new `@resource-web/mobile-ui`.
+- Tests: node-ish vitest per package; `pnpm -r test` must stay green. TDD for backend logic; UI screens get smoke/behavior tests (vitest+jsdom) not pixel tests.
+- podman not docker; Node 26; daemon deps stay lean (node:http, ws).
+- Decisions → DECISIONS.md (append-only). Temptations → FUTURE.md.
+
+## Status ledger reference
+
+- Task 0 ✅ merge m2-agent → main (tag m2), branch `alpha`.
+- Task 1 ⏳ relay two-hop consent chain (daemon) — brief `.superpowers/sdd/task-1-brief.md` (unchanged from R1).
+- Task 3 ✅ app-profile system in device-ui (branch alpha-t3; will be lifted to `packages/app-profiles` in Task 7).
 
 ---
 
-### Task 0 (integrator, main thread): merge `m2-agent` into `main`, open `alpha` branch
-
-Not dispatched — merge + verification only. `git merge m2-agent`, run `pnpm -r test` + `pnpm -r typecheck`, tag `m2`, create branch `alpha` off main. All subsequent tasks branch from/commit onto `alpha`.
-
----
-
-### Task 1: Relay two-hop consent chain (backend [S5], I8)
+### Task 2 (REVISED): protocol + store + daemon extensions — levels, listings, loans, DMs
 
 **Files:**
-- Modify: `packages/agent-daemon/src/daemon/daemon.ts`
-- Modify: `packages/agent-daemon/src/store/types.ts`
-- Modify: `packages/agent-daemon/src/api/types.ts` (only if a state string needs widening)
-- Test: `packages/agent-daemon/src/daemon/daemon.test.ts` (extend; use existing `test_harness.ts` — it wires N daemons over the in-memory transport)
+- Modify: `packages/protocol/src/schemas.ts` (TrustEdge.level, audience enum), `packages/protocol/src/envelope.ts` (LISTING/LOAN/DM), `packages/protocol/src/index.ts`
+- Modify: `packages/agent-daemon/src/store/{types.ts,store.ts,sqlite_store.ts}` (listings, received_listings, loans, threads tables)
+- Modify: `packages/agent-daemon/src/daemon/{daemon.ts,envelopes.ts}` (publish/receive/forward listings; borrow flow; loan transitions; DM threads)
+- Test: colocated `*.test.ts` (TDD)
 
-**Current state:** an incoming REQUEST matching a `second_brain` item already produces a consent card with `kind: "relay"` (daemon.ts:336). But `consent()` then treats it like a direct card: it opens a room between *me* (the note-holder) and the requester, and never contacts the actual owner. That violates I8's "every hop consents."
-
-**Required behavior (three personas: Ben asks; Anna holds note "Timo has a 3m ladder"; Timo owns it):**
-1. Ben's REQUEST reaches Anna. Anna's matcher hits her `second_brain` item (provenance `{ kind: "second_brain", owner: "@timo-agent:…" }`) → relay consent card for Anna (exists today). Anna's uniform STATUS schedule is unchanged (I3): PENDING while her card is pending.
-2. Anna consents (this is her *relay* consent, optionally with conditions) → her daemon does NOT open a room. Instead it sends a **fresh REQUEST** to the noted owner (Timo) carrying the original request text, and records a pending relay linking `{ upstream_request_id, upstream_requester, downstream_request_id, noted_owner }`.
-3. Timo's daemon treats that REQUEST like any direct one (match against his real inventory → consent card, kind `direct`, requester shown = Anna, the introducer — Timo may not know Ben; I8: no hop reveals more than a direct request).
-4. Timo consents → his daemon replies CONSENT + creates the room + INTRO **to Anna** (his requester). Anna's daemon detects the CONSENT/INTRO belongs to a pending relay and (a) forwards CONSENT upstream to Ben, (b) invites/bridges: create the final room via her transport `createSharedRoom([ben, timo, anna])` with context "introduced by Anna", send INTRO to Ben and Timo. (Simplification allowed: reuse Timo's room only if transport supports invites — it doesn't; so Anna creates the 3-party room. Log the decision.)
-5. If Timo declines or has nothing: Anna's downstream ask resolves `no_one_this_time` → Anna's daemon sends the uniform PASS upstream (already-scheduled STATUS logic must see the relay as unresolved until downstream resolves — extend the owner-status dispatch so a consented *relay* card stays PENDING upstream until downstream CONSENT/PASS).
-6. Ben's view at every point: aggregate only ("someone can help" / "no one this time"). Never Anna's or Timo's identity pre-consent (I2). After both hops consent: room with both.
-7. Auto-forward (`policy.mode === "auto_forward"` on the second-brain item) fires step 2 without a card (path exists for direct; extend to relay).
-
-**Interfaces:**
-- Produces: `RelayLink` store record `{ upstream_request_id: string; upstream_requester: PeerId; downstream_request_id: string; noted_owner: PeerId; state: "awaiting_downstream" | "resolved" | "failed" }` in `store/types.ts`; daemon handles it internally — no REST API change. Consent-card shape in `/api/state` unchanged (kind `"relay"` already exists).
-- Consumes: `test_harness.ts` multi-daemon wiring; `envelopes.ts` constructors.
-
-**Steps (TDD):**
-- [ ] Failing test: three-daemon harness — Ben asks "ladder"; Anna holds second_brain note (owner=Timo); assert Anna gets relay card; Anna consents; assert Timo gets a direct card naming Anna as requester; Timo consents; assert Ben's ask state becomes `room_open` with a room containing Timo and Anna; assert Ben's `/api/state`-shaped snapshot never contained Anna/Timo identity before both consents (grep the sanitized snapshots at each stage).
-- [ ] Failing test: decline branch — Timo declines; assert Ben ends `no_one_this_time`; assert wire messages Ben receives are byte-identical to a no-match run (reuse the existing I3 test pattern in daemon.test.ts).
-- [ ] Failing test: auto_forward on the second-brain item skips Anna's card but still requires Timo's consent.
-- [ ] Implement in daemon.ts: branch in `consent()` on `card.kind === "relay"`; new `RelayLink` store table (follow existing store patterns in `sqlite_store.ts` / `store.ts`); CONSENT/INTRO/STATUS handlers check relay links; upstream STATUS forwarding respects the uniform scheduler.
-- [ ] All daemon tests green: `pnpm --filter @resource-web/agent-daemon test`. Typecheck green. Commit `feat(daemon): two-hop relay consent chain [S5, I8]`.
-
----
-
-### Task 2: Alpha-enablement API — trust management, CORS, configurable bind
-
-**Files:**
-- Modify: `packages/agent-daemon/src/api/server.ts`
-- Modify: `packages/agent-daemon/src/daemon/daemon.ts` (trust add/remove + second-brain note methods)
-- Modify: `packages/agent-daemon/src/config.ts` (`API_HOST` env, default `127.0.0.1`)
-- Modify: `docs/API.md` (document new endpoints + host binding + CORS)
-- Test: `packages/agent-daemon/src/api/server.test.ts` (or colocated existing API tests)
-
-**New endpoints:**
-```
-POST /api/trust        { peer_id, display }            → { ok: true }   // adds TrustEdge, default expires_at +1y (I9)
-DELETE /api/trust      { peer_id }                     → { ok: true }   // individual-scale removal (D1.5)
-POST /api/notes        { owner_peer_id, text }         → { ok: true }   // second-brain note: creates Item with provenance
-                                                                        // { kind: "second_brain", owner, noted_at }, labels
-                                                                        // parsed from text via existing steward capture path;
-                                                                        // NO notification to owner (D1.6)
-```
-- CORS on every response: `Access-Control-Allow-Origin: *`, `Access-Control-Allow-Headers: content-type`, `Access-Control-Allow-Methods: GET,POST,DELETE,OPTIONS`; answer `OPTIONS` preflight with 204. (Phones on the LAN hit `http://<laptop-ip>:<ui-port>` and the API cross-origin.)
-- `startServer(daemon, port, host = process.env.API_HOST ?? "127.0.0.1")` — LAN exposure is opt-in via env; ⚠️ no auth on these endpoints — ALPHA.md (Task 5) must state this plainly.
-
-**Steps (TDD):** failing tests for each endpoint (add trust edge then GET /api/state shows it; delete removes; POST /api/notes creates a provenance-correct item; OPTIONS preflight 204 + CORS headers on GET) → implement → green → update docs/API.md → commit `feat(daemon): trust + second-brain endpoints, CORS, configurable bind host`.
-
----
-
-### Task 3: App-profile (skin) system in device-ui
-
-**Files:**
-- Create: `apps/device-ui/src/profiles/types.ts`, `apps/device-ui/src/profiles/ecstatic.ts`, `apps/device-ui/src/profiles/housing.ts`, `apps/device-ui/src/profiles/family.ts`, `apps/device-ui/src/profiles/business.ts`, `apps/device-ui/src/profiles/index.ts`
-- Create: `apps/device-ui/src/runtime_config.ts`
-- Test: `apps/device-ui/src/profiles/profiles.test.ts`, `apps/device-ui/src/runtime_config.test.ts`
-
-**Profile type (exact):**
+**Schema changes (exact):**
 ```ts
-export interface SuggestionGroup { label: string; icon: "sparkles" | "home" | "users" | "user" | "hand-heart"; highlight: string; items: string[] }
-export interface AppProfile {
-  id: "ecstatic" | "housing" | "family" | "business";
-  brandName: string;                  // header text, e.g. "Ecstatic World"
-  heading: string;                    // centered landing heading
-  subheading?: string;
-  theme: { accent: string; bg: string; isDark: boolean };  // tailwind token strings
-  suggestionGroups: SuggestionGroup[];
-  defaultPolicy: { audience: "private" | "trusted" | "wot_commons"; mode: "ask_each_time" | "auto_forward" };
-  hidden: Array<"inventory" | "notes" | "trust" | "audit">;  // panes hidden in this skin
-  quickAdds: Array<{ label: string; stewardText: string }>;  // one-tap resource capture, sent to POST /api/steward
-}
+// TrustEdge gains:
+level: z.enum(["contact","friend","close"]).default("friend")
+// SharePolicy.audience becomes:
+z.enum(["private","close","trusted","wot_commons","public"])   // close+public new; trusted="Friends" tier, wot_commons="The Commons"
+// New envelope bodies (v stays "0.1"):
+LISTING: { listing_id, kind: "offer"|"gathering", title, description, when?, where_public?, where_gated?, tier: audience, steps: 1|2|3, via: PeerId[], state: "active"|"withdrawn", owner_display }
+LOAN:    { listing_id, loan_id, state: "requested"|"approved"|"declined"|"lent"|"returned"|"complete"|"not_yet", note? }
+DM:      { text }
 ```
-- **ecstatic**: dark theme (match Zach's `#111`/`#eee` walking skeleton + synchrolabs dark aesthetic), brandName "Ecstatic World", heading about the dance/community field, suggestionGroups around events/hosting/rides/floor-space, defaultPolicy `{ audience: "trusted", mode: "ask_each_time" }`, hidden: `["audit"]`.
-- **housing**: light warm theme, brandName "Roof", heading "Wer hat ein Dach frei? / Who has a roof to share?", quickAdds like `{ label: "I can host 1–2 guests", stewardText: "I can host 1-2 guests in my apartment (couch/guest room), short stays" }`, suggestion items around "Wer kann mich nächstes Wochenende in Wien unterbringen?" etc., defaultPolicy `{ audience: "trusted", mode: "ask_each_time" }`, hidden: `["audit"]`.
-- **family**: defaultPolicy `{ audience: "trusted", mode: "auto_forward" }` (close trust default), hidden: `["audit"]`.
-- **business**: defaultPolicy `{ audience: "trusted", mode: "ask_each_time" }`, acquaintance framing in copy, hidden: `["notes", "audit"]`.
-- `runtime_config.ts`: resolve `{ agentUrl, profileId, personaKey }` from URL query params `?agent=…&app=…&persona=…` → localStorage fallback → `VITE_*` env fallback → defaults. Export `getRuntimeConfig(): { agentUrl: string; profile: AppProfile; personaKey: string }`.
-- `defaultPolicy` applies by sending it with steward-captured items — v0 wiring: the UI passes nothing; instead daemon default stays I9. For the alpha, apply the profile default client-side in copy only where the daemon default differs (family auto_forward): the UI shows a one-line "sharing default: ask each time / auto-forward" indicator sourced from the profile; actual per-item policy setting stays a FUTURE.md note. (Keeps I9 conservative defaults server-side; log this in DECISIONS.md.)
 
-**Steps:** failing tests (each profile parses/validates; runtime config precedence: query > localStorage > env > default; unknown `app` falls back to `ecstatic`) → implement → green → commit `feat(ui): app-profile skin system (ecstatic, housing, family, business)`.
+**Behavior:**
+1. `publishListing(input)` → store + send LISTING to eligible edges by tier: close→level "close"; trusted→"close"+"friend"; wot_commons/public→all edges. `public` listings additionally appear in guest/unauthenticated local API responses.
+2. Receiving a LISTING: store in received_listings (dedupe by listing_id, last-write-wins). If `steps > 1` and my edge-level to sender satisfies tier: forward once to my eligible edges (excluding origin + already-via peers) with `steps-1`, `via: [...via, me]`. No consent ping for forwarding (it is the owner's declared reach) — but NEVER forward `close`-tier listings (inner room stays inner). Log every forward (I6).
+3. Withdraw: state "withdrawn" propagates same route; receivers mark inactive.
+4. Borrow: `requestBorrow(listing_id)` → LOAN "requested" direct to owner (via `via`-chain if not directly connected: alpha = direct only; via-chain borrow goes through existing relay/ask flow — note in FUTURE.md). Owner sees consent-card-like activity item; approve → LOAN "approved" then "lent"; borrower "returned" → owner confirm → both sides completion check-in ("complete" | "not_yet"). `not_yet` detail stays local (mockup RES-5: visible only to own close circle — alpha: local only).
+5. DMs: `sendDm(peer_id, text)` → DM envelope; store per-peer thread both sides; only between connected peers (any level).
+6. Events for the UI: extend `/api/state` snapshot (Task 5 wires HTTP; here: daemon getters) with `listings_mine`, `listings_received`, `loans`, `threads`, and `trust_edges[].level`.
+
+**Steps:** TDD per behavior (publish tier-filtering incl. "peer below tier receives nothing"; forward decrement + close-tier never forwarded; withdraw; loan happy path + not_yet; DM both directions) → implement → `pnpm --filter @resource-web/protocol test && pnpm --filter @resource-web/agent-daemon test` green → typecheck → DECISIONS.md entry (additive protocol change) → commit `feat(protocol,daemon): trust levels, listings, loans, DM threads`.
 
 ---
 
-### Task 4: Chat-first shell — port Zach's synchrolabs UX pattern
+### Task 4 (REVISED): port Zach's mockup → `apps/mobile-ui` (fixture mode)
 
 **Files:**
-- Read first (UX truth): `../ecstatic-world/synchrolabs-reference/temp-synchrolabs-chat-main/src/app/page.tsx`, `src/components/prompt-kit/{prompt-input,chat-container,message,prompt-suggestion,scroll-button}.tsx`, `src/messages/en.json`
-- Create: `apps/device-ui/src/components/chat/ChatShell.tsx`, `PromptInput.tsx`, `SuggestionChips.tsx`, `MessageList.tsx`
-- Modify: `apps/device-ui/src/App.tsx` (chat-first layout, profile-driven), `apps/device-ui/src/index.css` (theme tokens per profile), `apps/device-ui/package.json` (+`motion`)
-- Test: `apps/device-ui/src/components/chat/ChatShell.test.tsx`; keep `i2-asker-blindness.test.tsx` green (it is the I2 gate)
+- Read first (THE spec): `reference/zach-mockup-v7.html` (1618 lines, self-contained). Also `apps/device-ui/vite.config.ts` + `package.json` as Vite/vitest reference.
+- Create: `apps/mobile-ui/{package.json,vite.config.ts,tsconfig.json,index.html}`
+- Create: `apps/mobile-ui/src/styles.css` (mockup CSS, phone frame made full-viewport-first: keep the `@media (max-width:480px)` full-bleed branch as default on mobile; desktop keeps the phone frame + notes panel hidden)
+- Create: `apps/mobile-ui/src/api_client.js` — `createApiClient({ mode: "fixture" | "live", agentUrl })`; fixture mode returns the mockup's demo data (EVENTS, OFFERS, THREADS, rings people, activity seed) behind the SAME interface live mode will implement: `getState()`, `subscribe(cb)`, `publishListing(x)`, `requestBorrow(id)`, `loanAction(loan_id, state)`, `sendDm(peer, text)`, `addTrust(card, level)`, `setVisibilityDial(on)`, `sendSteward(text)` (steward = agent chat, wired later)
+- Create: `apps/mobile-ui/src/screens/{onboarding.js,discover.js,chat.js,host.js,web.js,meet.js,you.js,settings.js}` — the mockup's render functions, split per screen, state via a small `store.js` (the mockup's `state` object + pub/sub)
+- Create: `apps/mobile-ui/src/{sheet.js,tabs.js,spec_mode.js,confetti.js}` (shared chrome; KEEP spec mode + ANCHORS registry working — collaborators use it)
+- Test: `apps/mobile-ui/src/screens/*.test.js` smoke tests (screen renders; key interactions mutate state: host publish adds card; borrow request pushes activity; ceremony reaches celebration; guest mode hides tabs)
 
-**UX contract (from page.tsx, adapted):**
-1. Landing state: centered `heading` (profile), prompt input below (rounded-3xl, shadow, textarea + circular ArrowUp submit), category chips under it (profile `suggestionGroups`: click category → its items as full-width suggestions + back button; click item → submits it as steward text).
-2. First submit animates (via `motion`) into full-chat layout: header (brandName + connection status + persona), scrollable message list, input pinned bottom.
-3. Message list renders the steward conversation (`state.steward_log`): agent messages plain/prose left, user messages right in muted bubble (max-w 75–85%). Ask-status updates (`asks[].state` transitions, e.g. "Asked 2 trusted people…", "Good news — someone can help") already arrive as steward_log/WS events from the daemon — render them as agent messages; do not synthesize per-peer detail (I2).
-4. **Consent cards render inline in the chat stream** as actionable cards (requester display + request text + matched item + optional conditions input + Consent/Decline buttons — wire to existing `sendConsent`/`sendDecline`; `kind: "relay"` cards get a "you'd be connecting a friend" label). `state: "inactive"` cards show "request no longer active".
-5. Post-INTRO rooms appear in the chat area: room messages interleave (from existing `rooms[]`), input routes to `POST /api/rooms/:id/message` when a room is selected (simple room switcher chip row above the input when rooms exist).
-6. i18n-light: profile strings are the copy source; no i18n framework this sprint (log in FUTURE.md).
-7. Persona accent (Anna warm / Ben cool) folds into profile theme; `getPersonaTheme` stays for the dashboard/demo path.
-
-**Interfaces:** consumes `useAgentState(agentUrl)` as-is; consumes `getRuntimeConfig()` from Task 3. No new API calls beyond docs/API.md.
-
-**Steps:** failing ChatShell tests (landing → chips visible from profile; submit → `sendSteward` called + layout switches; consent card renders + consent click calls handler; relay card labeled; I2 test still green) → implement (port pattern, restyle with Tailwind 4 tokens; `motion` for the landing→chat transition) → vitest + typecheck green → `pnpm --filter @resource-web/device-ui build` green → commit `feat(ui): chat-first shell (synchrolabs UX pattern, profile-driven)`.
+**Port rules:**
+- Vanilla JS stays vanilla (type-checked via JSDoc + `checkJs` in tsconfig; no React). ES modules instead of the single IIFE. Keep class names/CSS verbatim where possible.
+- All 5 tabs + onboarding + ceremony + celebration + sheets + coach chip + guest mode + spec mode work exactly as in the mockup, powered by the fixture ApiClient.
+- The "Message" flows open the thread sheet (THREADS fixture).
+- `pnpm --filter @resource-web/mobile-ui dev` serves it; `build` green; tests green.
+- Commit per screen-group; final commit `feat(mobile-ui): Zach mockup ported as modular app (fixture mode)`.
 
 ---
 
-### Task 5: "You" tab — inventory, notes, asks, trust — + housing quick-adds
+### Task 5 (REVISED): daemon HTTP surface — old alpha API + new endpoints + CORS + bind host
 
-**Files:**
-- Create: `apps/device-ui/src/components/you/YouTab.tsx`, `TrustPane.tsx`, `NotesPane.tsx`, `QuickAdds.tsx`
-- Modify: `apps/device-ui/src/App.tsx` (two-tab nav: **Chat | You**), reuse `InventoryPane.tsx` (+ provenance badge) inside YouTab
-- Modify: `apps/device-ui/src/hooks/useAgentState.ts` (add `addTrust`, `removeTrust`, `addNote` calling Task 2 endpoints)
-- Test: `apps/device-ui/src/components/you/YouTab.test.tsx`
-
-**Content of You tab (per Jakob's "my things in 'you'"):**
-- My inventory (existing pane; provenance badges self vs second-brain), respecting profile `hidden`.
-- My asks list (status only, aggregate — I2) with Withdraw buttons (`sendWithdraw` exists? if not, add to hook calling `POST /api/withdraw`).
-- Trust circle: list edges + add-friend form (peer_id + display → `addTrust`) + remove. Copy: "verified in person" framing.
-- Second-brain notes: add-note form (owner dropdown from trust edges + free text → `addNote`); list = inventory items filtered `provenance.kind === "second_brain"`.
-- Quick-adds (profile `quickAdds`): one-tap buttons → `sendSteward(stewardText)` then switch to Chat tab showing the confirm-before-save dialog the steward already does.
-
-**Steps:** failing tests (tab nav renders; You tab hides panes per profile.hidden; add-friend calls POST /api/trust; quick-add sends steward text) → implement → green + typecheck + build → commit `feat(ui): You tab (inventory, trust circle, notes, asks) + profile quick-adds`.
-
----
-
-### Task 6: Alpha server + LAN scripts + ALPHA.md
-
-**Files:**
-- Create: `scripts/alpha_server.ts` — one Node process, N daemons over the in-memory transport hub (reuse `test_harness.ts` wiring pattern from the daemon package, but with real `startServer` per persona on ports 4101…410N and `API_HOST=0.0.0.0`), personas from `alpha/personas.json`
-- Create: `alpha/personas.json` (Jakob + placeholder friends: `[{ "key": "jakob", "name": "Jakob", "port": 4101 }, …]` — 6 entries, trust edges all-to-all by default for the hackathon circle)
-- Create: `scripts/alpha_up.sh` — starts alpha_server + `pnpm --filter @resource-web/device-ui dev -- --host 0.0.0.0 --port 5173`, detects LAN IP (`ipconfig getifaddr en0` fallback `en1`), prints per-friend join URLs `http://<ip>:5173/?agent=http://<ip>:410N&app=<profile>&persona=<key>` (+ QR via `npx qrcode-terminal` if available, plain URLs otherwise); traps EXIT to kill both (no orphaned servers)
-- Create: `ALPHA.md` — quickstart: prerequisites (same WiFi), how Jakob starts it, how each friend joins (open their URL, rename via persona), what to try (housing ask flow, relay demo, ecstatic skin), ⚠️ security box (no auth, LAN-open API, alpha only), Matrix path (`TRANSPORT=matrix` + homeserver) as the multi-host option, troubleshooting (LuLu firewall must allow inbound node/vite; phones must be on the same subnet)
-- Modify: `package.json` root scripts: `"alpha": "bash scripts/alpha_up.sh"`
-
-**Steps:** implement script (no TDD for shell; alpha_server gets one smoke test: boots 2 personas, `GET /api/state` on both ports OK, cross-persona ask reaches consent card) → run the smoke test → run `alpha_up.sh` on this machine, curl both ports from the LAN IP (not localhost) to prove binding, then kill (verify no listeners left: `lsof -nP -iTCP:4101-4110 -sTCP:LISTEN` empty) → commit `feat(alpha): single-host LAN alpha server, join URLs, ALPHA.md`.
+Everything from R1-Task-2 (POST/DELETE `/api/trust` with `level`, POST `/api/notes`, CORS `*` + OPTIONS 204, `API_HOST` env default 127.0.0.1, docs/API.md update) PLUS:
+```
+GET  /api/listings                          → { mine: [...], received: [...] }   (guest param ?public=1 → public tier only, no auth)
+POST /api/listings                          { kind, title, description, when?, where_public?, where_gated?, tier, steps } → { listing_id }
+POST /api/listings/:id/withdraw             → { ok }
+POST /api/borrow                            { listing_id } → { loan_id }
+POST /api/loans/:loan_id                    { state: "approved"|"declined"|"lent"|"returned"|"complete"|"not_yet", note? } → { ok }
+GET  /api/threads                           → { threads: [{ peer_id, display, messages: [{from,text,ts}] }] }
+POST /api/threads/:peer_id/message          { text } → { ok }
+GET  /api/card                              → { peer_id, display, level_offer_default }   (the "my QR card" payload)
+```
+WS events added: `listing { listing_id }`, `loan { loan_id }`, `dm { peer_id }` (plus existing `state_changed` catch-all).
+TDD; docs/API.md updated; commit `feat(daemon): listings/loans/threads/trust HTTP surface, CORS, LAN bind`.
 
 ---
 
-### Task 7: End-to-end verification + docs closure
+### Task 6: wire mobile-ui live mode
 
-**Files:**
-- Modify: `README.md` (alpha section link, skins list; Honesty Box untouched-or-extended, never weakened)
-- Modify: `DECISIONS.md` (append: relay room simplification, profile client-side defaults, LAN/CORS tradeoff, anything discovered)
-- Modify: `FUTURE.md` (i18n framework, per-item policy editor from profile default, Matrix bridges, keyring-wallet if skipped)
-- Test: run full suite `pnpm -r test` + `pnpm -r typecheck` + `pnpm --filter @resource-web/device-ui build`
-
-**Steps:** drive the real flow end-to-end via alpha server (steward capture → ask from second persona → consent → room message; relay: note → third persona ask → both consents → 3-party room) using curl/scripted client; capture the transcript into `verification/alpha-run.txt`; fix anything broken (systematic-debugging if needed); commit `docs: alpha handback (verification transcript, decisions, future)`.
+**Files:** `apps/mobile-ui/src/api_client.js` (live implementation: fetch + WS against Task-5 endpoints), `runtime_config.js` (query `?agent=…&app=…&persona=…` > localStorage > defaults — same precedence rules as device-ui's Task-3 module), Meet screen: real QR (dep `qrcode`, already in pnpm store) rendering `/api/card` payload; "Scan theirs instead" uses `BarcodeDetector` when available + ALWAYS a manual "enter their code" fallback (iOS Safari has no BarcodeDetector); confirm → `addTrust(card, level)` → celebration. Web rings render real `trust_edges` (ring 1) + ring 2 from received listings' via-chains and relay-known peers ("Someone · via X" for anonymous relay offers — daemon Task 1).
+**Definition of done:** two daemons (in-memory hub, Task 8's harness pattern or test server) + two mobile-ui instances: meet ceremony creates mutual edge; host gathering on A appears in B's Discover per tier; borrow flow round-trips with activity cards; DM thread works; withdraw flips cards. Vitest integration test with mocked fetch/WS for the client; manual curl transcript in the report.
 
 ---
 
-### Task 8 [#opt — only if all above done and green]: keyring-wallet interop probe
+### Task 7: skins on mobile-ui + `packages/app-profiles`
 
-Timeboxed 45 min. Fetch https://github.com/berkmancenter/keyring-wallet README/schema only. If its credential/keyring JSON shape can be emitted by a pure function over our `TrustEdge[]`: add `GET /api/trust/export?format=keyring` + one unit test + DECISIONS entry. If not trivially mappable: write findings + mapping sketch to `FUTURE.md`, done. **Sebra moderator hosting: out of scope tonight** (no moderator concept exists in either codebase; needs a design conversation — noted in FUTURE.md).
+Lift Task 3's profiles (branch alpha-t3, `apps/device-ui/src/profiles/*`) into `packages/app-profiles` (framework-free TS, same tests); device-ui imports move; mobile-ui consumes: profile → CSS custom-property theme block + copy overrides (brandName, headings, suggestion/quick-add lists) + `hidden` panes (housing: Discover defaults to Offers segment, gathering-chips swap for housing chips: "Room free", "Couch", "Short stay", "Longer stay"; family: default offer level "close"; business: "contact", Meet copy sobered). `?app=` query switches skin (runtime_config). Tests: profile → applied CSS vars + hidden tabs.
 
 ---
 
-## Self-review notes
+### Task 8: alpha server + LAN scripts + ALPHA.md
 
-- Spec coverage: chat UX ✅ (T4), Matrix kept ✅ (untouched, tests must stay green — T0/T7 run full suite), passive-share backend ✅ (exists + T1 relay + T2 notes endpoint), one-degree-removed ✅ (T1), event org w/o centralization ✅ (ecstatic profile + P2P daemon architecture; no new event system — YAGNI for alpha), multi-app skins + trust defaults ✅ (T3), housing UI ✅ (T3+T5), local multi-device alpha ✅ (T6), shareable ✅ (ALPHA.md + join URLs), keyring-wallet optional ✅ (T8).
-- Known simplifications logged where made: relay 3-party room created by introducer; profile trust-default client-side copy only (server keeps I9); no i18n framework.
-- Type consistency: `AppProfile`/`getRuntimeConfig` (T3) consumed by T4/T5; Task 2 endpoints consumed by T5 hook; RelayLink internal to daemon.
+As R1-Task-6, updated: alpha_server hosts N daemons (in-memory hub) with `API_HOST=0.0.0.0`, ports 4101…; serves `mobile-ui` dev server `--host` on 5173; join URLs `http://<ip>:5173/?agent=http://<ip>:410N&app=ecstatic&persona=<key>` (+ housing variant URLs) + QR printout (`qrcode-terminal` via npx, plain URLs fallback); EXIT trap kills everything; smoke test (2 personas: state OK, listing propagates, borrow round-trips); ALPHA.md quickstart + ⚠️ no-auth LAN warning + Matrix path (`--profile local` synapse, image prefetched; matrix.myceli.al later) + troubleshooting (LuLu inbound, same subnet). Root script `"alpha"`.
+
+---
+
+### Task 9: end-to-end verification + docs closure
+
+As R1-Task-7 plus: mockup-fidelity pass (each ANCHOR-tagged surface present and honoring its contract — walk the golden path: guest browse → join → meet as Contact (nothing opens) → re-meet as Friend → gated gathering appears → host → offer → borrow → return → completion), transcript to `verification/alpha-run.txt`, README alpha section, DECISIONS/FUTURE entries (incl.: consensual-org repo auth gap, mockup v6 label vs v7 naming, OpenVTC next steps, holons dashboard vision → `reference/holons`).
+
+---
+
+### Task 10 [#opt]: keyring-wallet / VRC-shaped export
+
+As R1-Task-8: timeboxed 45 min; `GET /api/trust/export?format=vrc` emitting unsigned W3C-VC-shaped relationship credentials (aligns D1.1 OpenVTC target); honest labeling (unsigned, alpha). Sebra witness/moderator hosting: FUTURE.md only.
+
+## Self-review notes (R2)
+
+- User priorities: Zach UX ✅ (T4 is the mockup itself, ported; hard rules bound globally), chats ✅ (DM threads T2/T5/T6 + activity), agents kept secondary ✅ (steward endpoint still exists; relay T1 continues), Matrix ✅ (synapse image prefetched, profile documented, transport untouched).
+- Holons dashboard (minimal overview): the mockup's Web tab (rings + people + intros) IS the alpha overview; deeper holons-style boards → FUTURE.md with `reference/holons`. Jakob chose "minimal overview tab" — satisfied by Web tab + reach previews; noted explicitly in T9 docs.
+- Type consistency: ApiClient interface named identically in T4 (fixture) and T6 (live); endpoint names in T5 match T6 calls; profile exports (`getProfile`, `ALL_PROFILES`) preserved through the T7 lift.
+- YAGNI guards: no reputation, no scores, no bridges this sprint, no OpenVTC runtime, amends/tags stay placeholders (mockup marks them "held for a future circle").
