@@ -222,9 +222,12 @@
     width:62px; height:62px; border-radius:50%; margin-top:-26px; border:0; cursor:pointer; flex-shrink:0;
     background:linear-gradient(135deg,var(--coral),var(--violet)); color:#fff;
     box-shadow:0 8px 24px rgba(154,55,240,.4), 0 0 0 5px var(--linen);
-    display:flex; align-items:center; justify-content:center; align-self:flex-start;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:0;
+    align-self:flex-start; font-family:inherit;
   }
-  .tab-meet svg{width:30px; height:30px; stroke:#fff; fill:none; stroke-width:1.7; stroke-linecap:round}
+  .tab-meet svg{width:24px; height:24px; stroke:#fff; fill:none; stroke-width:1.7; stroke-linecap:round}
+  .tab-meet span{font-size:9px; font-weight:700; letter-spacing:.05em; color:#fff; line-height:1}
+  .chan[disabled]{opacity:.4; cursor:default}
 
   /* ============ ceremony (cosmic register) ============ */
   .cosmic{background:linear-gradient(160deg,#2A0E4E 0%, var(--violet-deep) 45%, #0E3A55 100%); color:var(--mist)}
@@ -233,7 +236,7 @@
   .orb1{width:190px; height:190px; background:radial-gradient(circle, rgba(154,55,240,.9), transparent 70%); top:-40px; left:-50px; animation:drift 9s ease-in-out infinite alternate}
   .orb2{width:150px; height:150px; background:radial-gradient(circle, rgba(18,168,227,.8), transparent 70%); bottom:120px; right:-40px; animation:drift 11s ease-in-out infinite alternate-reverse}
   @keyframes drift{from{transform:translate(0,0)} to{transform:translate(26px,18px)}}
-  .cer{flex:1; display:flex; flex-direction:column; align-items:center; padding:64px 26px 40px; position:relative; text-align:center}
+  .cer{flex:1; display:flex; flex-direction:column; align-items:center; padding:60px 26px 40px; position:relative; text-align:center; overflow-y:auto}
   .cer h2{font-size:24px; font-weight:500; letter-spacing:.02em; margin-top:6px}
   .cer .sub{font-size:13.5px; color:#CBB8E4; margin-top:8px; line-height:1.55; max-width:290px}
   .qr-card{background:#fff; border-radius:22px; padding:18px; margin-top:26px; box-shadow:0 10px 40px rgba(0,0,0,.35)}
@@ -507,6 +510,7 @@
       Your Web</button>
     <button class="tab-meet" data-go="meet" aria-label="Meet someone">
       <svg viewBox="0 0 24 24"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg>
+      <span>Meet</span>
     </button>
     <button class="tab" data-go="people">
       <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3.5 20c.5-3.5 2.8-5.5 5.5-5.5s5 2 5.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.7c2.3.3 3.9 2 4.3 4.8"/></svg>
@@ -673,9 +677,16 @@
         '<svg class="foot-svg" viewBox="0 0 48 48"><path d="M20 38c-3 0-5-2.4-5-5.5 0-4.5 3-7.5 3-12C18 14 21 9 26 9s8 5.5 8 11c0 6-3.5 9-6.5 12.5C25.5 35 23 38 20 38z"/><circle cx="16" cy="15" r="1.6"/><circle cx="20" cy="12" r="1.6"/><circle cx="25" cy="10.5" r="1.4"/></svg>' +
         '<h2>Step onto the floor</h2>' +
         '<p>Your identity is created here, on your phone. No account. No one to ask permission.</p>' +
-        '<div class="actions"><button class="btn btn-electric" id="onbNext">Join</button>' +
-        '<button class="btn btn-ghost" id="onbLook">Just look around</button></div>';
-      $("onbNext").onclick = function(){ onb("signup"); };
+        '<div class="signup-grid" data-anchor="ONB-2">' +
+        '<button class="signup-card" id="suQuick2"><b>Quick start</b><small>Keys made and kept in this phone’s secure storage, unlocked by your face or PIN. Nothing to write down.</small></button>' +
+        '<button class="signup-card" id="suAdv2" style="opacity:.55;border:2px dashed rgba(36,27,46,.3)"><b>Advanced</b><small>Your own recovery verse, server choice, open source — held for a later pass.</small></button>' +
+        '</div>' +
+        '<div class="actions" style="margin-top:18px"><button class="btn btn-ghost" id="onbLook">Just look around</button></div>';
+      $("suQuick2").onclick = function(){ state.signup="quick"; onb("name"); };
+      $("suAdv2").onclick = function(){
+        openSheet('<div class="grab"></div><h3>Advanced — held for later</h3>' +
+          '<div class="meta">This path will let you hold your own twelve-word recovery verse, choose which server carries your encrypted backups, and read every line of the open source. The prototype ships with Quick start; nothing about your keys changes when Advanced arrives — you can upgrade in Settings.</div>');
+      };
       $("onbLook").onclick = guestMode;
     } else if (step==="signup"){
       el.innerHTML =
@@ -722,12 +733,14 @@
         '<span class="eyebrow">Almost there</span>' +
         '<h2>What do people call you on the floor?</h2>' +
         '<input class="name-input" id="nameIn" value="Zach" maxlength="16" aria-label="Your name">' +
-        '<div class="actions"><button class="btn btn-coral" id="onbDone">Enter</button></div>';
+        '<div class="actions"><button class="btn btn-coral" id="onbDone">Enter</button>' +
+        '<button class="btn btn-ghost" id="onbBack2">Back</button></div>';
       $("onbDone").onclick = function(){
         var v = $("nameIn").value.trim();
         if (v) state.name = v;
         finishOnb();
       };
+      $("onbBack2").onclick = function(){ onb("welcome"); };
     }
   }
   function finishOnb(){
@@ -771,7 +784,7 @@
   }
   $("joinBtn").onclick = function(){
     $("joinBar").classList.remove("on");
-    show("onb"); onb("signup");
+    show("onb"); onb("welcome");
   };
   $("coachX").onclick = function(){ $("coach").style.display = "none"; };
 
@@ -1375,15 +1388,13 @@
     if (step==="idle"){
       var lv = state.offerLevel;
       var chanVisual = state.chan==="qr"
-        ? '<div class="qr-card" data-anchor="CER-3"><canvas id="qr" width="190" height="190"></canvas></div>'
-        : '<div class="qr-card" data-anchor="CER-3" style="width:226px;height:226px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--violet-deep);font-weight:600;font-size:14px;text-align:center;padding:20px">' +
-          (state.chan==="nfc" ? "📳<br>Hold your phones together" :
-           state.chan==="airdrop" ? "📡<br>Share via AirDrop —<br>they accept on their phone" :
-           "🔗<br>A one-time link to send<br>any way you like") + '</div>';
+        ? '<div class="qr-card" data-anchor="CER-3"><canvas id="qr" width="180" height="180"></canvas></div>'
+        : '<div class="qr-card" data-anchor="CER-3" style="width:216px;height:216px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--violet-deep);font-weight:600;font-size:14px;text-align:center;padding:20px">' +
+          "📳<br>Hold your phones together" + '</div>';
       el.innerHTML =
         '<span class="eyebrow">Meet</span>' +
         '<h2>Add someone you just met</h2>' +
-        '<div class="lvl-row" style="margin-top:14px">' +
+        '<div class="lvl-row" style="margin-top:12px">' +
         '<button class="lvl-pill'+(lv==="Contact"?" on":"")+'" data-l="Contact">Contact</button>' +
         '<button class="lvl-pill'+(lv==="Friend"?" on":"")+'" data-l="Friend">Friend</button>' +
         '<button class="lvl-pill'+(lv==="Close friend"?" on":"")+'" data-l="Close friend">Close friend</button>' +
@@ -1393,11 +1404,11 @@
          lv==="Friend" ? "You’ll be in each other’s web: friend gatherings, offers, second rings." :
          "The inner room: close gatherings and more intimate sharing.") + '</p>' +
         chanVisual +
+        '<button class="btn btn-electric" id="scanBtn" style="margin-top:14px">Scan theirs instead</button>' +
         '<div class="chan-row">' +
         '<button class="chan'+(state.chan==="qr"?" on":"")+'" data-c="qr">QR</button>' +
         '<button class="chan'+(state.chan==="nfc"?" on":"")+'" data-c="nfc">NFC</button>' +
-        '<button class="chan'+(state.chan==="airdrop"?" on":"")+'" data-c="airdrop">AirDrop</button>' +
-        '<button class="chan'+(state.chan==="link"?" on":"")+'" data-c="link">Link</button>' +
+        '<button class="chan" disabled title="Coming later">AirDrop</button>' +
         '</div>' +
         '<button class="adv-link" id="advBtn" data-anchor="CER-2">' + (state.adv ? "Hide advanced" : "Advanced: what they may reach") + '</button>' +
         (state.adv ?
@@ -1405,12 +1416,9 @@
           '<button class="perm-row'+(state.permCtx?"":" off")+'" data-p="permCtx">Ecstatic-dance context only — widen later if you choose<span class="tog">'+(state.permCtx?"On":"Off")+'</span></button>' +
           '<button class="perm-row'+(state.permOffers?"":" off")+'" data-p="permOffers">May see my offers at their level<span class="tog">'+(state.permOffers?"On":"Off")+'</span></button>' +
           '<button class="perm-row'+(state.permRing?"":" off")+'" data-p="permRing">May see my second ring (people who consent)<span class="tog">'+(state.permRing?"On":"Off")+'</span></button>' +
-          '<p style="font-size:11px;color:#A78CC9;margin:4px 2px 0">Skippable — everything here can be adjusted per person, later, under People.</p>' +
+          '<p style="font-size:11px;color:#A78CC9;margin:4px 2px 0">Skippable — everything here can be adjusted per person, later.</p>' +
           '</div>' : '') +
-        '<p class="offline-note">Works with no signal. The floor doesn’t need wifi.</p>' +
-        '<div class="actions">' +
-        '<button class="btn btn-electric" id="scanBtn">Scan theirs instead</button>' +
-        '</div>';
+        '<p class="offline-note">Works with no signal. The floor doesn’t need wifi.</p>';
       if (state.chan==="qr") fakeQR($("qr"));
       var lp = el.querySelectorAll(".lvl-pill");
       for (var li=0; li<lp.length; li++) lp[li].onclick = function(){
@@ -1418,6 +1426,7 @@
       };
       var ch = el.querySelectorAll(".chan");
       for (var ci=0; ci<ch.length; ci++) ch[ci].onclick = function(){
+        if (this.disabled || !this.getAttribute("data-c")) return;
         state.chan = this.getAttribute("data-c"); renderCeremony("idle");
       };
       $("advBtn").onclick = function(){ state.adv = !state.adv; renderCeremony("idle"); };
