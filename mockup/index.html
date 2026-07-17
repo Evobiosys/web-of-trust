@@ -269,6 +269,21 @@
   .name-input:focus{outline:none; border-bottom-color:var(--electric)}
   .foot-svg{width:56px; height:56px; stroke:var(--violet); fill:none; stroke-width:1.6; stroke-linecap:round}
 
+  /* ============ spec mode ============ */
+  .spec-toggle{
+    margin-top:10px; border:1.5px solid var(--electric); background:transparent; color:var(--electric);
+    border-radius:999px; padding:6px 16px; font-size:12.5px; font-weight:700; font-family:inherit; cursor:pointer;
+  }
+  .spec-toggle[aria-pressed="true"]{background:var(--electric); color:#fff}
+  [data-spec="on"] [data-anchor]{outline:1.5px dashed var(--electric); outline-offset:2px; position:relative}
+  [data-spec="on"] [data-anchor]::after{
+    content:attr(data-anchor); position:absolute; top:-9px; right:-4px; z-index:60;
+    background:var(--electric); color:#fff; font-size:9px; font-weight:700; letter-spacing:.05em;
+    padding:2px 6px; border-radius:6px; font-family:"SF Mono",Menlo,monospace; pointer-events:none;
+  }
+  .spec-sheet-id{display:inline-block; background:var(--electric); color:#fff; border-radius:6px;
+    padding:2px 8px; font-family:"SF Mono",Menlo,monospace; font-size:12px; font-weight:700; margin-bottom:8px}
+
   /* ============ coach chip ============ */
   .coach{
     position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:35;
@@ -284,7 +299,9 @@
 
 <div class="page-head">
   <h1>Ecstatic World — the trust prototype, in your hand</h1>
-  <p>Clickable mobile mockup · v1 for workshop. Follow the demo path: <b>Meet → scan Maria → watch Discover open.</b></p>
+  <p>Clickable mobile mockup · v6. Demo path in the repo README. Implementers: turn on spec mode
+  (or open with <b>#spec</b>) and tap any badge to see its contract + doc reference.</p>
+  <button class="spec-toggle" id="specBtn" aria-pressed="false">Spec mode</button>
 </div>
 
 <div class="stage">
@@ -299,7 +316,7 @@
   <div class="screen" id="discover">
     <div class="hdr"><h2>Discover</h2><span class="loc">Buenos Aires ▾</span></div>
     <div class="scroll">
-      <div class="seg">
+      <div class="seg" data-anchor="DIS-1">
         <button class="on" id="segList">List</button>
         <button id="segMap">Map</button>
       </div>
@@ -310,7 +327,7 @@
         <button class="chip">Contact Improv</button>
         <button class="chip">Hangouts</button>
       </div>
-      <div id="mapWrap"><canvas id="mapCanvas" width="356" height="300"></canvas></div>
+      <div id="mapWrap" data-anchor="DIS-4"><canvas id="mapCanvas" width="356" height="300"></canvas></div>
       <div id="listWrap"></div>
       <p class="map-cap" id="listCap">Public events in your city. What your web opens, appears here too — quietly.</p>
     </div>
@@ -327,7 +344,7 @@
   <div class="screen" id="web">
     <div class="hdr"><h2>Your Web</h2><span class="loc" id="webCount"></span></div>
     <div class="scroll">
-      <div class="rings-wrap" id="rings"></div>
+      <div class="rings-wrap" id="rings" data-anchor="WEB-1"></div>
       <p class="web-cap">People you have met, and the people they hold.<br>Tap anyone to see the path between you.</p>
     </div>
   </div>
@@ -340,7 +357,7 @@
 
   <!-- ============ CELEBRATION ============ -->
   <div class="screen celebrate" id="celebrate">
-    <div class="inner">
+    <div class="inner" data-anchor="CER-5">
       <canvas id="confetti"></canvas>
       <h2>Woven.</h2>
       <p id="celebText"></p>
@@ -352,14 +369,14 @@
   <!-- ============ PEOPLE ============ -->
   <div class="screen" id="people">
     <div class="hdr"><h2>People</h2><span class="loc" id="pplCount"></span></div>
-    <div class="scroll" id="pplList"></div>
+    <div class="scroll" id="pplList" data-anchor="PPL-1"></div>
   </div>
 
   <!-- ============ YOU ============ -->
   <div class="screen" id="you">
     <div class="hdr"><h2>You</h2></div>
     <div class="scroll">
-      <div class="you-hero">
+      <div class="you-hero" data-anchor="YOU-1">
         <div class="ava" id="youAva" style="width:84px;height:84px;font-size:32px;background:linear-gradient(135deg,var(--violet),var(--electric))">Y</div>
         <h3 id="youName" style="font-size:22px">You</h3>
         <span class="eyebrow">This identity lives on this phone</span>
@@ -368,7 +385,7 @@
         <h3>Your recovery verse</h3>
         <p>Twelve words, kept safe. They are the only way back to your web if this phone is lost. <b style="color:var(--violet-deep)">Written down ✓</b></p>
       </div>
-      <div class="verse">
+      <div class="verse" data-anchor="YOU-2">
         <h3>Show me to people my people trust</h3>
         <p>When this is on, someone your people connect with can see your name in their second ring. Off, and you appear only as a private count.
         <button class="btn btn-electric" id="dialBtn" style="padding:8px 18px; font-size:13px; margin-top:10px" aria-pressed="true">On</button></p>
@@ -418,7 +435,7 @@
   </ul>
   <ul class="open">
     <li><b>Locked (r2):</b> mixed voice — plain verbs for actions ("Add", "Connected", "Pending"), weave poetry only at the celebration and in Your Web.</li>
-    <li><b>Locked (r3):</b> levels gate depth — hosts set a minimum closeness. Try it: pick "Just met" for Maria and the Moon Ceremony stays closed.</li>
+    <li><b>Locked (r3):</b> levels gate depth — hosts set a minimum closeness. Try it: pick "Contact" for Maria and the Moon Ceremony stays closed.</li>
     <li><b>Locked (r4):</b> second ring shows only the willing — opted-in names plus "+N held privately"; everyone gets the dial (see You screen).</li>
     <li><b>Added (r5):</b> host-side create flow — ＋ Host on Discover: visibility bar + steps + live reach estimate.</li>
     <li><b>Open:</b> event detail + RSVP, level wording, onboarding depth.</li>
@@ -450,6 +467,73 @@
     nico:  "linear-gradient(135deg,#0B5E80,#4FD7A0)"
   };
 
+  /* ---------- spec mode (anchor registry mirrors docs/60-anchors.md) ---------- */
+  var ANCHORS = {
+    "ONB-1":{t:"Welcome / threshold screen", c:"Entry offers signup or logged-out browsing; identity is device-local, no account", d:"docs/20 §Onboarding"},
+    "ONB-2":{t:"Quick vs Advanced signup", c:"Two equal paths side-by-side; Quick = auto-managed keys, Advanced = verse + server choice", d:"docs/20 §Onboarding · docs/30 ADR-6"},
+    "ONB-3":{t:"Recovery verse (Advanced)", c:"12-word phrase display + keep confirmation", d:"docs/20 §Onboarding · docs/30 ADR-7"},
+    "ONB-4":{t:"Server pick + view source", c:"Relay/server selectable at signup; source link communicated", d:"docs/20 §Onboarding · docs/30 ADR-5"},
+    "ONB-5":{t:"Name entry", c:"Display name is self-asserted, editable, not unique", d:"docs/20 §Onboarding"},
+    "DIS-1":{t:"Gatherings | Offers segments", c:"Discovery is the default surface; events and offers are parallel browse sets", d:"docs/20 §Discovery"},
+    "DIS-2":{t:"Public event card", c:"Public events render for everyone incl. logged-out", d:"docs/20 §Discovery"},
+    "DIS-3":{t:"Gated event card", c:"Visibility predicate returns items or NOTHING — never a locked/teaser state", d:"docs/20 §Event visibility"},
+    "DIS-4":{t:"Map view", c:"Same visibility predicate as list; gated markers only when opened", d:"docs/20 §Discovery"},
+    "DIS-5":{t:"Logged-out state + join pitch", c:"Public browse without identity; pitch explains member benefits", d:"docs/20 §Onboarding"},
+    "HST-1":{t:"Create form", c:"Host-authored event record; location can be gated separately from existence", d:"docs/20 §Events"},
+    "HST-2":{t:"Tier picker + rings visual", c:"Tiers: Public / The Commons / Friends / Close friends, mapped to ladder minimums", d:"docs/20 §Event visibility"},
+    "HST-3":{t:"Advanced fold (steps)", c:"Path-distance limit (1–3 steps) is advanced; default 2", d:"docs/20 §Event visibility"},
+    "HST-4":{t:"Reach list", c:"Consenting people's names + '+N held privately'; never non-consenting names", d:"docs/20 §Consent"},
+    "HST-5":{t:"Publish action", c:"Publishing distributes per ADR-1 mechanism; host can edit/withdraw", d:"docs/20 §Events · docs/30 ADR-1"},
+    "CER-1":{t:"Share composer", c:"Offered level preset (Contact default); channel = QR/NFC/AirDrop/link, same payload", d:"docs/20 §Handshake"},
+    "CER-2":{t:"Advanced atomic permissions", c:"Pre-share permission atoms (context-limit, sharing types); skippable, adjustable later", d:"docs/20 §Permissions"},
+    "CER-3":{t:"Handshake payload (QR)", c:"Payload: DID, name, enc key, nonce, ts, offered level; works offline", d:"docs/20 §Handshake"},
+    "CER-4":{t:"Scan + confirm", c:"Human confirms the person, picks level; auto-filled event context", d:"docs/20 §Handshake"},
+    "CER-5":{t:"Mutual confirmation + celebration", c:"Counter-attestation completes the pair; celebration only on mutual", d:"docs/20 §Handshake"},
+    "WEB-1":{t:"Rings layout", c:"Ego-centric rings, never a global graph; ring 1 direct, ring 2 through-connections", d:"docs/20 §Web view"},
+    "WEB-2":{t:"Person node + path sheet", c:"Named path explanations; no numeric trust values", d:"docs/20 §Web view"},
+    "WEB-3":{t:"Consent clusters", c:"Non-consenting second-ring people appear only as '+N held privately'", d:"docs/20 §Consent"},
+    "WEB-4":{t:"Asymmetry labeling", c:"Symmetric by default; one-way visibility always labeled 'sees you: no'", d:"docs/20 §Consent"},
+    "INT-1":{t:"Introduction suggestion card", c:"Quiet, dismissable, max 1–2; inputs are needs/offers/non-adjacency", d:"docs/20 §Introductions · docs/30 ADR-12"},
+    "INT-2":{t:"Introduce flow", c:"Introducer consents both sides into contact; neither party auto-connected", d:"docs/20 §Introductions"},
+    "PPL-1":{t:"Contact list", c:"Ladder level + connection state per person; met-in-person context", d:"docs/20 §Relationships"},
+    "PPL-2":{t:"Person sheet", c:"Card view, level change entry, asymmetry label, placeholder entries", d:"docs/20 §Relationships"},
+    "RES-1":{t:"Offer card (browse)", c:"Item, owner, tier badge, via-path; same visibility predicate as events", d:"docs/20 §Resources"},
+    "RES-2":{t:"Request sheet", c:"Request goes to owner as Activity; no public request state", d:"docs/20 §Resources"},
+    "RES-3":{t:"My resources management", c:"Owner lists items w/ per-item tier; Available/Requested/On loan/Returning", d:"docs/20 §Resources"},
+    "RES-4":{t:"Loan state machine", c:"requested→lent→returned→complete; both parties transition independently", d:"docs/20 §Resources"},
+    "RES-5":{t:"Completion check-in", c:"'Do you feel complete?' both sides; 'not yet' visible only to own Close circle", d:"docs/20 §Completions"},
+    "RES-6":{t:"Second-degree extension", c:"Friend asks to offer my item to their web; owner approval required; revocable", d:"docs/20 §Resources"},
+    "ACT-1":{t:"Bell + badge", c:"Badge counts items awaiting ME; no engagement bait", d:"docs/20 §Activity"},
+    "ACT-2":{t:"Activity list", c:"Item types: borrow-request, extension-approval, return-confirm, completion-check-in", d:"docs/20 §Activity"},
+    "YOU-1":{t:"Profile + keys section", c:"Copy reflects signup path (Quick: device-held keys; Advanced: verse)", d:"docs/20 §Onboarding"},
+    "YOU-2":{t:"Visibility dial", c:"Symmetric default; exceptions labeled; off = appear only as private count", d:"docs/20 §Consent"},
+    "YOU-3":{t:"What you offer + Borrowed", c:"Owner-side resource management entry", d:"docs/20 §Resources"},
+    "PLC-1":{t:"Raise a flag (amends)", c:"PLACEHOLDER — restorative process, not punitive strikes; needs community input", d:"docs/70 §Amends"},
+    "PLC-2":{t:"Tag chips", c:"PLACEHOLDER — personal labels forming groups for future blanket permissions", d:"docs/70 §Tags"},
+    "PLC-3":{t:"Blanket permissions by tag", c:"PLACEHOLDER — per-tag permission atoms manager", d:"docs/70 §Tags"}
+  };
+  function setSpec(on){
+    $("phone").setAttribute("data-spec", on ? "on" : "off");
+    $("specBtn").setAttribute("aria-pressed", on ? "true" : "false");
+  }
+  $("specBtn").onclick = function(){
+    setSpec($("phone").getAttribute("data-spec")!=="on");
+  };
+  if (location.hash === "#spec") setSpec(true);
+  $("phone").addEventListener("click", function(e){
+    if ($("phone").getAttribute("data-spec")!=="on") return;
+    if (e.target.closest(".sheet") || e.target.closest(".sheet-veil")) return;
+    var a = e.target.closest("[data-anchor]");
+    if (!a) return;
+    e.preventDefault(); e.stopPropagation();
+    var id = a.getAttribute("data-anchor");
+    var info = ANCHORS[id] || {t:"(unregistered)", c:"Add this ID to the ANCHORS registry + docs/60-anchors.md", d:"—"};
+    openSheet('<div class="grab"></div><span class="spec-sheet-id">'+id+'</span>' +
+      '<h3>'+info.t+'</h3>' +
+      '<div class="path">'+info.c+'</div>' +
+      '<div class="meta">Spec: <b>'+info.d+'</b> · registry: docs/60-anchors.md · rule: CONTRIBUTING.md (three-place)</div>');
+  }, true);
+
   /* ---------- screens ---------- */
   function show(id){
     var scr = document.querySelectorAll(".screen");
@@ -471,6 +555,7 @@
   var VERSE = ["fern","tambor","luz","raíz","brisa","canto","selva","ámbar","puente","cielo","miel","danza"];
   function onb(step){
     var el = $("onbInner");
+    el.setAttribute("data-anchor", step===0 ? "ONB-1" : (step===1 ? "ONB-3" : "ONB-5"));
     if (step===0){
       el.innerHTML =
         '<svg class="foot-svg" viewBox="0 0 48 48"><path d="M20 38c-3 0-5-2.4-5-5.5 0-4.5 3-7.5 3-12C18 14 21 9 26 9s8 5.5 8 11c0 6-3.5 9-6.5 12.5C25.5 35 23 38 20 38z"/><circle cx="16" cy="15" r="1.6"/><circle cx="20" cy="12" r="1.6"/><circle cx="25" cy="10.5" r="1.4"/></svg>' +
@@ -538,6 +623,7 @@
       var ev = list[i];
       var d = document.createElement("div");
       d.className = "card" + (ev.b==="priv" ? " private" : "");
+      d.setAttribute("data-anchor", ev.b==="priv" ? "DIS-3" : "DIS-2");
       d.innerHTML = "<h3>"+ev.t+"</h3><div class='meta'>"+ev.m+"</div>" +
         "<span class='badge "+ev.b+"'>"+ev.bl+"</span>" +
         (ev.via ? "<div class='via'>"+ev.via+"</div>" :
@@ -608,8 +694,8 @@
     var wrap = $("rings"); wrap.innerHTML = "";
     var C = 176, R1 = 78, R2 = 142;
     var ring1 = [
-      {id:"lucia", n:"Lucía", lvl:"Know well", deg:210},
-      {id:"rafa", n:"Rafa", lvl:"Danced together", deg:330}
+      {id:"lucia", n:"Lucía", lvl:"Close friend", deg:210},
+      {id:"rafa", n:"Rafa", lvl:"Friend", deg:330}
     ];
     var ring2 = [
       {id:"bruno", n:"Bruno", via:"Lucía", deg:235},
@@ -665,6 +751,7 @@
       var p = pos[n.key || n.id];
       b.style.left = p[0]+"px"; b.style.top = p[1]+"px";
       if (n.ghost){
+        b.setAttribute("data-anchor","WEB-3");
         b.innerHTML = '<div class="ava ghost">'+n.n+'</div><em class="lvl">held privately</em>';
         b.onclick = function(){
           openSheet('<div class="grab"></div><h3>'+n.n.replace("+","")+' people, held privately</h3>' +
@@ -688,11 +775,11 @@
   }
 
   function levelLabel(){
-    return state.mariaLevel || "Danced together";
+    return state.mariaLevel || "Friend";
   }
 
   function personSheet(n, ring){
-    var html = '<div class="grab"></div><h3>'+n.n+'</h3>';
+    var html = '<div class="grab"></div><div data-anchor="WEB-2"><h3>'+n.n+'</h3></div>';
     if (ring===1){
       var ctx = n.id==="maria" ? "Ecstatic Dance Palermo · today" :
                 (n.id==="lucia" ? "Biodanza — Casa Luna · May" : "Ecstatic Dance Palermo · June");
@@ -738,16 +825,16 @@
 
   /* ---------- host a gathering ---------- */
   var VIS = [
-    {k:"pub",  t:"Everyone", s:"Public — anyone in the city can find it"},
-    {k:"any",  t:"Anyone connected to us", s:"Your web, any closeness"},
-    {k:"danced", t:"Danced together or closer", s:"The trust bar most gatherings use"},
-    {k:"close", t:"Know well only", s:"The inner room"}
+    {k:"pub",     t:"Public", s:"Everyone — even without joining"},
+    {k:"commons", t:"The Commons", s:"Anyone connected to us, any closeness"},
+    {k:"friends", t:"Friends", s:"Friends or closer — the usual bar"},
+    {k:"close",   t:"Close friends", s:"The inner room"}
   ];
   var REACH = { pub:{1:"the whole city",2:"the whole city",3:"the whole city"},
-                any:{1:"about 6 people",2:"about 23 people",3:"about 87 people"},
-                danced:{1:"about 4 people",2:"about 14 people",3:"about 52 people"},
+                commons:{1:"about 6 people",2:"about 23 people",3:"about 87 people"},
+                friends:{1:"about 4 people",2:"about 14 people",3:"about 52 people"},
                 close:{1:"about 2 people",2:"about 6 people",3:"about 19 people"} };
-  var hostState = { vis:"danced", steps:2 };
+  var hostState = { vis:"friends", steps:2 };
 
   function renderHost(){
     var f = $("hostForm");
@@ -834,12 +921,13 @@
 
   function renderCeremony(step){
     var el = $("cerInner");
+    el.setAttribute("data-anchor", step==="idle" ? "CER-1" : "CER-4");
     if (step==="idle"){
       el.innerHTML =
         '<span class="eyebrow">Meet</span>' +
         '<h2>Add someone you just met</h2>' +
         '<p class="sub">On the floor, in the circle, over chai. This takes twenty seconds, face to face.</p>' +
-        '<div class="qr-card"><canvas id="qr" width="210" height="210"></canvas></div>' +
+        '<div class="qr-card" data-anchor="CER-3"><canvas id="qr" width="210" height="210"></canvas></div>' +
         '<p class="offline-note">Works with no signal. The floor doesn’t need wifi.</p>' +
         '<div class="actions">' +
         '<button class="btn btn-electric" id="scanBtn">Scan theirs instead</button>' +
@@ -862,10 +950,11 @@
         '<div class="ctx-chip">☀ Ecstatic Dance Palermo · today</div>' +
         '<p class="sub">Is this the person in front of you?</p>' +
         '<div class="lvl-row">' +
-        '<button class="lvl-pill" data-l="Just met">Just met</button>' +
-        '<button class="lvl-pill" data-l="Danced together">Danced together</button>' +
-        '<button class="lvl-pill" data-l="Know well">Know well</button>' +
+        '<button class="lvl-pill" data-l="Contact">Contact</button>' +
+        '<button class="lvl-pill" data-l="Friend">Friend</button>' +
+        '<button class="lvl-pill" data-l="Close friend">Close friend</button>' +
         '</div>' +
+        '<p class="sub" style="margin-top:10px;font-size:11.5px">Contact = cards only, the easy default. You can grow it later.</p>' +
         '<div class="actions">' +
         '<button class="btn btn-coral" id="confirmBtn" disabled>Yes — this is Maria</button>' +
         '<button class="btn btn-ghost" id="cancel2">Cancel</button>' +
@@ -894,18 +983,18 @@
         '<p class="sub">Maria is confirming you on her phone.</p>';
       setTimeout(function(){
         state.met = true;
-        var opens = state.mariaLevel !== "Just met";
+        var opens = state.mariaLevel !== "Contact";
         state.unlocked = opens; state.justUnlocked = opens;
         renderList();
         $("celebText").textContent = opens
-          ? "You and Maria now hold each other’s thread — " + levelLabel().toLowerCase() + ", at Ecstatic Dance Palermo. Her circle’s Moon Ceremony just opened to you."
-          : "You and Maria now hold each other’s thread — just met, at Ecstatic Dance Palermo. Deeper rooms open as you grow closer.";
+          ? "You and Maria now hold each other’s thread — " + levelLabel().toLowerCase() + "s, at Ecstatic Dance Palermo. Her circle’s Moon Ceremony just opened to you."
+          : "You and Maria now hold each other’s cards — contacts, met at Ecstatic Dance Palermo. Deeper rooms open as you grow closer.";
         $("seeOpened").style.display = opens ? "" : "none";
         show("celebrate");
         confetti();
         $("coachText").innerHTML = opens
           ? "Now check <b>Discover</b> and <b>Your Web</b>"
-          : "“Just met” doesn’t open the Moon Ceremony — levels have teeth";
+          : "“Contact” doesn’t open the Moon Ceremony — levels have teeth";
       }, reduced ? 500 : 2100);
     }
   }
