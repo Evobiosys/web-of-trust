@@ -1,18 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { MockBus, MockTransport } from "./mock_transport.js";
 import type { Envelope, RoomContext } from "@resource-web/protocol";
-
-const REQUEST_ID = "5f1e5c2a-9d3e-4a2b-8f1a-1e2d3c4b5a6f";
-const TS = "2026-01-01T00:00:00.000Z";
-
-/** One fixture envelope per type (§ DoD: all five must round-trip). */
-const FIXTURES: Envelope[] = [
-  { v: "0.1", type: "REQUEST", request_id: REQUEST_ID, ts: TS, body: { text: "Looking for a drill", ttl: 3_600_000 } },
-  { v: "0.1", type: "STATUS", request_id: REQUEST_ID, ts: TS, body: { state: "PASS" } },
-  { v: "0.1", type: "CONSENT", request_id: REQUEST_ID, ts: TS, body: { conditions: "weekends only" } },
-  { v: "0.1", type: "INTRO", request_id: REQUEST_ID, ts: TS, body: { room_id: "room-1" } },
-  { v: "0.1", type: "WITHDRAWN", request_id: REQUEST_ID, ts: TS, body: { reason: "fulfilled" } },
-];
+import { ENVELOPE_FIXTURES as FIXTURES, FIXTURE_REQUEST_ID as REQUEST_ID } from "./test_support/envelope_fixtures.js";
 
 /** Flushes the MockBus's queued microtask delivery. */
 async function flush(): Promise<void> {
@@ -60,13 +49,23 @@ describe("MockTransport", () => {
     expect(received.map((e) => e.type)).toEqual(FIXTURES.map((f) => f.type));
   });
 
-  it("never delivers to a peer that did not initialize", async () => {
+  it("never delivers to a peer that did not initialize, and delivers nowhere else on the bus either", async () => {
     const strangerBus = new MockBus();
     const anna2 = new MockTransport(strangerBus);
+    const ben2 = new MockTransport(strangerBus);
     await anna2.init({ self: "@anna:mock" });
-    // no error, no throw — message simply isn't delivered to an unregistered peer
+    await ben2.init({ self: "@ben:mock" });
+
+    const ben2Received: Envelope[] = [];
+    ben2.onEnvelope((_from, env) => ben2Received.push(env));
+
+    // "@ghost:mock" never called init() on this bus.
     await expect(anna2.send("@ghost:mock", FIXTURES[0])).resolves.toBeUndefined();
     await flush();
+
+    // Not just "no throw" — assert the envelope was actually dropped, not
+    // misdelivered to some other registered peer on the same bus.
+    expect(ben2Received).toHaveLength(0);
   });
 
   it("supports multiple peers exchanging envelopes independently", async () => {

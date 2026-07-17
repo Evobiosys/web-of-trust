@@ -125,27 +125,39 @@ independent of whether E2EE is ever invoked:
   `agent-daemon`/`device-ui` worktrees, per this sprint's worktree-isolation
   process.
 
-**Fix shipped**: `packages/transport/src/matrix_crypto_stub.ts` patches
-Node's CJS loader (`Module._load`) to return an empty object for that one
-specifier instead of throwing, installed as the first import in every file
-that touches `matrix-bot-sdk`. This is safe because nothing at
-*module-evaluation* time in `CryptoClient.js`/`RustEngine.js` touches the
+**Fix shipped — probe, then patch only if needed**:
+`packages/transport/src/matrix_crypto_stub.ts` first *attempts the real*
+`require("@matrix-org/matrix-sdk-crypto-nodejs")` (via `createRequire`).
+If that succeeds — a working native binary genuinely is present, on this
+machine or a future one — the module stays exactly as Node's module cache
+loaded it and **nothing further happens**: `Module._load` is left untouched,
+every later `require` of that specifier (including from within
+`matrix-bot-sdk`) resolves to the real, working module. Only if the probe
+*throws* (no platform binary, corrupt file, etc. — the case on this
+development machine today) does the code fall through to patch
+`Module._load`, returning an empty object for that one specifier instead of
+propagating the error. Installed as the first import in every file in this
+package that touches `matrix-bot-sdk`. Safe on both paths, because nothing
+at *module-evaluation* time in `CryptoClient.js`/`RustEngine.js` touches the
 native module's exports — every reference is inside instance methods that
 only execute if a `MatrixClient` is constructed **with** a
-`RustSdkCryptoStorageProvider`, which `MatrixTransport` never does. The stub
-is scoped entirely to this package's own source files (no root config
-touched) and is fully documented in that file's header, including the exact
-empirical evidence above.
+`RustSdkCryptoStorageProvider`, which `MatrixTransport` never does either
+way. The stub is scoped entirely to this package's own source files (no
+root config touched); `matrix_crypto_stub.test.ts` asserts the probe-then-
+patch contract directly (idempotent, never throws either way, and documents
+which branch this development machine currently takes).
 
-**Important for whoever picks this up next**: the stub returns `{}`
-*unconditionally* for that module specifier — it does not detect whether a
-working native binary is actually present. So on a future machine (or this
-one, once network policy allows the vendor's own downloader to run) where
-the real binary **is** available, the stub as shipped will keep silently
-suppressing it rather than letting E2EE start working. Re-enabling E2EE
-requires *removing or conditionally-guarding* `matrix_crypto_stub.ts`
-(e.g., only install the patch if a real-binary probe fails), not merely
-fixing the binary availability and leaving the stub in place.
+**What this means for whoever picks up E2EE next**: the platform-availability
+half of the problem now takes care of itself — drop this package onto a
+machine/container where the native binary loads (a future darwin build,
+linux-arm64, whatever), and the probe succeeds, the patch never installs,
+and the real crypto engine is live with **zero code changes**. But E2EE is
+still [S3] either way: `MatrixTransport` doesn't construct a
+`RustSdkCryptoStorageProvider` or pass a `cryptoStore` to `MatrixClient`
+today, so even where the binary loads cleanly, rooms stay unencrypted until
+that wiring is added as its own piece of work. This file only removes
+"binary can't load" as a reason encryption can't work — it doesn't implement
+encryption.
 
 **Net effect**: rooms are **unencrypted** in v0 (consistent with I7 — v0 is
 already honestly labeled not-zero-knowledge; this is one more instance of
@@ -159,10 +171,17 @@ risk per process; main-thread integrator should append): *E2EE deferred to
 `@matrix-org/matrix-sdk-crypto-nodejs` is architecturally unavailable on at
 least one contributor's platform (darwin-arm64) under this project's
 network policy — this is an environment/supply-chain constraint, not a
-matrix-bot-sdk API gap. Revisit if/when: (a) LuLu/network policy is relaxed
-for `github.com` release-asset fetches so `pnpm approve-builds` can run the
-vendor's own downloader, or (b) a future `matrix-bot-sdk`/native-module
-release ships darwin-arm64 via npm `optionalDependencies` directly.*
+matrix-bot-sdk API gap. `matrix_crypto_stub.ts` ships a probe-then-patch
+workaround (real binary wins if present; suppression only where it
+genuinely can't load) so this stops being a per-machine landmine — but
+`MatrixTransport` still never wires up a `RustSdkCryptoStorageProvider`, so
+E2EE remains unimplemented (not merely unblocked) regardless of platform.
+Revisit if/when: (a) LuLu/network policy is relaxed for `github.com`
+release-asset fetches so `pnpm approve-builds` can run the vendor's own
+downloader, or (b) a future `matrix-bot-sdk`/native-module release ships
+darwin-arm64 via npm `optionalDependencies` directly — either way, the next
+step is wiring `RustSdkCryptoStorageProvider` into `MatrixTransport.init`,
+not just fixing binary availability.*
 
 ## 6. MockTransport
 

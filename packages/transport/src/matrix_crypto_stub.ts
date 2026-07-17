@@ -17,23 +17,28 @@
 // `import { MatrixClient } from "matrix-bot-sdk"` throws MODULE_NOT_FOUND on
 // this platform, before any crypto feature is ever touched.
 //
-// Fix: patch Node's CJS loader to return an empty stub object for that one
-// module specifier instead of throwing. This is safe because nothing at
-// *module-evaluation* time in CryptoClient.js/RustEngine.js touches the
-// native module's exports — every reference is inside instance methods that
-// only run if a MatrixClient is constructed WITH a RustSdkCryptoStorageProvider
-// (which MatrixTransport never does — see [S3] in docs/TRANSPORT.md). The stub
-// is imported (for its side effect) before any `matrix-bot-sdk` import in
-// every file in this package that touches matrix-bot-sdk.
+// Fix: probe first — attempt the real `require(NATIVE_CRYPTO_MODULE)` once.
+// If it succeeds (a working native binary IS present — a future darwin
+// build, a linux-arm64 container, whatever), do nothing at all: the real
+// module stays in Node's module cache from the probe and every subsequent
+// `require` of it (from CryptoClient.js/RustEngine.js) resolves normally,
+// crypto works as matrix-bot-sdk intends. Only if the probe throws do we
+// patch Node's CJS loader (`Module._load`) to return an empty stub object
+// for that one specifier instead of propagating the error. This is safe
+// because nothing at *module-evaluation* time in CryptoClient.js/RustEngine.js
+// touches the native module's exports — every reference is inside instance
+// methods that only run if a MatrixClient is constructed WITH a
+// RustSdkCryptoStorageProvider (which MatrixTransport never does — see
+// [S3] in docs/TRANSPORT.md). The probe is imported (for its side effect)
+// before any `matrix-bot-sdk` import in every file in this package that
+// touches matrix-bot-sdk.
 //
-// IMPORTANT for whoever re-enables E2EE later: this patch is UNCONDITIONAL —
-// it does not probe whether a real native binary is actually available before
-// stubbing it out. So on a future machine/environment where the binary DOES
-// load correctly, this file will keep silently suppressing it rather than
-// letting E2EE work. Re-enabling E2EE means removing this file (or making it
-// conditional on a real-binary probe failing), not just fixing binary
-// availability elsewhere.
-import Module from "node:module";
+// Note: even when the real binary loads, MatrixTransport still never
+// constructs a RustSdkCryptoStorageProvider today, so E2EE remains [S3]
+// (unimplemented, not merely unblocked) either way — this file only ensures
+// the binary's *presence or absence* is never the reason crypto can't work;
+// wiring it up is separate, future work.
+import Module, { createRequire } from "node:module";
 
 const NATIVE_CRYPTO_MODULE = "@matrix-org/matrix-sdk-crypto-nodejs";
 
@@ -46,8 +51,28 @@ let installed = false;
 export function ensureMatrixCryptoStub(): void {
   if (installed) return;
   installed = true;
+
   const moduleWithLoad = Module as LegacyModuleLoader;
   const originalLoad = moduleWithLoad._load.bind(Module);
+
+  try {
+    // Probe: does the real native module actually load on this platform?
+    // `createRequire` gives us a proper CJS `require` (this file is ESM, so
+    // there's no ambient `require`/`module` to call `Module._load` with
+    // directly) — resolution happens exactly as it would for matrix-bot-sdk's
+    // own `require(...)` calls, from this same node_modules tree.
+    createRequire(import.meta.url)(NATIVE_CRYPTO_MODULE);
+    // It loaded — leave Module._load untouched. The successful require above
+    // is already in Node's shared module cache (keyed by resolved path, not
+    // by which `require` performed the load), so every later require of the
+    // same specifier — including from within matrix-bot-sdk — resolves to
+    // the cached real module without needing this patch at all.
+    return;
+  } catch {
+    // It doesn't (missing platform binary, corrupt file, etc.) — fall
+    // through and install the suppressing patch below.
+  }
+
   moduleWithLoad._load = (request: string, parent: unknown, isMain: boolean) => {
     if (request === NATIVE_CRYPTO_MODULE) {
       return {};

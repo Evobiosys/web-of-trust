@@ -8,6 +8,7 @@ import type { MatrixClient } from "matrix-bot-sdk";
 import type { Envelope } from "@resource-web/protocol";
 import { MatrixTransport } from "./matrix_transport.js";
 import { loadMatrixTestEnv, isSynapseReachable, uniqueTestLocalpart } from "./test_support/live_synapse.js";
+import { ENVELOPE_FIXTURES as FIXTURES, FIXTURE_REQUEST_ID as REQUEST_ID } from "./test_support/envelope_fixtures.js";
 
 // matrix-bot-sdk logs every non-2xx HTTP response at ERROR level, including
 // the expected "M_NOT_FOUND: Account data not found" on a brand-new account's
@@ -31,18 +32,6 @@ if (!synapseUp) {
       "(see task-m2t-brief.md § Local synapse). Set it before running the integration tests."
   );
 }
-
-const REQUEST_ID = "5f1e5c2a-9d3e-4a2b-8f1a-1e2d3c4b5a6f";
-const TS = "2026-01-01T00:00:00.000Z";
-
-/** One fixture envelope per type (§ DoD: all five must round-trip). */
-const FIXTURES: Envelope[] = [
-  { v: "0.1", type: "REQUEST", request_id: REQUEST_ID, ts: TS, body: { text: "Looking for a drill", ttl: 3_600_000 } },
-  { v: "0.1", type: "STATUS", request_id: REQUEST_ID, ts: TS, body: { state: "PASS" } },
-  { v: "0.1", type: "CONSENT", request_id: REQUEST_ID, ts: TS, body: { conditions: "weekends only" } },
-  { v: "0.1", type: "INTRO", request_id: REQUEST_ID, ts: TS, body: { room_id: "placeholder" } },
-  { v: "0.1", type: "WITHDRAWN", request_id: REQUEST_ID, ts: TS, body: { reason: "fulfilled" } },
-];
 
 /** Matrix delivery is async (sync long-polling) — never assert immediately after send(). */
 async function waitFor(predicate: () => boolean | Promise<boolean>, { timeoutMs = 25_000, intervalMs = 250 } = {}): Promise<void> {
