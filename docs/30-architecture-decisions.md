@@ -1,7 +1,7 @@
 # 30 — Architecture Decisions (all OPEN — the implementation team decides)
 
-Each ADR: context → options → a recommendation from the UX side → **status: OPEN**. Close one by
-editing it with the decision, date, and who decided. The mockup and `docs/20` state *observable
+Fourteen ADRs. Each: context → options → a recommendation from the UX side → **status: OPEN**.
+Close one by editing it with the decision, date, and who decided. The mockup and `docs/20` state *observable
 requirements*; these ADRs are the *mechanisms*. Nothing here is pre-decided.
 
 Reference stack throughout: Anton's `real-life-org/web-of-trust` (`@web_of_trust/core` — did:key,
@@ -142,4 +142,43 @@ the user's own web already shares with them.
 (wider; server learns needs) vs. opt-in shared "notice board" space per community.
 **Recommendation.** On-device only for the prototype — every input is data the user can already
 see, so the feature adds zero new disclosure. Revisit if match quality disappoints.
+**Status: OPEN.**
+
+## ADR-13 · Replay-resistant handshake presentation ("dancing QR")
+**Context.** A static handshake QR can be screenshotted or screen-recorded and replayed by someone
+who was never in the room, spoofing an in-person meeting (20 §Handshake security note). Transit
+and event-ticketing systems solve this with continuously refreshing barcodes — the code visibly
+"dances," so a still image or recording is stale within seconds (the pattern behind rotating
+transit codes and anti-screenshot event tickets: a device-held seed generates time-boxed tokens,
+TOTP-style).
+**Options.**
+(a) Static QR + single-use nonce + short TTL (seconds-to-minutes) — cheap, kills replay-later,
+doesn't stop a live relay of the screen.
+(b) Rolling/animated QR: payload chunks + a TOTP-style rotating token rendered as a refreshing
+code (~1s cadence); scanner must capture a live sequence. Real research owed: library support,
+scan reliability outdoors/in low light, battery.
+(c) NFC-primary (proximity is inherently replay-resistant), QR as fallback.
+**Also weigh:** the ceremony already requires BOTH humans to confirm the person in front of them,
+and the counter-attestation completes only mutually — which bounds how much a stolen QR yields
+(a one-way pending connection the victim never confirms). The attack worth modeling is social:
+tricking someone into confirming a remote stranger.
+**Recommendation.** (a) for the prototype — nonce + TTL is nearly free. Commission the (b)
+research before pilot (deeper dive owed; treat "dancing code" as the target UX), and treat (c) as
+the native-app bonus.
+**Status: OPEN.**
+
+## ADR-14 · Messaging transport + intro-gating enforcement
+**Context.** v7 adds Chat: DMs within ring 1, second-ring messaging only via a mutual's
+introduction, anonymous offerers reachable only that way (20 §Chat). The reference stack already
+has E2E encrypted channels (pairwise ECIES; group Spaces) — transport is largely solved.
+**Options for enforcement of the intro gate.** Client-side convention (UI simply offers no
+compose path without a relationship; a hostile client could still send — relay delivers
+ciphertext blindly) vs. relay-side policy (relay refuses envelopes between parties without a
+mutual attestation — requires the relay to know who's connected, leaking graph edges) vs.
+recipient-side filtering (deliver-then-drop: the recipient's client discards non-ring-1 senders;
+no server knowledge, spam costs the recipient nothing visible).
+**Recommendation.** Client convention + recipient-side filtering — no new server knowledge, and
+unsolicited envelopes from non-connections are silently dropped (consistent with
+invisible-not-locked). Introductions then work naturally: the mutual's intro hands each party the
+other's card, creating the addressable relationship.
 **Status: OPEN.**

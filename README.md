@@ -16,21 +16,28 @@ phone frame with a collaborators panel.
 
 ## The golden demo path
 
-1. From the welcome screen, tap **Just look around** — browse public events logged-out, tap a
-   gated interaction to see the join pitch.
-2. Go back and choose **Quick signup** (note the Advanced option beside it), pick your name.
-3. Tap the center **Meet** shutter: the share composer. Note the level presets (Contact is
-   default), the channel row, and the Advanced permissions fold. Tap **Scan theirs instead**.
-4. The simulated scan finds **Maria**. Choose **Friend**, confirm. Watch the celebration — then
-   **See what opened**: the Moon Ceremony appears in Discover. (Redo with **Contact** and it
-   stays closed: levels gate depth.)
-5. In **Discover → Offers**, request Lucía's speakers. Open the **bell (Activity)** to walk the
-   loan loop: lent → returned → "Do you feel complete?" on both sides.
-6. In Activity, approve Rafa's request to extend your cacao offer to his web (second-degree).
-7. In **Your Web**, see the rings, tap Bruno ("⚠ sees you: no" — labeled asymmetry), and act on
-   the quiet introduction suggestion below the rings.
-8. Tap **＋ Host** in Discover: pick a tier (Public / The Commons / Friends / Close friends),
-   watch the reach list update; steps live under Advanced.
+Tabs are **Discover · Chat · Meet (center shutter) · Web · You**.
+
+1. On the welcome screen, tap **Just look around** — browse public events logged-out; any gated
+   tap shows the join pitch. Come back via **Join the web of trust**.
+2. Choose **Quick start** (Advanced sits beside it, greyed — held for later), pick your name.
+3. Tap the center **Meet** shutter: the share composer. Level presets (Contact default), QR/NFC
+   channels (AirDrop greyed), Advanced permissions fold — then **Scan theirs instead**, right
+   under the code.
+4. The simulated scan finds **Maria**. Choose **Friend**, confirm. Celebration — then **See what
+   opened**: the Moon Ceremony appears in Discover. (Redo with **Contact** and it stays closed:
+   levels gate depth.)
+5. In **Discover → Offers**, request Lucía's speakers. Open **Chat** to walk the loan loop:
+   lent → returned → "Do you feel complete?" — and answer Rafa's cacao ask ("Share it / Keep it
+   close").
+6. In **Web**, see the rings: Lucía's mint offer dot, Bruno's labeled asymmetry ("⚠ sees you:
+   no"), the anonymous "Someone · offers a projector · via Maria" node, and the quiet
+   introduction suggestion below. Flip the segment to **People** for the list view.
+7. In **Chat**, open a thread — messages ride the same thread you wove; second-ring people need
+   an introduction first.
+8. Tap **＋ Host** in Discover: pick a tier (Public / The Commons / Friends / Close friends) and
+   watch the reach names update; steps live under Advanced. Check **You → Settings** for where
+   your keys live.
 
 ## Spec mode (for implementers)
 

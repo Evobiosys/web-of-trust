@@ -123,6 +123,34 @@ option you're about to re-propose.
 - **Why:** The public tier should actually be public — requiring an account to see public events
   would undercut the whole point of the tier.
 
+## r7 — Zach's review round (2026-07-17, applied in v7)
+
+- **One-screen onboarding.** Quick / Advanced signup cards live directly on "Step onto the
+  floor," beside "Just look around." Fewer steps, less friction. Back buttons throughout
+  (name→welcome, guest→welcome, Settings→You). Rejected: the separate signup step.
+- **Advanced signup deferred.** The card is a greyed placeholder (verse/server render code
+  retained in-file, unwired). The prototype relies on Quick only; Advanced upgrades in place
+  later via Settings.
+- **No private counts.** "+N held privately" removed from the rings: what you can't see doesn't
+  render at all (WEB-3 retired). Supersedes r4's aggregate-count compromise.
+- **Tabs: Discover · Chat · Meet · Web · You.** Chat absorbs the activity feed (requests, lends,
+  check-ins, extension asks) and holds DM threads; the People list becomes a segment inside Web;
+  header bells removed; the badge lives on the Chat tab. Meet shutter now carries a visible label.
+- **Offer badges + anonymous offers.** People offering you something show a mint dot on their
+  ring node; offers mirror onto your node in others' webs (WEB-5). Someone can offer an item
+  through the web without revealing name or contact — reachable only via the mutual's
+  introduction (RES-7).
+- **Messaging is intro-gated.** DMs within ring 1; second-ring messaging only after an
+  introduction, consent first.
+- **Channels tightened.** Link removed entirely; AirDrop visible but disabled (deferred); QR
+  default, NFC active. Replay-resistance ("dancing QR") noted as research — ADR-13.
+- **You screen.** "Borrowed by you" split out of "What you offer"; new Settings subscreen under
+  You holds Your keys, the advanced-upgrade placeholder, and the source pointer (YOU-4).
+- **Second-degree ask, plain copy.** "Rafa wants his web to know about your cacao. Share the
+  offer one ring further, through him?" + "You still approve every borrower."
+- **Ceremony fixes.** Scan action always reachable (scrollable ceremony, button directly under
+  the code); composer order tightened.
+
 ## Design-law constraints (carried throughout)
 
 - Ego rings, never global graphs.

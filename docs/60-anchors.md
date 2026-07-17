@@ -15,9 +15,9 @@ Retired table below (IDs are permanent).
 | ID | Surface | Contract (one line) | Spec § | Status |
 |---|---|---|---|---|
 | ONB-1 | Welcome / threshold screen | Entry offers signup or logged-out browsing; identity is device-local, no account | 20 §Onboarding | Spec'd |
-| ONB-2 | Quick vs Advanced signup | Two equal paths side-by-side with explainers; Quick = auto-managed keys, Advanced = verse + server choice | 20 §Onboarding · 30 ADR-6 | Spec'd |
-| ONB-3 | Recovery verse (Advanced) | 12-word phrase display + keep confirmation; only path back without export | 20 §Onboarding · 30 ADR-7 | Spec'd |
-| ONB-4 | Server pick + view source (Advanced) | Relay/server selectable at signup; source link communicated | 20 §Onboarding · 30 ADR-5 | Spec'd |
+| ONB-2 | Quick vs Advanced signup (on the welcome screen) | One screen: Quick card active, Advanced card greyed placeholder with explainer sheet | 20 §Onboarding · 30 ADR-6 | Spec'd |
+| ONB-3 | Recovery verse (Advanced) | 12-word phrase display + keep confirmation — render code retained, unwired | 20 §Onboarding · 30 ADR-7 | Placeholder |
+| ONB-4 | Server pick + view source (Advanced) | Relay/server selectable at signup — render code retained, unwired | 20 §Onboarding · 30 ADR-5 | Placeholder |
 | ONB-5 | Name entry | Display name is self-asserted, editable, not unique | 20 §Onboarding | Spec'd |
 
 ## DIS — Discover
@@ -44,7 +44,7 @@ Retired table below (IDs are permanent).
 
 | ID | Surface | Contract (one line) | Spec § | Status |
 |---|---|---|---|---|
-| CER-1 | Share composer (level presets + channels) | Offered level preset (Contact default); channel = QR/NFC/AirDrop/link carrying same payload | 20 §Handshake | Spec'd |
+| CER-1 | Share composer (level presets + channels) | Offered level preset (Contact default); channels: QR default + NFC active, AirDrop disabled (deferred); Link removed | 20 §Handshake | Spec'd |
 | CER-2 | Advanced atomic permissions | Pre-share permission atoms (context-limit, sharing types); skippable, adjustable later | 20 §Permissions | Spec'd |
 | CER-3 | QR / handshake payload | Payload carries DID, name, enc key, nonce, ts, offered level; works offline | 20 §Handshake | Spec'd |
 | CER-4 | Scan + confirm | Human confirms the person (face/name), picks level; auto-filled event context | 20 §Handshake | Spec'd |
@@ -56,7 +56,7 @@ Retired table below (IDs are permanent).
 |---|---|---|---|---|
 | WEB-1 | Rings layout | Ego-centric rings (never a global graph); ring 1 = direct, ring 2 = through-connections | 20 §Web view | Spec'd |
 | WEB-2 | Person node + path sheet | Named path explanations ("You ⟷ Maria ⟷ Sofía"); no numeric trust values | 20 §Web view | Spec'd |
-| WEB-3 | Consent clusters | Non-consenting second-ring people appear only as "+N held privately" | 20 §Consent | Spec'd |
+| WEB-5 | Offer badges on nodes | People offering you something show a mint dot; your offers mirror on your node in their webs | 20 §Resources | Spec'd |
 | WEB-4 | Asymmetry labeling | Symmetric by default; one-way visibility always labeled "⚠ sees you: no" | 20 §Consent | Spec'd |
 
 ## INT — Introductions
@@ -83,13 +83,14 @@ Retired table below (IDs are permanent).
 | RES-4 | Loan state machine | requested→lent→returned→complete; both parties transition independently | 20 §Resources | Spec'd |
 | RES-5 | Completion check-in | "Do you feel complete?" both sides; never stars; "not yet" visible only to own Close circle | 20 §Completions | Spec'd |
 | RES-6 | Second-degree extension | Friend asks to offer my item to their web; owner approval required; revocable | 20 §Resources | Spec'd |
+| RES-7 | Anonymous offer via mutual | Offer visible, identity withheld; connection only through the mutual's introduction | 20 §Resources | Spec'd |
 
-## ACT — Activity
+## ACT — Chat (activity + messages)
 
 | ID | Surface | Contract (one line) | Spec § | Status |
 |---|---|---|---|---|
-| ACT-1 | Bell + badge | Badge counts items awaiting ME (requests, approvals, check-ins); no engagement bait | 20 §Activity | Spec'd |
-| ACT-2 | Activity list + item types | Item types: borrow-request, extension-approval, return-confirm, completion-check-in, level-change | 20 §Activity | Spec'd |
+| ACT-1 | Chat tab badge | Badge counts items awaiting ME (requests, approvals, check-ins); no engagement bait | 20 §Chat | Spec'd |
+| ACT-2 | Chat feed | Message threads (intro-gated DMs) + activity items: borrow-request, extension-approval, return-confirm, completion-check-in, level-change | 20 §Chat | Spec'd |
 
 ## YOU — Profile
 
@@ -97,7 +98,8 @@ Retired table below (IDs are permanent).
 |---|---|---|---|---|
 | YOU-1 | Profile + keys section | Copy reflects signup path (Quick: device-held keys; Advanced: verse) | 20 §Onboarding | Spec'd |
 | YOU-2 | Visibility dial | "Show me to people my people trust" — symmetric default, exceptions labeled | 20 §Consent | Spec'd |
-| YOU-3 | What you offer + Borrowed | Owner-side resource management entry | 20 §Resources | Spec'd |
+| YOU-3 | What you offer | Owner-side resource management entry ("Borrowed by you" is a separate card) | 20 §Resources | Spec'd |
+| YOU-4 | Settings | Keys, upgrade-to-advanced placeholder, source — subscreen under You | 20 §Onboarding | Spec'd |
 
 ## PLC — Placeholders
 
@@ -107,8 +109,12 @@ Retired table below (IDs are permanent).
 | PLC-2 | Tag chips on person sheet | Greyed #tags; groups of people for future blanket permissions | 70 §Tags | Placeholder |
 | PLC-3 | Blanket permissions by tag | Greyed manager entry under You | 70 §Tags | Placeholder |
 
+## PPL note
+PPL-1/PPL-2 now live inside the **Web tab** (Rings | People segment) — the standalone People tab
+was removed in v7.
+
 ## Retired
 
 | ID | Was | Retired when / why |
 |---|---|---|
-| — | — | — |
+| `WEB-3` | Consent clusters ("+N held privately") | v7 (2026-07-17) — decision: what you can't see doesn't render at all; no aggregate counts. Non-consenting people are simply absent. |

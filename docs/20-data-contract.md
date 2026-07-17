@@ -28,10 +28,17 @@ Level = contact | friend | close        (ordered: contact < friend < close)
 
 The in-person ceremony produces a **mutual attestation pair**. Requirements:
 
-- **Payload** (CER-3), carried identically by QR / NFC / AirDrop / link: initiator identifier
+- **Payload** (CER-3), carried identically by any channel — **QR (default) and NFC** for the
+  prototype; AirDrop deferred (disabled in UI); bare links removed (v7): initiator identifier
   (DID), display name, encryption public key, nonce, timestamp, **offered level**, and the
   permission atoms preselected in the composer (§Permissions). Must work **offline**: acceptance
   may be queued (outbox) and delivered when connectivity returns.
+- **Replay resistance** (CER-3 security note): a static QR can be screenshotted or
+  screen-recorded and presented later by someone who was never on the floor. Minimum bar for the
+  prototype: single-use nonce + short TTL, so a captured code dies quickly. Desired direction: an
+  **animated/rolling code** (transit-ticket style — the pattern refreshes continuously so a still
+  or recording can't be replayed). Mechanism + whether the mutual face-confirmation already
+  bounds this risk: **docs/30 ADR-13**.
 - **Confirmation** (CER-4): the accepting party sees name + avatar and confirms the *human*, then
   picks a level (preselected to the offered level). **Event context is auto-attached** when the
   handshake happens at a known event ("met at Ecstatic Dance Palermo, 2026-07-17") — context is a
@@ -62,19 +69,19 @@ grant = { context_limit?: "ecstatic-dance",   // connection scoped to a communit
   over per-tag grants.
 
 ## Consent, second rings, and asymmetry
-`WEB-3, WEB-4, YOU-2, HST-4`
+`WEB-4, YOU-2, HST-4`
 
 - **The dial** (`YOU-2`): "show me to people my people trust." When ON, my name may appear in the
-  second ring of people my connections connect with; when OFF I appear only inside aggregate
-  counts ("+N held privately"). Per-person overrides via the relationship grant.
+  second ring of people my connections connect with; when OFF **I simply do not appear there at
+  all** — v7 ruling: what a viewer cannot see is not represented, not even as an aggregate count
+  (retired `WEB-3`; the gossip layer must not carry non-consenting identities OR countable
+  residue, ADR-3). Per-person overrides via the relationship grant.
 - **Symmetric by default; exceptions labeled** (`WEB-4`): visibility defaults to mutual. A party
   may go one-way private, but the UI must ALWAYS be able to render the asymmetry ("sees you: no")
   — so the data layer must expose, for any visible second-ring person, whether the reverse
   direction holds. Silent asymmetry is a contract violation.
-- **Aggregate counts must not leak identity**: "+N" is safe only if N can't be diffed to reveal
-  who toggled (implementation note for gossip design, ADR-3).
-- **Reach lists** (`HST-4`): host-side previews show ONLY consenting people's names + a private
-  count. Never enumerate non-consenting people to the host.
+- **Reach lists** (`HST-4`): host-side previews show ONLY consenting people's names plus an
+  approximate remainder. Never enumerate non-consenting people to the host.
 
 ## Event visibility — the invisibility predicate
 `DIS-2..DIS-4, HST-1..HST-5`
@@ -127,13 +134,23 @@ completion = { loanId, party, felt_complete: bool, note?: text, ts }
   their own people's future lending decisions). Nothing is ever public or global.
 
 **Second-degree extension** (`RES-6`): a friend may request to re-offer my item one ring further
-*through them*:
+*through them* (surface copy: "X wants his web to know about your cacao. Share the offer one ring
+further, through him?" — plain, one sentence):
 
 ```
 extension = { offerId, via: personId, granted_by_owner: bool, revocable: always }
 ```
 
 Borrow requests arriving via an extension still require **owner approval** per loan.
+
+**Offer badges on web nodes** (`WEB-5`): anyone whose offer is visible to me shows an offer mark
+on their node in MY rings view; symmetrically, my visible offers mark my node in THEIR webs. The
+badge derives from the same visibility predicate — no extra disclosure.
+
+**Anonymous offers** (`RES-7`): an offer may be published with `identity_withheld: true` — the
+item and the via-path render ("Someone · offers a projector · via Maria") but no name, card, or
+contact. The only route to the person is the mutual's introduction (§Messaging). Data
+requirement: the offer record must be presentable without any holder-identifying fields.
 
 ## Introductions
 `INT-1, INT-2`
@@ -148,21 +165,28 @@ Borrow requests arriving via an extension still require **owner approval** per l
   their own in-person ceremony. (Card-sharing consent is implied by the card's existing share
   grant to the introducer; if absent, ask.)
 
-## Activity
-`ACT-1, ACT-2`
+## Chat (messages + activity)
+`ACT-1, ACT-2` · new in v7: the Chat tab replaces the People tab and the bell overlay.
 
-Item types: `borrow_request · extension_approval · loan_update (lent/returned) ·
-completion_checkin · connection_pending · level_change`. Badge counts **only items awaiting the
-user's action** — it is an inbox, not an engagement surface. No streaks, no red-dot bait, nothing
-fires for passive events.
+**Activity items**: `borrow_request · extension_approval · loan_update (lent/returned) ·
+completion_checkin · connection_pending · level_change`. The Chat tab badge counts **only items
+awaiting the user's action** — it is an inbox, not an engagement surface. No streaks, no red-dot
+bait, nothing fires for passive events.
+
+**Direct messages**: ride the E2E pairwise channel created at the handshake (transport: ADR-14).
+**Intro-gating rule**: DMs are available within ring 1 (any level, Contact included — you met in
+person). A second-ring person can NOT be messaged directly; the path is the mutual's introduction
+(`INT-2`), which requires both sides' consent. Anonymous offerers (`RES-7`) are reachable only
+this way. Enforcement locus: ADR-14.
 
 ## Onboarding & keys
 `ONB-1..ONB-5, YOU-1`
 
 - **Quick path**: keys generated and held on-device (platform secure storage, biometric/PIN
-  unlock), zero writing-down. **Advanced path**: 12-word recovery phrase + backup-server choice +
-  view-source affordance. Both paths yield the SAME identity type — Quick can upgrade to Advanced
-  later (custody mechanism: ADR-6; recovery: ADR-7).
+  unlock), zero writing-down. **Advanced path (deferred, v7)**: 12-word recovery phrase +
+  backup-server choice + view-source — presented as a greyed placeholder on the single welcome
+  screen; the prototype ships Quick-only, and Advanced later upgrades in place (Settings, `YOU-4`).
+  Both paths yield the SAME identity type (custody mechanism: ADR-6; recovery: ADR-7).
 - Display name is self-asserted, non-unique, editable. No accounts, no email/phone required.
 - Guest mode requires **no identity**: public browse only.
 
