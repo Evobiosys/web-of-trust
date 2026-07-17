@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+reference/
+.remember/
+.superpowers/
+*.log
+.DS_Store
+snapshots/*/
+!snapshots/index.html
+infra/synapse/data/
+packages/*/coverage/
+apps/*/coverage/
+*.sqlite
+*.sqlite3

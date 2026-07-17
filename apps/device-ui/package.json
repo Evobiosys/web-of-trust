@@ -1,0 +1,7 @@
+{
+  "name": "@resource-web/device-ui",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "echo 'device-ui scaffold — real Vite app lands at M3'", "test": "echo 'no tests yet'", "typecheck": "echo ok" }
+}

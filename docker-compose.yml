@@ -1,0 +1,21 @@
+# Hermetic-by-default sim. `podman compose --profile local up` (docker absent on this host — DECISIONS.md D3).
+# --profile jakob swaps in the real homeserver + host ollama via .env.
+services:
+  synapse:
+    image: docker.io/matrixdotorg/synapse:latest
+    profiles: ["local"]
+    environment:
+      SYNAPSE_SERVER_NAME: "wot.local"
+      SYNAPSE_REPORT_STATS: "no"
+    volumes:
+      - ./infra/synapse/data:/data
+    ports:
+      - "8008:8008"
+
+  ollama:
+    image: docker.io/ollama/ollama:latest
+    profiles: ["local-llm"]   # heavy; host ollama preferred (D4). Enable only for a fully hermetic run.
+    ports:
+      - "11435:11434"
+
+  # device-anna / device-ben / dashboard containers are added at M2/M3.
