@@ -12,8 +12,27 @@ Mechanism: unlinkability by protocol — uniform STATUS schedule (default 30 s, 
 | Asker's own agent process | Technically sees which peer sent PENDING (UI hides it; logs redact it) — **residual** |
 | Queried peers' devices | The request text itself — necessary for local matching — **residual** |
 | Owner | Asker identity + request text (deliberate, I4 — consent requires context) |
-| Homeserver admin | Metadata: who talks to whom, when. Not payloads if E2EE is on — **residual** |
+| Homeserver admin | Metadata: who talks to whom, when. Not payloads if E2EE is on — **residual** (Matrix only; see below) |
 | Network observer | Traffic patterns between homeservers/devices — **residual** |
+
+### Transport-metadata note — OpenVTC / DIDComm pillar (Task 11, D12)
+
+The primary transport is now the **peer-to-peer OpenVTC pillar**
+(`DidCommTransport`), which removes the *"Homeserver admin"* residual above:
+there is **no homeserver, no mediator, and no directory** — messages are
+sign-then-encrypted and POSTed **directly** to the recipient's own
+`http://host:port/didcomm` endpoint (resolved locally from their `did:peer:2`).
+No third party sees who talks to whom. The sender DID is **not** in the
+cleartext wire (it rides inside the ciphertext, authenticated), so even an
+observer of a single message body cannot attribute it. What **remains** a
+residual: a direct network observer still sees *that* two IP endpoints exchange
+traffic (no onion routing / mixnet in alpha), and the recipient's endpoint host
+is contacted directly. Payload confidentiality + sender-authenticity are
+cryptographic here (X25519 ECDH-ES + XChaCha20-Poly1305 + Ed25519); the
+**honesty caveat** is that this is DIDComm-v2-*shaped*, not RFC-interoperable,
+and VRC trust edges are **self-asserted pairwise** (no witness) — see
+`docs/TRANSPORT.md §10.5`. Matrix stays available as a fallback transport and
+carries the homeserver-metadata residual it always did.
 
 ## Rung 1 — next version [S1 spike exists behind a feature flag, if built]
 
