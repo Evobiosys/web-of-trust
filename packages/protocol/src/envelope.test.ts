@@ -163,6 +163,164 @@ describe("EnvelopeSchema — WITHDRAWN", () => {
   });
 });
 
+describe("EnvelopeSchema — LISTING (D14: listings/loans/DM extension)", () => {
+  const baseBody = {
+    listing_id: REQUEST_ID,
+    kind: "offer" as const,
+    title: "Cordless drill",
+    description: "Bosch IXO, barely used.",
+    tier: "trusted" as const,
+    steps: 2 as const,
+    via: [] as string[],
+    state: "active" as const,
+    owner_display: "Ben",
+  };
+
+  it("parses a minimal valid LISTING envelope", () => {
+    const env = EnvelopeSchema.parse({ v: "0.1", type: "LISTING", request_id: REQUEST_ID, ts: TS, body: baseBody });
+    if (env.type !== "LISTING") throw new Error("expected LISTING");
+    expect(env.body.tier).toBe("trusted");
+    expect(env.body.steps).toBe(2);
+  });
+
+  it("accepts optional when/where_public/where_gated", () => {
+    const env = EnvelopeSchema.parse({
+      v: "0.1",
+      type: "LISTING",
+      request_id: REQUEST_ID,
+      ts: TS,
+      body: { ...baseBody, when: "Saturday afternoon", where_public: "Wien-Ottakring", where_gated: "Herbeckstraße 12" },
+    });
+    if (env.type !== "LISTING") throw new Error("expected LISTING");
+    expect(env.body.where_gated).toBe("Herbeckstraße 12");
+  });
+
+  it("accepts kind='gathering'", () => {
+    const env = EnvelopeSchema.parse({
+      v: "0.1",
+      type: "LISTING",
+      request_id: REQUEST_ID,
+      ts: TS,
+      body: { ...baseBody, kind: "gathering" },
+    });
+    if (env.type !== "LISTING") throw new Error("expected LISTING");
+    expect(env.body.kind).toBe("gathering");
+  });
+
+  it("accepts every tier value, including the new close/public", () => {
+    for (const tier of ["private", "close", "trusted", "wot_commons", "public"] as const) {
+      const env = EnvelopeSchema.parse({
+        v: "0.1",
+        type: "LISTING",
+        request_id: REQUEST_ID,
+        ts: TS,
+        body: { ...baseBody, tier },
+      });
+      if (env.type !== "LISTING") throw new Error("expected LISTING");
+      expect(env.body.tier).toBe(tier);
+    }
+  });
+
+  it("accepts steps 1, 2, or 3", () => {
+    for (const steps of [1, 2, 3] as const) {
+      const env = EnvelopeSchema.parse({ v: "0.1", type: "LISTING", request_id: REQUEST_ID, ts: TS, body: { ...baseBody, steps } });
+      if (env.type !== "LISTING") throw new Error("expected LISTING");
+      expect(env.body.steps).toBe(steps);
+    }
+  });
+
+  it("rejects steps outside 1..3", () => {
+    expect(() =>
+      EnvelopeSchema.parse({ v: "0.1", type: "LISTING", request_id: REQUEST_ID, ts: TS, body: { ...baseBody, steps: 4 } })
+    ).toThrow();
+  });
+
+  it("accepts a non-empty via chain (forwarders so far)", () => {
+    const env = EnvelopeSchema.parse({
+      v: "0.1",
+      type: "LISTING",
+      request_id: REQUEST_ID,
+      ts: TS,
+      body: { ...baseBody, via: ["@anna:wot.local"] },
+    });
+    if (env.type !== "LISTING") throw new Error("expected LISTING");
+    expect(env.body.via).toEqual(["@anna:wot.local"]);
+  });
+
+  it("accepts state='withdrawn'", () => {
+    const env = EnvelopeSchema.parse({ v: "0.1", type: "LISTING", request_id: REQUEST_ID, ts: TS, body: { ...baseBody, state: "withdrawn" } });
+    if (env.type !== "LISTING") throw new Error("expected LISTING");
+    expect(env.body.state).toBe("withdrawn");
+  });
+
+  it("rejects an invalid tier", () => {
+    expect(() =>
+      EnvelopeSchema.parse({ v: "0.1", type: "LISTING", request_id: REQUEST_ID, ts: TS, body: { ...baseBody, tier: "everyone" } })
+    ).toThrow();
+  });
+
+  it("rejects missing required fields", () => {
+    const { title, ...rest } = baseBody;
+    void title;
+    expect(() => EnvelopeSchema.parse({ v: "0.1", type: "LISTING", request_id: REQUEST_ID, ts: TS, body: rest })).toThrow();
+  });
+
+  it("rejects extra keys (strict)", () => {
+    expect(() =>
+      EnvelopeSchema.parse({ v: "0.1", type: "LISTING", request_id: REQUEST_ID, ts: TS, body: { ...baseBody, precise_gps: [1, 2] } })
+    ).toThrow();
+  });
+});
+
+describe("EnvelopeSchema — LOAN (D14)", () => {
+  const baseBody = { listing_id: REQUEST_ID, loan_id: "6a2e5c2a-9d3e-4a2b-8f1a-1e2d3c4b5a70", state: "requested" as const };
+
+  it.each(["requested", "approved", "declined", "lent", "returned", "complete", "not_yet"] as const)(
+    "accepts state=%s",
+    (state) => {
+      const env = EnvelopeSchema.parse({ v: "0.1", type: "LOAN", request_id: REQUEST_ID, ts: TS, body: { ...baseBody, state } });
+      if (env.type !== "LOAN") throw new Error("expected LOAN");
+      expect(env.body.state).toBe(state);
+    }
+  );
+
+  it("accepts an optional note", () => {
+    const env = EnvelopeSchema.parse({ v: "0.1", type: "LOAN", request_id: REQUEST_ID, ts: TS, body: { ...baseBody, note: "back by Sunday" } });
+    if (env.type !== "LOAN") throw new Error("expected LOAN");
+    expect(env.body.note).toBe("back by Sunday");
+  });
+
+  it("rejects an invalid state", () => {
+    expect(() =>
+      EnvelopeSchema.parse({ v: "0.1", type: "LOAN", request_id: REQUEST_ID, ts: TS, body: { ...baseBody, state: "maybe" } })
+    ).toThrow();
+  });
+
+  it("rejects extra keys (strict)", () => {
+    expect(() =>
+      EnvelopeSchema.parse({ v: "0.1", type: "LOAN", request_id: REQUEST_ID, ts: TS, body: { ...baseBody, extra: true } })
+    ).toThrow();
+  });
+});
+
+describe("EnvelopeSchema — DM (D14)", () => {
+  it("accepts a plain text body", () => {
+    const env = EnvelopeSchema.parse({ v: "0.1", type: "DM", request_id: REQUEST_ID, ts: TS, body: { text: "Hey, still around Saturday?" } });
+    if (env.type !== "DM") throw new Error("expected DM");
+    expect(env.body.text).toBe("Hey, still around Saturday?");
+  });
+
+  it("rejects an empty text", () => {
+    expect(() => EnvelopeSchema.parse({ v: "0.1", type: "DM", request_id: REQUEST_ID, ts: TS, body: { text: "" } })).toThrow();
+  });
+
+  it("rejects extra keys (strict)", () => {
+    expect(() =>
+      EnvelopeSchema.parse({ v: "0.1", type: "DM", request_id: REQUEST_ID, ts: TS, body: { text: "hi", extra: 1 } })
+    ).toThrow();
+  });
+});
+
 describe("EnvelopeSchema — versioning & discrimination", () => {
   it("rejects a non-'0.1' version", () => {
     expect(() =>

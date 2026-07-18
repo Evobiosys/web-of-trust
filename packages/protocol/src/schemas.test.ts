@@ -62,6 +62,20 @@ describe("TrustEdgeSchema", () => {
   it("rejects malformed created_at", () => {
     expect(() => TrustEdgeSchema.parse({ ...base, created_at: "not-a-date" })).toThrow();
   });
+
+  it("defaults level to 'friend' when omitted", () => {
+    const edge = TrustEdgeSchema.parse(base);
+    expect(edge.level).toBe("friend");
+  });
+
+  it("accepts explicit level 'contact' and 'close'", () => {
+    expect(TrustEdgeSchema.parse({ ...base, level: "contact" }).level).toBe("contact");
+    expect(TrustEdgeSchema.parse({ ...base, level: "close" }).level).toBe("close");
+  });
+
+  it("rejects an invalid level value", () => {
+    expect(() => TrustEdgeSchema.parse({ ...base, level: "bestie" })).toThrow();
+  });
 });
 
 describe("SharePolicySchema (I9 conservative defaults)", () => {
@@ -99,7 +113,12 @@ describe("SharePolicySchema (I9 conservative defaults)", () => {
   });
 
   it("rejects invalid audience value", () => {
-    expect(() => SharePolicySchema.parse({ audience: "public" })).toThrow();
+    expect(() => SharePolicySchema.parse({ audience: "carrier_pigeon" })).toThrow();
+  });
+
+  it("accepts the new 'close' and 'public' audience tiers (D14)", () => {
+    expect(SharePolicySchema.parse({ audience: "close" }).audience).toBe("close");
+    expect(SharePolicySchema.parse({ audience: "public" }).audience).toBe("public");
   });
 
   it("rejects invalid requires entries", () => {

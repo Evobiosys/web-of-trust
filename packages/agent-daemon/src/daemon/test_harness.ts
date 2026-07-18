@@ -2,7 +2,7 @@
 // lifecycle test that needs real (fake-clock) timing across two in-process
 // Daemons wired over one InMemoryBus. Not exported from the package's public
 // surface; test-only.
-import type { Envelope } from "@resource-web/protocol";
+import { TrustEdgeSchema, type Envelope } from "@resource-web/protocol";
 import { FakeClock, FakeScheduler } from "../clock.js";
 import { InMemoryBus, InMemoryTransport, type RoomMessage } from "../transport/in_memory_transport.js";
 import { SqliteStore } from "../store/sqlite_store.js";
@@ -149,8 +149,8 @@ export async function setupDuo(opts: DuoOptions = {}): Promise<Duo> {
   await anna.init();
   await ben.init();
 
-  annaStore.putTrustEdge({ peer: BEN_PEER, display: "Ben", created_at: clock.nowIso(), expires_at: new Date(clock._currentMs() + 365 * 24 * 3600 * 1000).toISOString() });
-  benStore.putTrustEdge({ peer: ANNA_PEER, display: "Anna", created_at: clock.nowIso(), expires_at: new Date(clock._currentMs() + 365 * 24 * 3600 * 1000).toISOString() });
+  annaStore.putTrustEdge(TrustEdgeSchema.parse({ peer: BEN_PEER, display: "Ben", created_at: clock.nowIso(), expires_at: new Date(clock._currentMs() + 365 * 24 * 3600 * 1000).toISOString() }));
+  benStore.putTrustEdge(TrustEdgeSchema.parse({ peer: ANNA_PEER, display: "Anna", created_at: clock.nowIso(), expires_at: new Date(clock._currentMs() + 365 * 24 * 3600 * 1000).toISOString() }));
 
   return { clock, scheduler, bus, anna, ben, annaStore, benStore, sent, roomMessages };
 }
@@ -242,10 +242,10 @@ export async function setupTrio(opts: TrioOptions = {}): Promise<Trio> {
   await timo.init();
 
   const oneYearOut = () => new Date(clock._currentMs() + 365 * 24 * 3600 * 1000).toISOString();
-  benStore.putTrustEdge({ peer: ANNA_PEER, display: "Anna", created_at: clock.nowIso(), expires_at: oneYearOut() });
-  annaStore.putTrustEdge({ peer: BEN_PEER, display: "Ben", created_at: clock.nowIso(), expires_at: oneYearOut() });
-  annaStore.putTrustEdge({ peer: TIMO_PEER, display: "Timo", created_at: clock.nowIso(), expires_at: oneYearOut() });
-  timoStore.putTrustEdge({ peer: ANNA_PEER, display: "Anna", created_at: clock.nowIso(), expires_at: oneYearOut() });
+  benStore.putTrustEdge(TrustEdgeSchema.parse({ peer: ANNA_PEER, display: "Anna", created_at: clock.nowIso(), expires_at: oneYearOut() }));
+  annaStore.putTrustEdge(TrustEdgeSchema.parse({ peer: BEN_PEER, display: "Ben", created_at: clock.nowIso(), expires_at: oneYearOut() }));
+  annaStore.putTrustEdge(TrustEdgeSchema.parse({ peer: TIMO_PEER, display: "Timo", created_at: clock.nowIso(), expires_at: oneYearOut() }));
+  timoStore.putTrustEdge(TrustEdgeSchema.parse({ peer: ANNA_PEER, display: "Anna", created_at: clock.nowIso(), expires_at: oneYearOut() }));
 
   return { clock, scheduler, bus, ben, anna, timo, benStore, annaStore, timoStore, sent, roomMessages };
 }

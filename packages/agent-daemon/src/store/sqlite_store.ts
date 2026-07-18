@@ -9,8 +9,12 @@ import type { Store } from "./store.js";
 import type {
   AskRecord,
   AuditRecord,
+  DmMessageRecord,
   IncomingRecord,
+  ListingRecord,
+  LoanRecord,
   PendingCaptureRecord,
+  ReceivedListingRecord,
   RelayLinkRecord,
   RoomMessageRecord,
   RoomRecord,
@@ -40,6 +44,7 @@ CREATE TABLE IF NOT EXISTS trust_edges (
   peer TEXT PRIMARY KEY,
   display TEXT NOT NULL,
   vouched_by TEXT,
+  level TEXT NOT NULL DEFAULT 'friend',
   created_at TEXT NOT NULL,
   expires_at TEXT NOT NULL
 );
@@ -118,6 +123,59 @@ CREATE TABLE IF NOT EXISTS audit_log (
   redact_for_asker INTEGER NOT NULL,
   detail TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS listings (
+  listing_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  when_text TEXT,
+  where_public TEXT,
+  where_gated TEXT,
+  tier TEXT NOT NULL,
+  steps INTEGER NOT NULL,
+  owner_display TEXT NOT NULL,
+  state TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS received_listings (
+  listing_id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  when_text TEXT,
+  where_public TEXT,
+  where_gated TEXT,
+  tier TEXT NOT NULL,
+  steps INTEGER NOT NULL,
+  via_json TEXT NOT NULL,
+  owner_display TEXT NOT NULL,
+  state TEXT NOT NULL,
+  from_peer TEXT NOT NULL,
+  received_at TEXT NOT NULL,
+  forwarded INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS loans (
+  loan_id TEXT PRIMARY KEY,
+  listing_id TEXT NOT NULL,
+  role TEXT NOT NULL,
+  counterparty_peer TEXT NOT NULL,
+  counterparty_display TEXT NOT NULL,
+  state TEXT NOT NULL,
+  note TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  completion_detail TEXT
+);
+
+CREATE TABLE IF NOT EXISTS dm_messages (
+  peer TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  text TEXT NOT NULL,
+  ts TEXT NOT NULL
+);
 `;
 
 interface ItemRow {
@@ -148,6 +206,7 @@ interface TrustEdgeRow {
   peer: string;
   display: string;
   vouched_by: string | null;
+  level: TrustEdge["level"];
   created_at: string;
   expires_at: string;
 }
@@ -157,6 +216,7 @@ function rowToTrustEdge(row: TrustEdgeRow): TrustEdge {
     peer: row.peer,
     display: row.display,
     vouched_by: row.vouched_by ?? undefined,
+    level: row.level,
     created_at: row.created_at,
     expires_at: row.expires_at,
   });
@@ -262,6 +322,104 @@ function rowToRoom(row: RoomRow): RoomRecord {
   };
 }
 
+interface ListingRow {
+  listing_id: string;
+  kind: ListingRecord["kind"];
+  title: string;
+  description: string;
+  when_text: string | null;
+  where_public: string | null;
+  where_gated: string | null;
+  tier: ListingRecord["tier"];
+  steps: ListingRecord["steps"];
+  owner_display: string;
+  state: ListingRecord["state"];
+  created_at: string;
+}
+
+function rowToListing(row: ListingRow): ListingRecord {
+  return {
+    listing_id: row.listing_id,
+    kind: row.kind,
+    title: row.title,
+    description: row.description,
+    when: row.when_text ?? undefined,
+    where_public: row.where_public ?? undefined,
+    where_gated: row.where_gated ?? undefined,
+    tier: row.tier,
+    steps: row.steps,
+    owner_display: row.owner_display,
+    state: row.state,
+    created_at: row.created_at,
+  };
+}
+
+interface ReceivedListingRow {
+  listing_id: string;
+  kind: ReceivedListingRecord["kind"];
+  title: string;
+  description: string;
+  when_text: string | null;
+  where_public: string | null;
+  where_gated: string | null;
+  tier: ReceivedListingRecord["tier"];
+  steps: number;
+  via_json: string;
+  owner_display: string;
+  state: ReceivedListingRecord["state"];
+  from_peer: string;
+  received_at: string;
+  forwarded: number;
+}
+
+function rowToReceivedListing(row: ReceivedListingRow): ReceivedListingRecord {
+  return {
+    listing_id: row.listing_id,
+    kind: row.kind,
+    title: row.title,
+    description: row.description,
+    when: row.when_text ?? undefined,
+    where_public: row.where_public ?? undefined,
+    where_gated: row.where_gated ?? undefined,
+    tier: row.tier,
+    steps: row.steps,
+    via: JSON.parse(row.via_json),
+    owner_display: row.owner_display,
+    state: row.state,
+    from_peer: row.from_peer,
+    received_at: row.received_at,
+    forwarded: Boolean(row.forwarded),
+  };
+}
+
+interface LoanRow {
+  loan_id: string;
+  listing_id: string;
+  role: LoanRecord["role"];
+  counterparty_peer: string;
+  counterparty_display: string;
+  state: LoanRecord["state"];
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+  completion_detail: string | null;
+}
+
+function rowToLoan(row: LoanRow): LoanRecord {
+  return {
+    loan_id: row.loan_id,
+    listing_id: row.listing_id,
+    role: row.role,
+    counterparty_peer: row.counterparty_peer,
+    counterparty_display: row.counterparty_display,
+    state: row.state,
+    note: row.note ?? undefined,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    completion_detail: row.completion_detail ?? undefined,
+  };
+}
+
 export class SqliteStore implements Store {
   private readonly db: SqlDriver;
 
@@ -317,10 +475,10 @@ export class SqliteStore implements Store {
 
   putTrustEdge(edge: TrustEdge): void {
     this.db.run(
-      `INSERT INTO trust_edges (peer, display, vouched_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(peer) DO UPDATE SET display=excluded.display, vouched_by=excluded.vouched_by,
+      `INSERT INTO trust_edges (peer, display, vouched_by, level, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(peer) DO UPDATE SET display=excluded.display, vouched_by=excluded.vouched_by, level=excluded.level,
          created_at=excluded.created_at, expires_at=excluded.expires_at`,
-      [edge.peer, edge.display, edge.vouched_by ?? null, edge.created_at, edge.expires_at]
+      [edge.peer, edge.display, edge.vouched_by ?? null, edge.level, edge.created_at, edge.expires_at]
     );
   }
 
@@ -515,6 +673,125 @@ export class SqliteStore implements Store {
         redact_for_asker: Boolean(r.redact_for_asker),
         detail: r.detail,
       }));
+  }
+
+  // -------------------------------------------------------- D14: listings --
+
+  putListing(record: ListingRecord): void {
+    this.db.run(
+      `INSERT INTO listings (listing_id, kind, title, description, when_text, where_public, where_gated, tier, steps, owner_display, state, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(listing_id) DO UPDATE SET kind=excluded.kind, title=excluded.title, description=excluded.description,
+         when_text=excluded.when_text, where_public=excluded.where_public, where_gated=excluded.where_gated,
+         tier=excluded.tier, steps=excluded.steps, owner_display=excluded.owner_display, state=excluded.state`,
+      [
+        record.listing_id,
+        record.kind,
+        record.title,
+        record.description,
+        record.when ?? null,
+        record.where_public ?? null,
+        record.where_gated ?? null,
+        record.tier,
+        record.steps,
+        record.owner_display,
+        record.state,
+        record.created_at,
+      ]
+    );
+  }
+
+  getListing(listingId: string): ListingRecord | undefined {
+    const row = this.db.get<ListingRow>("SELECT * FROM listings WHERE listing_id = ?", [listingId]);
+    return row ? rowToListing(row) : undefined;
+  }
+
+  getListings(): ListingRecord[] {
+    return this.db.all<ListingRow>("SELECT * FROM listings ORDER BY created_at ASC").map(rowToListing);
+  }
+
+  putReceivedListing(record: ReceivedListingRecord): void {
+    this.db.run(
+      `INSERT INTO received_listings (listing_id, kind, title, description, when_text, where_public, where_gated, tier, steps, via_json, owner_display, state, from_peer, received_at, forwarded)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(listing_id) DO UPDATE SET kind=excluded.kind, title=excluded.title, description=excluded.description,
+         when_text=excluded.when_text, where_public=excluded.where_public, where_gated=excluded.where_gated,
+         tier=excluded.tier, steps=excluded.steps, via_json=excluded.via_json, owner_display=excluded.owner_display,
+         state=excluded.state, from_peer=excluded.from_peer, received_at=excluded.received_at, forwarded=excluded.forwarded`,
+      [
+        record.listing_id,
+        record.kind,
+        record.title,
+        record.description,
+        record.when ?? null,
+        record.where_public ?? null,
+        record.where_gated ?? null,
+        record.tier,
+        record.steps,
+        JSON.stringify(record.via),
+        record.owner_display,
+        record.state,
+        record.from_peer,
+        record.received_at,
+        record.forwarded ? 1 : 0,
+      ]
+    );
+  }
+
+  getReceivedListing(listingId: string): ReceivedListingRecord | undefined {
+    const row = this.db.get<ReceivedListingRow>("SELECT * FROM received_listings WHERE listing_id = ?", [listingId]);
+    return row ? rowToReceivedListing(row) : undefined;
+  }
+
+  getReceivedListings(): ReceivedListingRecord[] {
+    return this.db.all<ReceivedListingRow>("SELECT * FROM received_listings ORDER BY received_at ASC").map(rowToReceivedListing);
+  }
+
+  // ------------------------------------------------------------ D14: loans --
+
+  putLoan(record: LoanRecord): void {
+    this.db.run(
+      `INSERT INTO loans (loan_id, listing_id, role, counterparty_peer, counterparty_display, state, note, created_at, updated_at, completion_detail)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(loan_id) DO UPDATE SET listing_id=excluded.listing_id, role=excluded.role,
+         counterparty_peer=excluded.counterparty_peer, counterparty_display=excluded.counterparty_display,
+         state=excluded.state, note=excluded.note, updated_at=excluded.updated_at, completion_detail=excluded.completion_detail`,
+      [
+        record.loan_id,
+        record.listing_id,
+        record.role,
+        record.counterparty_peer,
+        record.counterparty_display,
+        record.state,
+        record.note ?? null,
+        record.created_at,
+        record.updated_at,
+        record.completion_detail ?? null,
+      ]
+    );
+  }
+
+  getLoan(loanId: string): LoanRecord | undefined {
+    const row = this.db.get<LoanRow>("SELECT * FROM loans WHERE loan_id = ?", [loanId]);
+    return row ? rowToLoan(row) : undefined;
+  }
+
+  getLoans(): LoanRecord[] {
+    return this.db.all<LoanRow>("SELECT * FROM loans ORDER BY created_at ASC").map(rowToLoan);
+  }
+
+  // -------------------------------------------------------- D14: DM threads --
+
+  addDmMessage(msg: DmMessageRecord): void {
+    this.db.run("INSERT INTO dm_messages (peer, direction, text, ts) VALUES (?, ?, ?, ?)", [msg.peer, msg.direction, msg.text, msg.ts]);
+  }
+
+  getDmMessages(peer: string): DmMessageRecord[] {
+    return this.db.all<DmMessageRecord>("SELECT peer, direction, text, ts FROM dm_messages WHERE peer = ? ORDER BY ts ASC", [peer]);
+  }
+
+  getDmPeers(): string[] {
+    return this.db.all<{ peer: string }>("SELECT DISTINCT peer FROM dm_messages ORDER BY peer ASC").map((r) => r.peer);
   }
 
   close(): void {

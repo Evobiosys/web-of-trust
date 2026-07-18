@@ -24,12 +24,28 @@ import {
 import type { Clock, Scheduler } from "../clock.js";
 import { hasRoomMessaging, type RoomMessage } from "../transport/in_memory_transport.js";
 import type { Store } from "../store/store.js";
-import type { AskPeerRecord, AskRecord, IncomingKind, IncomingRecord, RelayLinkRecord } from "../store/types.js";
+import type { AskPeerRecord, AskRecord, IncomingKind, IncomingRecord, ListingRecord, LoanRecord, RelayLinkRecord } from "../store/types.js";
 import { matchRequestToItems, type MatcherConfig } from "../matcher/matcher.js";
 import type { ChatClient, EmbedClient } from "../matcher/clients.js";
 import { logAsker, logOwner } from "../audit/audit.js";
 import { consentEnvelope, introEnvelope, requestEnvelope, statusEnvelope, withdrawnEnvelope } from "./envelopes.js";
 import { classifyAndRespond, type StewardDeps } from "../steward/steward.js";
+import {
+  approveLoan,
+  checkInLoanCompletion,
+  declineLoan,
+  markLent,
+  markReturned,
+  publishListing,
+  receiveDm,
+  receiveListing,
+  receiveLoan,
+  requestBorrow,
+  sendDm,
+  withdrawListing,
+  type ListingsDeps,
+  type PublishListingInput,
+} from "./listings.js";
 import { buildAuditApiView, buildStateSnapshot } from "../api/sanitize.js";
 import type { AuditApiEntry, StateSnapshot } from "../api/types.js";
 
@@ -74,6 +90,9 @@ export class Daemon {
   }
   private get matcherDeps() {
     return { store: this.store, embedClient: this.deps.embedClient, chatClient: this.deps.chatClient, config: this.cfg.matcher };
+  }
+  private get listingsDeps(): ListingsDeps {
+    return { store: this.store, clock: this.clock, transport: this.transport, peerId: this.cfg.peerId, personaName: this.cfg.personaName };
   }
 
   async init(): Promise<void> {
@@ -671,6 +690,64 @@ export class Daemon {
     }
   }
 
+  // --------------------------------------------------------- D14: listings --
+
+  async publishListing(input: PublishListingInput): Promise<ListingRecord> {
+    const record = await publishListing(this.listingsDeps, input);
+    this.notifyChange();
+    return record;
+  }
+
+  async withdrawListing(listingId: string): Promise<void> {
+    await withdrawListing(this.listingsDeps, listingId);
+    this.notifyChange();
+  }
+
+  // ------------------------------------------------------------ D14: loans --
+
+  async requestBorrow(listingId: string, note?: string): Promise<LoanRecord> {
+    const record = await requestBorrow(this.listingsDeps, listingId, note);
+    this.notifyChange();
+    return record;
+  }
+
+  async approveLoan(loanId: string): Promise<LoanRecord> {
+    const record = await approveLoan(this.listingsDeps, loanId);
+    this.notifyChange();
+    return record;
+  }
+
+  async declineLoan(loanId: string): Promise<LoanRecord> {
+    const record = await declineLoan(this.listingsDeps, loanId);
+    this.notifyChange();
+    return record;
+  }
+
+  async markLent(loanId: string): Promise<LoanRecord> {
+    const record = await markLent(this.listingsDeps, loanId);
+    this.notifyChange();
+    return record;
+  }
+
+  async markReturned(loanId: string): Promise<LoanRecord> {
+    const record = await markReturned(this.listingsDeps, loanId);
+    this.notifyChange();
+    return record;
+  }
+
+  async checkInLoanCompletion(loanId: string, outcome: "complete" | "not_yet", detail?: string): Promise<LoanRecord> {
+    const record = await checkInLoanCompletion(this.listingsDeps, loanId, outcome, detail);
+    this.notifyChange();
+    return record;
+  }
+
+  // -------------------------------------------------------------- D14: DMs --
+
+  async sendDm(peer: string, text: string): Promise<void> {
+    await sendDm(this.listingsDeps, peer, text);
+    this.notifyChange();
+  }
+
   // ------------------------------------------------------------- rooms --
 
   async postRoomMessage(roomId: string, text: string): Promise<void> {
@@ -769,6 +846,15 @@ export class Daemon {
       }
       case "WITHDRAWN":
         this.ownerHandleWithdrawn(from, env.request_id);
+        break;
+      case "LISTING":
+        await receiveListing(this.listingsDeps, from, env.body);
+        break;
+      case "LOAN":
+        receiveLoan(this.listingsDeps, from, env.body);
+        break;
+      case "DM":
+        receiveDm(this.listingsDeps, from, env.body.text);
         break;
     }
     this.notifyChange();

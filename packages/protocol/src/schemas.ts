@@ -28,12 +28,24 @@ export function defaultExpiryIso(now: Date | string = new Date()): string {
   return result.toISOString();
 }
 
+/**
+ * D14 (additive, v0.1 stays frozen): the trust ladder a listing's `tier`
+ * (SharePolicyAudienceSchema, below) is filtered against. Ordered
+ * contact < friend < close — "close" is the inner room, "friend" is the
+ * default connection level (I9 conservative default), "contact" is the
+ * loosest tier a direct edge can carry.
+ */
+export const TrustLevelSchema = z.enum(["contact", "friend", "close"]);
+export type TrustLevel = z.infer<typeof TrustLevelSchema>;
+
 export const TrustEdgeSchema = z
   .object({
     peer: PeerIdSchema,
     display: z.string().min(1),
     /** who introduced them — future governance hook (not evaluated in v0). */
     vouched_by: PeerIdSchema.optional(),
+    /** D14: trust-ladder level, default "friend" (I9 conservative default). */
+    level: TrustLevelSchema.default("friend"),
     created_at: IsoDateTimeSchema,
     expires_at: IsoDateTimeSchema.optional(),
   })
@@ -44,7 +56,15 @@ export const TrustEdgeSchema = z
   }));
 export type TrustEdge = z.infer<typeof TrustEdgeSchema>;
 
-export const SharePolicyAudienceSchema = z.enum(["private", "trusted", "wot_commons"]);
+/**
+ * D14: "close"/"public" are new (additive) tiers — "close" = inner room
+ * (never forwarded, see daemon/listings.ts), "trusted" = the "Friends" tier
+ * from the mockup, "wot_commons" = "The Commons" (reachable through the web
+ * of trust without a direct edge), "public" = wot_commons's reach PLUS
+ * visibility in guest/unauthenticated local API responses (Task 5's concern;
+ * this package only defines the value).
+ */
+export const SharePolicyAudienceSchema = z.enum(["private", "close", "trusted", "wot_commons", "public"]);
 export const SharePolicyModeSchema = z.enum(["ask_each_time", "auto_forward"]);
 export const SharePolicyRequirementSchema = z.enum(["profile_photo", "note_from_requester"]);
 
