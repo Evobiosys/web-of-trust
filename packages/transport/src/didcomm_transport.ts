@@ -217,9 +217,21 @@ export class DidCommTransport implements TransportAdapter {
       }
       case ROOM_MESSAGE_TYPE: {
         const msg = message.body as RoomMessage;
-        if (!msg || typeof msg.room_id !== "string" || typeof msg.text !== "string") {
+        if (!msg || typeof msg.room_id !== "string" || typeof msg.text !== "string" || typeof msg.from !== "string") {
           // eslint-disable-next-line no-console
           console.error(`[didcomm] dropped malformed room message from ${from}`);
+          return;
+        }
+        // I6: `msg.from` is an attacker-controlled body field — the only
+        // trustworthy sender identity is the cryptographically authenticated
+        // `from` from receiveInbound(). A mismatch is evidence of tampering
+        // (e.g. a consented room member forging attribution to someone else),
+        // so we reject rather than silently trust or silently relabel it.
+        if (msg.from !== from) {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[didcomm] rejected room message: body.from (${msg.from}) does not match authenticated sender (${from})`
+          );
           return;
         }
         for (const l of this.roomListeners) l(msg);
@@ -227,9 +239,37 @@ export class DidCommTransport implements TransportAdapter {
       }
       case ROOM_CREATE_TYPE: {
         const body = message.body as { room_id?: string; members?: PeerId[] };
-        if (typeof body.room_id === "string" && Array.isArray(body.members)) {
-          this.rooms.set(body.room_id, body.members);
+        if (typeof body.room_id !== "string" || !Array.isArray(body.members)) {
+          // eslint-disable-next-line no-console
+          console.error(`[didcomm] dropped malformed ROOM_CREATE from ${from}`);
+          return;
         }
+        // The authenticated sender must claim membership in the room it is
+        // announcing — otherwise anyone could mint/redefine rooms they have
+        // no part in.
+        if (!body.members.includes(from)) {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[didcomm] rejected ROOM_CREATE for room ${body.room_id}: authenticated sender ${from} is not in the member list`
+          );
+          return;
+        }
+        const existing = this.rooms.get(body.room_id);
+        if (existing) {
+          // Known room: only an existing member may redefine membership, and
+          // only if the new list still includes this device — otherwise a
+          // member who merely knows the room_id could partition/hijack it.
+          const senderIsExistingMember = existing.includes(from);
+          const selfStillMember = this.self !== undefined && body.members.includes(this.self);
+          if (!senderIsExistingMember || !selfStillMember) {
+            // eslint-disable-next-line no-console
+            console.error(
+              `[didcomm] rejected ROOM_CREATE for known room ${body.room_id} from ${from}: not an existing member, or new member list would drop the local DID`
+            );
+            return;
+          }
+        }
+        this.rooms.set(body.room_id, body.members);
         return;
       }
       default:

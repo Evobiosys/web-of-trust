@@ -156,4 +156,115 @@ describe("DidCommTransport over real HTTP", () => {
     expect(second.status).toBe(400); // duplicate id rejected
     expect(ben.receivedEnvelopes).toHaveLength(1);
   });
+
+  // -- I6 sender-authentication for the room-message path (attribution + membership) --
+
+  it("rejects a room message whose body.from does not match the cryptographically authenticated sender, and never fires the room listener", async () => {
+    const anna = await bootNode();
+    const ben = await bootNode();
+    const room_id = "spoofed-room-1";
+    // Seed ben's transport with membership directly (bypassing ROOM_CREATE
+    // fan-out — irrelevant to this test, which is about the room-message path).
+    (ben.transport as unknown as { rooms: Map<string, string[]> }).rooms.set(room_id, [ben.did, anna.did]);
+
+    const spoofedFrom = "did:peer:2.Ez6MShadowNotAnnaSoNotEvenAMember.NotAMember";
+    const wire = packMessage({
+      sender: (anna.transport as unknown as { identity: import("./did_identity.js").Identity }).identity,
+      recipientDid: ben.did,
+      message: {
+        id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+        type: "https://didcomm.org/resource-web/2.0/room-message",
+        from: anna.did,
+        to: [ben.did],
+        created_time: Date.now(),
+        body: { room_id, from: spoofedFrom, text: "attributed to someone who never sent it", ts: new Date().toISOString() },
+      },
+    });
+
+    const res = await fetch(`http://127.0.0.1:${(ben.server.address() as AddressInfo).port}/didcomm`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: wire,
+    });
+    // Cryptographically valid + well-formed at the wire layer, so the HTTP
+    // handshake succeeds (202) — the rejection happens at the app layer.
+    expect(res.status).toBe(202);
+    expect(ben.receivedRooms).toHaveLength(0);
+  });
+
+  it("delivers a room message whose body.from matches the authenticated sender", async () => {
+    const anna = await bootNode();
+    const ben = await bootNode();
+    const room_id = "legit-room-1";
+    (ben.transport as unknown as { rooms: Map<string, string[]> }).rooms.set(room_id, [ben.did, anna.did]);
+
+    const wire = packMessage({
+      sender: (anna.transport as unknown as { identity: import("./did_identity.js").Identity }).identity,
+      recipientDid: ben.did,
+      message: {
+        id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+        type: "https://didcomm.org/resource-web/2.0/room-message",
+        from: anna.did,
+        to: [ben.did],
+        created_time: Date.now(),
+        body: { room_id, from: anna.did, text: "hi Ben, this is really me", ts: new Date().toISOString() },
+      },
+    });
+
+    const res = await fetch(`http://127.0.0.1:${(ben.server.address() as AddressInfo).port}/didcomm`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: wire,
+    });
+    expect(res.status).toBe(202);
+    await waitFor(() => ben.receivedRooms.length === 1);
+    expect(ben.receivedRooms[0]).toMatchObject({ room_id, from: anna.did, text: "hi Ben, this is really me" });
+  });
+
+  it("rejects a ROOM_CREATE for an already-known room from a sender who is not an existing member, leaving membership unchanged", async () => {
+    const ben = await bootNode();
+    const anna = await bootNode();
+    const mallory = await bootNode();
+    const room_id = "known-room-1";
+    const originalMembers = [ben.did, anna.did];
+    (ben.transport as unknown as { rooms: Map<string, string[]> }).rooms.set(room_id, originalMembers);
+
+    // Mallory is authenticated (real signature) but is neither an existing
+    // member of the known room nor does her proposed list keep Ben in it.
+    const wire = packMessage({
+      sender: (mallory.transport as unknown as { identity: import("./did_identity.js").Identity }).identity,
+      recipientDid: ben.did,
+      message: {
+        id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        type: "https://didcomm.org/resource-web/2.0/room-create",
+        from: mallory.did,
+        to: [ben.did],
+        created_time: Date.now(),
+        body: { room_id, members: [mallory.did, anna.did] },
+      },
+    });
+
+    const res = await fetch(`http://127.0.0.1:${(ben.server.address() as AddressInfo).port}/didcomm`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: wire,
+    });
+    expect(res.status).toBe(202);
+    expect((ben.transport as unknown as { rooms: Map<string, string[]> }).rooms.get(room_id)).toEqual(originalMembers);
+  });
+
+  it("still accepts an initial ROOM_CREATE for an unknown room and round-trips room chat (regression: pre-existing behavior)", async () => {
+    const anna = await bootNode();
+    const ben = await bootNode();
+
+    const { room_id } = await ben.transport.createSharedRoom([ben.did, anna.did], {
+      request_id: "req-2",
+      context_card: "Leiter",
+    });
+    await waitFor(() => (anna.transport as unknown as { rooms: Map<string, string[]> }).rooms.has(room_id));
+
+    await ben.transport.sendRoomMessage({ room_id, from: ben.did, text: "hi Anna", ts: new Date().toISOString() });
+    await waitFor(() => anna.receivedRooms.length === 1);
+    expect(anna.receivedRooms[0]).toMatchObject({ room_id, from: ben.did, text: "hi Anna" });
+  });
 });
