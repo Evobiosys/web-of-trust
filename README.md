@@ -10,6 +10,8 @@ Why: idle resources stay idle because of information asymmetry and social fricti
 
 > This prototype protects the owner from social exposure by **protocol design** (indistinguishable No, consent-gated identity). It does **not** yet protect against: an asker inspecting their own agent's raw traffic (privacy rung 1 fixes this), peers reading request texts (rung 2 fixes this), or homeserver metadata analysis (DIDComm/P2P transport reduces this). Claiming "zero-knowledge" for v0 would be false.
 >
+> The v0.1 alpha surfaces obey the same posture: **listings** are owner-*published* to tier-eligible trust edges (a `private` listing is never sent at all; `close` reaches only `close`-level edges; the guest `?public=1` view strips the gated `where_gated` field server-side and exposes `public`-tier only). **Loans** and **DMs** are connected-only (a trust edge must exist), and a loan's "not yet" check-in note stays local — never on the wire. **Second-brain relays** ping the noted person only at first relay, consent every hop, and reveal no more than a direct request would (I8). The alpha's REST API has **no authentication** — LAN exposure is a deliberate, closed-room opt-in (see [ALPHA.md](ALPHA.md)).
+>
 > **v1 commitment:** the next version targets actual zero-knowledge properties — the asker learns only the aggregate, provably; non-matching peers learn nothing about the request. See [PRIVACY.md](PRIVACY.md).
 
 ## Quickstart
@@ -25,6 +27,34 @@ make demo                  # scripted demo → snapshots/index.html gallery
 ```
 
 `make revert STEP=04` checks out a step tag and restarts the sim so any demo moment can be replayed live.
+
+## Alpha (v0.1) — one-command LAN demo
+
+For the hackathon playtest there is a single command that boots six friend
+personas (each a full agent-daemon) plus the mobile UI, all reachable from
+phones on the same WiFi:
+
+```bash
+pnpm alpha        # → prints one join URL + QR per persona; Ctrl-C stops all
+```
+
+Wait for `alpha environment ready.`, then each friend scans their QR. See
+[ALPHA.md](ALPHA.md) for the full runbook, security caveats, and troubleshooting.
+
+- **Four client skins** — `ecstatic`, `housing`, `family`, `business`
+  (`packages/app-profiles`): copy, theme, suggestion chips and quick-adds only.
+  A skin is a *presentation* layer; the daemon keeps its conservative I9
+  server-side defaults regardless of which skin is loaded (DECISIONS.md D10).
+- **Transport = OpenVTC / DIDComm** (`TRANSPORT=didcomm`, the default). Messages
+  are sign-then-encrypted (X25519 ECDH-ES + XChaCha20-Poly1305 + Ed25519) and
+  POSTed **directly** to the recipient's own `did:peer:2` endpoint — no
+  homeserver, no mediator, no directory (DECISIONS.md D12, PRIVACY.md). Matrix
+  stays in-tree as a secondary path but is **not** wired for `pnpm alpha`.
+- **What the alpha exercises** (verified end-to-end, `verification/alpha-run.txt`):
+  seeded trust with levels, tiered listings (offers/gatherings) that reach only
+  tier-eligible peers, the borrow round-trip (requested → approved → lent →
+  returned → complete), connected-only DMs, the guest public view, and the
+  second-brain two-hop consented relay.
 
 ## Architecture
 

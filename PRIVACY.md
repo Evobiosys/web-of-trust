@@ -34,6 +34,19 @@ and VRC trust edges are **self-asserted pairwise** (no witness) — see
 `docs/TRANSPORT.md §10.5`. Matrix stays available as a fallback transport and
 carries the homeserver-metadata residual it always did.
 
+### v0.1 alpha surfaces — listings, loans, DMs (who learns what)
+
+The alpha (D17) adds owner-*published* surfaces on top of the ask/consent core. They keep the rung-0 posture:
+
+| Surface | Who learns what |
+|---|---|
+| **Listing (offer/gathering)** | Owner-published to *tier-eligible* trust edges only. `private` is never sent (local-only); `close` reaches only `close`-level edges; `trusted` reaches `friend`/`close`; `wot_commons`/`public` reach every edge. A withdrawal re-propagates to flip the receiver's copy `withdrawn`. |
+| **Guest view (`GET /api/listings?public=1`)** | `public`-tier active listings only, with `where_gated` **stripped server-side** (absent from the JSON, not merely `undefined`); a guest gets `where_public` only. `wot_commons` is *not* guest-visible. |
+| **Loan (borrow lifecycle)** | Connected-only (a trust edge is required). Only the coarse state (`requested…complete`) crosses the wire; a "not yet" check-in note is a local-only annotation, never sent. |
+| **DM thread** | Connected-only on both send and receive (`sendDm`/`receiveDm` require a trust edge — defense in depth). |
+
+**No-auth caveat (alpha only):** `pnpm alpha` binds every daemon to `0.0.0.0` with **no authentication** — anyone on the same WiFi who can reach `http://<ip>:410N` can call the REST API directly, and `?public=1`'s strip is *client-cooperation only* (no auth boundary enforces it). This is a deliberate closed-room opt-in; see [ALPHA.md](ALPHA.md)'s security box. It does not change the protocol-level residuals above.
+
 ## Rung 1 — next version [S1 spike exists behind a feature flag, if built]
 
 Anonymous aggregate via **secure aggregation** (peers exchange additive masks; the asker learns only "≥ 1") and/or **PSI-CA** (private set intersection cardinality — [OpenMined/PSI](https://github.com/OpenMined/PSI), ECDH + Bloom filters). Fixes: the asker — even reading their own agent's raw logs — provably learns only the count.

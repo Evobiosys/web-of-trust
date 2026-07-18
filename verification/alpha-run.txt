@@ -1,0 +1,124 @@
+
+==============================================================================
+BOOT — 3 personas, TRANSPORT=didcomm, 127.0.0.1, skipTrustSeed
+==============================================================================
+stateDir=/var/folders/zw/69bx3n591pg2_yxbcyc2g6l40000gs/T/alpha-verify-ZitBRp
+Alice did=did:peer:2.Vz6MkegUkaHcWYfcQ3v2yry8QiiFS... port=49715
+Bob   did=did:peer:2.Vz6MkgfRgBzFCHYfRXDvN9WHbMrC4... port=49716
+Carol did=did:peer:2.Vz6MkwXgGZ4KSGqWCPcUKyBU5v2Ri... port=49717
+Seeded trust edges: Alice<->Bob (friend), Alice<->Carol (friend). Bob<->Carol UNSEEDED (leg g precondition).
+
+==============================================================================
+LEG (a) — trust already seeded: GET /api/state shows edges w/ level
+==============================================================================
+  [PASS] Alice /api/state 200 & persona
+  Alice trust_edges: Bob:friend, Carol:friend
+  Bob   trust_edges: Alice:friend
+  [PASS] Alice has friend edges to Bob AND Carol
+  [PASS] Bob has exactly one edge (Alice), level friend
+  [PASS] Bob has NO edge to Carol (relay precondition)
+
+==============================================================================
+LEG (b) — Alice publishes a gathering at EACH tier; Bob receives exactly the tier-eligible ones
+==============================================================================
+  published private -> 9ae244f0-2937-464c-b39a-8e049fbe38f0
+  published close -> 0350cc27-e9c9-4848-a704-435eec119689
+  published trusted -> 2e8ef5bc-36c6-4662-91e8-7ff60749817c
+  published wot_commons -> f103d24a-2e59-400d-9eb2-6ab3f5d96cba
+  published public -> 4d170d69-e0f1-46e8-8b35-de801f6af47f
+  Bob received tiers: [trusted, wot_commons, public]
+  [PASS] Bob received trusted+wot_commons+public
+  [PASS] Bob did NOT receive private (local-only)
+  [PASS] Bob did NOT receive close (close-tier needs level=close, edge is friend)
+
+==============================================================================
+LEG (c) — Alice offer -> Bob borrows -> Alice approves/lends -> Bob returns -> both complete
+==============================================================================
+  Alice published offer b280b8e4-4203-40a0-ac62-1d4e828b42d2
+  Bob borrowed -> loan 1a65f05e-1699-44b3-ae48-04d32f67097e
+  [PASS] Alice loan state=requested (owner side)
+  [PASS] Bob loan -> approved
+  [PASS] Bob loan -> lent
+  [PASS] Alice loan -> returned
+  final loan states: Alice=complete  Bob=complete
+  [PASS] both sides loan complete
+
+==============================================================================
+LEG (d) — DM both directions (connected peers only)
+==============================================================================
+  [PASS] DM A->B and B->A both delivered
+
+==============================================================================
+LEG (e) — Alice withdraws a listing -> Bob's received copy flips to withdrawn
+==============================================================================
+  Alice withdrew f103d24a-2e59-400d-9eb2-6ab3f5d96cba
+  [PASS] Bob's received listing state=withdrawn
+
+==============================================================================
+LEG (f) — guest view GET /api/listings?public=1: only public, where_gated ABSENT
+==============================================================================
+  guest.mine tiers: [public]  (received: 0)
+  [PASS] guest view returns only tier=public
+  [PASS] guest view received[] empty
+  [PASS] where_gated key ABSENT from raw guest JSON (privacy gate) — raw len=332
+  [PASS] where_public still present for guest
+  [PASS] authenticated owner view DOES include where_gated
+
+==============================================================================
+LEG (g) — second-brain relay: Bob asks -> Alice relays note about Carol -> two-hop consent -> Bob connected to Carol
+==============================================================================
+  warming ollama models (qwen3-embedding:8b + qwen3:4b — both matcher-chain stages)...
+  [D16 live] Bob asks for a resource whose only 'holder' is an UNREACHABLE second-brain owner...
+    Bob steward reply: "Asked 1 trusted people nearby. You'll hear back."
+    diag: Alice audit decisions = [listing_published, listing_published, listing_published, listing_published, listing_published, listing_published, loan_requested, loan_approved, loan_lent, loan_returned, loan_complete, loan_complete, listing_withdrawn, match_score, match_score, match_score, no_match, status_pass]
+    diag: internal relay-skip marker present this run = false (matcher-dependent sub-case; unit-proven regardless)
+  [PASS] D16 live: unreachable-owner ask degrades to a clean no-match, no throw (daemon still serving)
+  [PASS] D16 live: NO relay consent card was created for the unreachable owner
+  [PASS] D16 live: the unreachable owner id is never disclosed to Bob
+  Bob asks about a 3m ladder (matches Alice's note about Carol)...
+  [PASS] Alice relay consent card exists (kind=relay, requester=Bob)
+  [PASS] PRE-CONSENT: Carol's DID absent from ALL of Bob's state — carol did did:peer:2.Vz6MkwXgGZ4KS…
+  [PASS] PRE-CONSENT: 'Carol' display absent from Bob's state
+  [PASS] PRE-CONSENT: Bob's asks[] carry only aggregate — no Alice/Carol identity
+  [PASS] PRE-CONSENT: Bob's audit names no peer id (I2 logAsker guard)
+  Bob's relay ask view: state=open queried_count=1 (aggregate only)
+  Alice consented to relay. Waiting for her uniform-delay dispatch to forward REQUEST to Carol (~30s)...
+  [PASS] Carol direct consent card exists (requester=Alice)
+  [PASS] I8: Carol's card requester is Alice, never Bob
+  [PASS] MID-FLIGHT: Carol still absent from Bob's state
+  Carol consented. Waiting for her uniform-delay dispatch -> Alice mints 3-party room -> Bob (~30s)...
+  [PASS] Bob reaches room_open and the room includes Carol (post-consent introduction)
+  Bob's room peers: Bob, did:peer:2.Vz6MkegUkaHcWYfcQ3v2yry8QiiFSopqihx7eMWZ167EyX7Xb.Ez6LSrmXQB4Ct7Su2DyZMYdXd9Vi1fArMtN56M2Uk4aMmppKT.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovLzEyNy4wLjAuMTo0OTcxNS9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19, did:peer:2.Vz6MkwXgGZ4KSGqWCPcUKyBU5v2Ri1NMDUy6rUAVRCn5JMY4C.Ez6LSfkYqNAZx9yjnUMLPaPz64FuWCa4g3GDchDtrtDBJAKs1.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovLzEyNy4wLjAuMTo0OTcxNy9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19
+  [PASS] POST-CONSENT: room includes Bob, Alice, Carol
+
+==============================================================================
+INVARIANT SPOT-CHECKS (unit-test citations + live observations)
+==============================================================================
+I2 (asker blindness): unit — daemon.test.ts 'Daemon lifecycle — I2 sanitization'
+                       + api/server.test.ts extended surface.
+   live — leg (g) PRE/MID-CONSENT greps above: Carol's DID/display absent from Bob's
+          entire state and audit; Bob's asks[] carry only {state, queried_count}.
+I3 (indistinguishable No): unit — daemon.test.ts 'I3 indistinguishable No' (decline vs
+          no-match byte-identical PASS) + relay I3 block (D15).
+   live — Bob's D16 hammer ask (a no-match path) and his ladder ask (a match path)
+          are indistinguishable in Bob's asker view pre-resolution: both show the same
+          aggregate state, no per-peer or decline signal ever surfaces.
+D16 (unreachable second-brain owner degrades to no-match, no throw): unit — daemon.test.ts
+          two D16 tests assert the exact 'relay_skipped_unreachable_owner' marker (no
+          edge / expired edge sub-cases).
+   live — leg (g) [D16 live]: an ask whose only 'holder' is an unreachable second-brain
+          owner degrades to a clean no-match — Bob's ask -> no_one_this_time, NO relay
+          consent card, no throw (daemon keeps serving), unreachable owner id never
+          disclosed to Bob. (The internal skip-marker sub-case needs the matcher to
+          match a synthetic note above the live embedding threshold, which is not
+          black-box controllable — that specific marker is the unit tests' job.)
+
+==============================================================================
+SUMMARY
+==============================================================================
+checks: 32 passed, 0 failed
+
+==============================================================================
+SHUTDOWN
+==============================================================================
+shutdownAll() complete; stateDir removed.
