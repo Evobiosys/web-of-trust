@@ -1,0 +1,38 @@
+SELF-SOVEREIGN QR ONBOARDING — REAL-DEVICE END-TO-END VERIFICATION
+Date: 2026-07-18  Stack: pnpm alpha (current code) on 10.149.120.76, mediator = Jakob (:4101)
+Driver: a SECOND browser (Playwright) at the LAN IP acting as a fresh device ("PhoneGuest").
+
+STEP 1 — origin's connect QR/URL
+  GET http://10.149.120.76:4101/api/card → { did: <Jakob>, relay_url: "http://10.149.120.76:4101" }
+  connect URL = http://10.149.120.76:5173/?connect=<Jakob-DID>&relay=http%3A%2F%2F10.149.120.76%3A4101&app=ecstatic
+
+STEP 2 — device B opens the connect URL (native-camera-equivalent deep link)
+  → IndexedDB store "wot-identity" created  = browser GENERATED ITS OWN did:peer:2 keypair (self-sovereign; NOT a seeded persona)
+  → self-sovereign onboarding shown ("A web of your own · Your keys were just made"), asks display name
+
+STEP 3 — device B enters name "PhoneGuest", clicks "Ask to join"
+  → browser relay client submits a CONNECT (encrypted to Jakob's DID) to the mediator (:4101/relay/send)
+
+STEP 4 — origin receives (proves browser→mediator→origin delivery, origin drains the mediator)
+  GET :4101/api/state → connect_cards: 1
+    card 58113862… direction=inbound peer.display=PhoneGuest peer.did=did:peer:2.Vz6MkwXFzfJZe5… state=pending
+  (device B's DID service endpoint decodes to http://10.149.120.76:4101 = the mediator → ACK can route back)
+
+STEP 5 — CONSENT GATE: Jakob (origin owner) approves
+  POST :4101/api/connect/accept {card_id:58113862…} → {"ok":true} 200
+  → trust edge Jakob→PhoneGuest formed: level=friend, expires_at=+1y (I9 conservative default, requested level clamped)
+  → connect card state → accepted
+  → Jakob sends CONNECT_ACK{accepted:true} via LadderChannel→relay, addressed to PhoneGuest's DID
+
+STEP 6 — device B receives ACK (proves origin→mediator→browser-drain→decrypt) and ENTERS
+  device B: waiting screen → Discover, tabs visible, youName="PhoneGuest"
+  established markers persisted: connect.origin_did=<Jakob>, origin_display="Jakob", my_display="PhoneGuest"
+
+STEP 7 — persistence
+  device B reloaded with a BARE url (no ?connect) → re-entered directly as "PhoneGuest" into Discover (NOT onboarding)
+  → self-sovereign identity + established connection survive reload
+
+RESULT: PASS. A real second browser minted its own keys, connected to an origin over the live mediator relay,
+gated on the origin owner's explicit consent, formed a mutual-intent trust edge, and persisted — the origin-node
+model working on real hardware. Deferred (noted): in-app DM UI FROM the daemonless guest (the relay transport
+itself is proven — CONNECT and CONNECT_ACK are messages delivered+decrypted both directions over it).
