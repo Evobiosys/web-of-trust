@@ -39,6 +39,12 @@ export {
   type HttpPost,
   type HttpPostChannelOptions,
 } from "./delivery_channel.js";
+export {
+  InMemoryDedupStore,
+  SqliteDedupStore,
+  MAX_HOLD_HORIZON_MS,
+  type DedupStore,
+} from "./dedup_store.js";
 export { packMessage, unpackMessage, type JwmMessage } from "./didcomm_crypto.js";
 export {
   issueVrc,

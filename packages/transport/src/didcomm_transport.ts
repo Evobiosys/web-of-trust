@@ -23,6 +23,7 @@ import { v4 as uuidv4 } from "uuid";
 import type { Identity } from "./did_identity.js";
 import { packMessage, unpackMessage, type JwmMessage } from "./didcomm_crypto.js";
 import { HttpPostChannel, type DeliveryChannel, type HttpPost } from "./delivery_channel.js";
+import { InMemoryDedupStore, MAX_HOLD_HORIZON_MS, type DedupStore } from "./dedup_store.js";
 
 // JWM `type` discriminators (DIDComm-shaped app-protocol URIs).
 export const ENVELOPE_TYPE = "https://didcomm.org/resource-web/2.0/envelope";
@@ -44,10 +45,12 @@ type RoomMessageListener = (msg: RoomMessage) => void;
 // now live in delivery_channel.ts (the HttpPostChannel is the default rung).
 export type { HttpPost };
 
-// Replay-protection window: messages older than this (or duplicate ids within
-// it) are rejected. Small, in-memory, per-instance — sufficient for alpha; a
-// production build would persist this and widen clock-skew handling.
-const REPLAY_WINDOW_MS = 5 * 60_000;
+// Freshness horizon `H`: messages older than this (or duplicate ids recorded
+// within it) are rejected. This is also the dedup store's retention window —
+// the two are deliberately the *same* constant. Store-and-forward legitimately
+// delivers messages up to H old (the recipient was offline when sent); widening
+// freshness without widening dedup retention by the same amount would reopen a
+// replay hole (core-transport-plan.md §1 "Load-bearing finding" + Task 2).
 const FUTURE_SKEW_MS = 60_000;
 
 export interface DidCommTransportOptions {
@@ -55,18 +58,21 @@ export interface DidCommTransportOptions {
   httpPost?: HttpPost;
   /** The delivery seam (see delivery_channel.ts). Defaults to an HttpPostChannel — today's exact behavior. */
   channel?: DeliveryChannel;
+  /** Replay-protection memory (see dedup_store.ts). Defaults to InMemoryDedupStore — today's exact behavior. */
+  dedup?: DedupStore;
 }
 
 export class DidCommTransport implements TransportAdapter {
   private readonly listeners: EnvelopeListener[] = [];
   private readonly roomListeners: RoomMessageListener[] = [];
   private readonly rooms = new Map<string, PeerId[]>();
-  private readonly seen = new Map<string, number>(); // message id -> created_time
+  private readonly dedup: DedupStore;
   private readonly channel: DeliveryChannel;
   private self: PeerId | undefined;
 
   constructor(private readonly identity: Identity, opts: DidCommTransportOptions = {}) {
     this.channel = opts.channel ?? new HttpPostChannel(identity, { httpPost: opts.httpPost });
+    this.dedup = opts.dedup ?? new InMemoryDedupStore();
   }
 
   async init(cfg: TransportConfig): Promise<void> {
@@ -173,11 +179,14 @@ export class DidCommTransport implements TransportAdapter {
     }
 
     // Replay protection — keyed on the SIGNED message id, so only
-    // authenticated messages can populate the cache.
+    // authenticated messages can populate the store. Freshness lower-bound is
+    // the max-hold horizon H (store-and-forward can legitimately deliver a
+    // message up to H old); dedup retention is the same H, so the two checks
+    // stay coupled (see the constant's doc comment).
     const now = Date.now();
-    this.pruneSeen(now);
-    if (typeof message.created_time !== "number" || message.created_time < now - REPLAY_WINDOW_MS) {
-      const reason = "message too old / missing created_time (replay window)";
+    this.dedup.prune(now);
+    if (typeof message.created_time !== "number" || message.created_time < now - MAX_HOLD_HORIZON_MS) {
+      const reason = "message too old / missing created_time (exceeds max-hold horizon)";
       // eslint-disable-next-line no-console
       console.error(`[didcomm] rejected inbound from ${from}: ${reason} (id=${message.id})`);
       throw new Error(`[didcomm] ${reason}`);
@@ -187,12 +196,12 @@ export class DidCommTransport implements TransportAdapter {
       console.error(`[didcomm] rejected inbound from ${from}: created_time in the future (id=${message.id})`);
       throw new Error("[didcomm] created_time in the future");
     }
-    if (this.seen.has(message.id)) {
+    if (this.dedup.seen(message.id)) {
       // eslint-disable-next-line no-console
       console.error(`[didcomm] rejected duplicate inbound from ${from} (id=${message.id})`);
       throw new Error("[didcomm] duplicate message id (replay)");
     }
-    this.seen.set(message.id, message.created_time);
+    this.dedup.record(message.id, message.created_time);
 
     this.dispatch(from, message);
   }
@@ -274,10 +283,4 @@ export class DidCommTransport implements TransportAdapter {
     }
   }
 
-  private pruneSeen(now: number): void {
-    const cutoff = now - REPLAY_WINDOW_MS;
-    for (const [id, t] of this.seen) {
-      if (t < cutoff) this.seen.delete(id);
-    }
-  }
 }
