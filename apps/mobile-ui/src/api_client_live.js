@@ -47,7 +47,7 @@ function emptySnapshot() {
   return {
     persona: { name: state.name || "You" },
     trust_edges: [], listings_mine: [], listings_received: [],
-    loans: [], threads: [], consent_cards: [], steward_log: [],
+    loans: [], threads: [], consent_cards: [], connect_cards: [], steward_log: [],
   };
 }
 
@@ -227,7 +227,7 @@ export function createLiveClient(agentUrl) {
     // Kept in the per-client bag (not the shared store singleton) so multiple
     // live clients in one process — e.g. the two-daemon integration test — do
     // not clobber each other's activity feed.
-    const activity = buildActivity(loans, snap.consent_cards || [], mine, recv);
+    const activity = buildActivity(loans, snap.consent_cards || [], mine, recv, snap.connect_cards || []);
 
     return { events, offers, threads, threadList, people, rings: { ring1, ring2 }, reachNames, activity };
   }
@@ -253,10 +253,11 @@ export function createLiveClient(agentUrl) {
   }
 
   /**
-   * Build the "Waiting on you" activity feed from real loans + consent cards.
-   * @param {any[]} loans @param {any[]} cards @param {any[]} mine @param {any[]} recv
+   * Build the "Waiting on you" activity feed from real loans + consent cards +
+   * inbound connect requests (someone scanned my code and is waiting for a yes).
+   * @param {any[]} loans @param {any[]} cards @param {any[]} mine @param {any[]} recv @param {any[]} connectCards
    */
-  function buildActivity(loans, cards, mine, recv) {
+  function buildActivity(loans, cards, mine, recv, connectCards) {
     /** @param {string} id */
     const title = (id) => {
       const m = mine.find((l) => l.listing_id === id) || recv.find((l) => l.listing_id === id);
@@ -311,6 +312,18 @@ export function createLiveClient(agentUrl) {
         actions: [
           { label: "Share", kind: "electric", fn: () => consent(c.card_id) },
           { label: "Not this time", kind: "ghost", fn: () => decline(c.card_id) },
+        ],
+      });
+    }
+    for (const c of (connectCards || [])) {
+      if (c.direction !== "inbound" || c.state !== "pending") continue;
+      const who = esc((c.peer && c.peer.display) || "Someone");
+      items.push({
+        icon: "🔑", who,
+        txt: "<b>" + who + "</b> scanned your code and wants to become their own node in your web.",
+        actions: [
+          { label: "Let them in", kind: "electric", fn: () => acceptConnect(c.card_id) },
+          { label: "Not now", kind: "ghost", fn: () => declineConnect(c.card_id) },
         ],
       });
     }
@@ -426,6 +439,14 @@ export function createLiveClient(agentUrl) {
   /** @param {string} cardId */
   function decline(cardId) {
     return mutate(req("/api/decline", { card_id: cardId }));
+  }
+  /** Accept an inbound CONNECT (someone scanned my code) — forms the trust edge. @param {string} cardId */
+  function acceptConnect(cardId) {
+    return mutate(req("/api/connect/accept", { card_id: cardId }));
+  }
+  /** Decline an inbound CONNECT — reveals nothing beyond "not accepted". @param {string} cardId */
+  function declineConnect(cardId) {
+    return mutate(req("/api/connect/decline", { card_id: cardId }));
   }
 
   /** @param {string} peer @param {string} text */
