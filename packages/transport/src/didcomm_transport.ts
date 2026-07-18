@@ -1,10 +1,27 @@
 // DidCommTransport — a DIDComm-v2-SHAPED TransportAdapter over plain HTTP.
 //
 // The OpenVTC pillar's peer-to-peer transport. Every message is sign-then-
-// encrypted (see didcomm_crypto.ts) and POSTed directly to the recipient's
-// service endpoint (resolved from their did:peer:2 — no homeserver, no
-// mediator, no directory). This is the metadata-privacy win over Matrix: there
-// is no third party that sees who talks to whom (PRIVACY.md).
+// encrypted (see didcomm_crypto.ts). The wire is opaque: the payload is never
+// in cleartext (X25519 ECDH-ES + XChaCha20-Poly1305) and the sender DID is NOT
+// on the outer wire (it rides inside the authenticated ciphertext), so no
+// intermediary can read the payload or attribute who-sent-what.
+//
+// DELIVERY PATH (honest labeling, I7). The alpha delivers over a ladder
+// (delivery_channel.ts / LadderChannel): rung 0 tries a trust-graph
+// RELAY/MEDIATOR (relay_server.ts) — a store-and-forward node run by a
+// trusted friend, so an offline recipient still receives mail — and only if
+// that fails does it fall back to a DIRECT POST to the recipient's own
+// `did:peer:2` service endpoint (rung "lan_http"). So it is NOT true that "no
+// third party is involved": when the relay rung is used, that relay learns
+// METADATA — the recipient DID (the outer wire's cleartext routing header),
+// the submitter's network address, and timing. It never learns the payload
+// (never-decrypt holds) and never sees a `from` on the outer wire. The direct
+// rung involves no third party at all. See PRIVACY.md for the full disclosure.
+//
+// This transport-layer relay/mediator is a DIFFERENT thing from the
+// application-layer second-brain "semantic relay" (README / I8), which is a
+// consented two-hop of resource *knowledge* between people — not a message
+// forwarder. Do not conflate them.
 //
 // HONEST LABELING (I7): "DIDComm v2-shaped, not certified-interoperable yet".
 // We reuse DIDComm's concepts (DIDs, JWM-shaped messages, ECDH-ES + AEAD,
