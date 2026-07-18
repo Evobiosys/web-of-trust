@@ -66,6 +66,19 @@
     </div>
   </div>
 
+  <!-- ============ GUEST CHAT (self-sovereign guest ↔ origin, over the relay) ============ -->
+  <div class="screen" id="guestchat">
+    <div class="hdr"><h2 id="guestChatTitle">Connected</h2><span class="loc">held between you</span></div>
+    <div class="scroll">
+      <p class="map-cap" id="guestChatIntro" style="padding:6px 4px 2px">A private thread, carried by your own keys — just the two of you.</p>
+      <div class="thread-bubs" id="guestBubs"></div>
+    </div>
+    <div class="guest-composer">
+      <input class="msg-input" id="guestDmInput" placeholder="Message…" aria-label="Message the origin" enterkeyhint="send" autocapitalize="sentences">
+      <button class="btn btn-electric btn-sm" id="guestDmSend" type="button" aria-label="Send">Send</button>
+    </div>
+  </div>
+
   <!-- ============ HOST A GATHERING ============ -->
   <div class="screen" id="host">
     <div class="hdr"><h2>Host a gathering</h2></div>

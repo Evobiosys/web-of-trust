@@ -30,7 +30,9 @@ appCtx.api.start();
 //  4. Anything else (a bare, no-persona URL) — full onboarding, where a brand-
 //     new profile is born.
 if (hasEstablishedConnection()) {
-  enterEstablishedConnection();
+  // Reload of an already-connected guest: re-create identity + relay client from
+  // the persisted relay base and re-enter the live chat (deps drive that rebuild).
+  void enterEstablishedConnection({ loadOrCreateIdentity, createRelayClient });
 } else if (runtimeConfig.connect && runtimeConfig.relay) {
   void runConnectFlow({
     connect: runtimeConfig.connect,

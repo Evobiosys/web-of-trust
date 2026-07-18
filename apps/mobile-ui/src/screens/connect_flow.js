@@ -25,10 +25,11 @@
 
 import { $ } from "../dom.js";
 import { state } from "../store.js";
-import { finishOnb, guestMode } from "./onboarding.js";
+import { guestMode } from "./onboarding.js";
 import { showCoach } from "../coach.js";
 import { onboardingHeading } from "../skin.js";
 import { clearConnectConfig } from "../runtime_config.js";
+import { beginGuestChat } from "./guest_chat.js";
 
 /** localStorage keys for the ESTABLISHED connection record (distinct from
  * runtime_config's in-flight `connect`/`relay` intent): once an origin has
@@ -38,6 +39,10 @@ const CONNECTED_KEYS = {
   originDid: "resource-web.connect.origin_did",
   originDisplay: "resource-web.connect.origin_display",
   myDisplay: "resource-web.connect.my_display",
+  // The mediator relay base is persisted too so a bare reload can re-create the
+  // identity + relay client (loadOrCreateIdentity + createRelayClient both need
+  // it) and re-enter the live chat without a re-handshake.
+  relayBase: "resource-web.connect.relay_base",
 };
 
 // Some environments expose `window.localStorage` but throw or lack it
@@ -136,31 +141,55 @@ export function hasEstablishedConnection() {
 }
 
 /** Re-enter the app for an already-established connection (reload path): no
- * name step, no CONNECT re-send — just restore the name and drop into the
- * app with the "connected to <origin>" indicator. */
-export function enterEstablishedConnection() {
+ * name step, no CONNECT re-send — restore the name, drop into the honest
+ * "connected to <origin>" floor, and (given the browser-agent deps) re-create
+ * the identity + relay client from the persisted relay base and re-enter the
+ * live chat. Async because rebuilding the client awaits key material; the
+ * synchronous `enterConnected` runs FIRST so a caller that doesn't await still
+ * gets the connected chrome immediately.
+ * @param {{ loadOrCreateIdentity: (opts?: { endpoint?: string }) => Promise<any>, createRelayClient: (opts: any) => { send: (toDid: string, env: unknown) => Promise<void>, onInbound: (cb: (fromDid: string, env: unknown) => void) => void, start: () => Promise<void>, stop: () => void } }} [deps]
+ */
+export async function enterEstablishedConnection(deps) {
+  const originDid = readStore(CONNECTED_KEYS.originDid) || "";
   const myDisplay = readStore(CONNECTED_KEYS.myDisplay) || "You";
-  const originDisplay = readStore(CONNECTED_KEYS.originDisplay) || shortDid(readStore(CONNECTED_KEYS.originDid) || "");
+  const originDisplay = readStore(CONNECTED_KEYS.originDisplay) || shortDid(originDid);
+  const relayBase = readStore(CONNECTED_KEYS.relayBase);
   enterConnected(originDisplay, myDisplay);
+
+  if (!deps || !relayBase || !originDid) return; // no live chat without the relay base + agent deps
+
+  // Rebuild the SAME self-sovereign identity (IndexedDB-persisted — the origin's
+  // thread is keyed by this DID, so a fresh DID would misroute replies) and its
+  // relay client, then wire inbound BEFORE start() so DMs queued while the guest
+  // was away are drained, not lost.
+  const identity = await deps.loadOrCreateIdentity({ endpoint: relayBase });
+  const client = deps.createRelayClient({ identity, relayUrl: relayBase });
+  beginGuestChat({ client, originDid, originDisplay, myDisplay });
+  await client.start();
 }
 
 /** Persist the established-connection record so a later reload re-enters directly.
- * @param {string} originDid @param {string} originDisplay @param {string} myDisplay */
-function persistConnection(originDid, originDisplay, myDisplay) {
+ * @param {string} originDid @param {string} originDisplay @param {string} myDisplay @param {string} relayBase */
+function persistConnection(originDid, originDisplay, myDisplay, relayBase) {
   writeStore(CONNECTED_KEYS.originDid, originDid);
   writeStore(CONNECTED_KEYS.originDisplay, originDisplay);
   writeStore(CONNECTED_KEYS.myDisplay, myDisplay);
+  writeStore(CONNECTED_KEYS.relayBase, relayBase);
 }
 
-/** Enter the app as this self-sovereign profile, showing the connected-to-origin
- * indicator. `finishOnb` is the app's own entry gate (reveals tabs, seeds the
- * thin fixture floor, shows Discover); we then replace its coach chip with the
- * connection confirmation so the "you're connected to <origin>" state is
- * visible.
+/** Enter the app as this self-sovereign profile on its HONEST, stripped floor.
+ * A daemonless self-sovereign guest has no real people/events/offers — only
+ * this origin edge — so we deliberately do NOT run `finishOnb` (which reveals
+ * the tab bar and seeds the mockup's fixture floor: fake rings, fake Discover,
+ * fake offers). Presenting that invented data to a guest as if real would be
+ * dishonest. The guest's whole world here is the live thread with the origin
+ * (revealed by `beginGuestChat`); this sets only the honest chrome around it.
  * @param {string} originDisplay @param {string} myDisplay */
 function enterConnected(originDisplay, myDisplay) {
   state.name = myDisplay;
-  finishOnb();
+  state.guest = false;
+  $("joinBar").classList.remove("on");
+  $("tabs").style.display = "none"; // no fixture-backed tabbed app for a self-sovereign guest
   showCoach("You’re in — connected to <b>" + escapeHtml(originDisplay) + "</b>");
 }
 
@@ -281,8 +310,13 @@ export async function runConnectFlow({ connect, relay, deps, nameProvider = askD
   const accepted = Boolean(body && body.accepted);
   if (accepted) {
     const originDisplay = (body.display && String(body.display)) || shortDid(connect);
-    persistConnection(connect, originDisplay, myDisplay);
+    persistConnection(connect, originDisplay, myDisplay, relay);
     enterConnected(originDisplay, myDisplay);
+    // Hold the ALREADY-STARTED relay client for the session and open the live
+    // chat with the origin. beginGuestChat re-registers onInbound, replacing the
+    // one-shot CONNECT_ACK watcher above with the DM handler (the client keeps a
+    // single callback) — correct now that we're past the handshake.
+    beginGuestChat({ client, originDid: connect, originDisplay, myDisplay });
   } else {
     clearConnectConfig(); // forget the intent so a reload doesn't re-send to a "no"
     renderDeclined(connect);

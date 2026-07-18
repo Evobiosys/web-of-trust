@@ -13,6 +13,7 @@ import {
   enterEstablishedConnection,
   __clearConnectStorageForTests,
 } from "./connect_flow.js";
+import { __resetGuestChatForTests } from "./guest_chat.js";
 import { onb } from "./onboarding.js";
 import { getRuntimeConfig } from "../runtime_config.js";
 import { state } from "../store.js";
@@ -69,6 +70,7 @@ describe("runConnectFlow (self-sovereign connect)", () => {
     // and runtime_config fall back to module-scoped in-memory stores that must
     // not leak between cases.
     __clearConnectStorageForTests();
+    __resetGuestChatForTests(ORIGIN);
     window.history.replaceState({}, "", "/");
   });
 
@@ -109,22 +111,28 @@ describe("runConnectFlow (self-sovereign connect)", () => {
     const res = await p;
 
     expect(res.accepted).toBe(true);
-    // Entered the app as this self-sovereign profile.
+    // Entered the app as this self-sovereign profile — on the HONEST stripped
+    // floor: the live thread with the origin, NOT the mockup's fixture tabs.
     expect(state.name).toBe("Zed");
-    expect(state.screen).toBe("discover");
-    expect($("tabs").style.display).toBe("flex");
+    expect(state.screen).toBe("guestchat");
+    expect($("tabs").style.display).toBe("none");
+    expect($("guestChatTitle").textContent).toBe("Anna");
     // "Connected to <origin>" indicator carries the origin's own display name.
     expect($("coachText").innerHTML).toContain("Anna");
     // Durable connection record so a later reload re-enters directly.
     expect(hasEstablishedConnection()).toBe(true);
 
     // Reload path: a fresh boot (new DOM + reset store) with the persisted
-    // record re-enters directly — no name step, no CONNECT re-send.
+    // record re-enters directly — no name step, no CONNECT re-send — and, given
+    // the browser-agent deps, re-creates the relay client and re-enters chat.
     mount();
+    __resetGuestChatForTests();
     expect(hasEstablishedConnection()).toBe(true);
-    enterEstablishedConnection();
+    const { deps: reloadDeps } = makeFakeAgent();
+    await enterEstablishedConnection(reloadDeps);
     expect(state.name).toBe("Zed");
-    expect(state.screen).toBe("discover");
+    expect(state.screen).toBe("guestchat");
+    expect($("guestChatTitle").textContent).toBe("Anna");
   });
 
   it("ignores an unsolicited/mismatched CONNECT_ACK, then enters on the correlated one", async () => {
@@ -137,12 +145,12 @@ describe("runConnectFlow (self-sovereign connect)", () => {
     // Wrong sender, and wrong request_id — neither must enter the app.
     fk.cb?.("did:peer:2.SomeoneElse", ackEnv(reqId, true, "Mallory"));
     fk.cb?.(ORIGIN, ackEnv("00000000-0000-4000-8000-000000000000", true, "Anna"));
-    expect(state.screen).not.toBe("discover");
+    expect(state.screen).not.toBe("guestchat");
 
-    // The correctly-correlated ack enters.
+    // The correctly-correlated ack enters the live chat.
     fk.cb?.(ORIGIN, ackEnv(reqId, true, "Anna"));
     await p;
-    expect(state.screen).toBe("discover");
+    expect(state.screen).toBe("guestchat");
   });
 
   it("CONNECT_ACK{accepted:false} → gentle declined screen, does NOT enter, forgets the intent", async () => {
