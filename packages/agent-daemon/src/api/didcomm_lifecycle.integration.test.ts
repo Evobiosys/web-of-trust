@@ -117,8 +117,8 @@ describe("Two daemons over real DidCommTransport (localhost HTTP)", () => {
     ben.store.putItem(screwdriver());
     const nowIso = new Date().toISOString();
     const expiresIso = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
-    anna.store.putTrustEdge({ peer: ben.did, display: "Ben", created_at: nowIso, expires_at: expiresIso });
-    ben.store.putTrustEdge({ peer: anna.did, display: "Anna", created_at: nowIso, expires_at: expiresIso });
+    anna.store.putTrustEdge({ peer: ben.did, display: "Ben", level: "friend", created_at: nowIso, expires_at: expiresIso });
+    ben.store.putTrustEdge({ peer: anna.did, display: "Anna", level: "friend", created_at: nowIso, expires_at: expiresIso });
 
     // Anna asks — REQUEST travels encrypted over real HTTP to Ben.
     const ask = await anna.daemon.sendAsk("Hat wer einen Akkuschrauber?");
@@ -162,7 +162,7 @@ describe("Two daemons over real DidCommTransport (localhost HTTP)", () => {
     const ben = await bootDaemon("Ben", "steady");
     const nowIso = new Date().toISOString();
     const expiresIso = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
-    anna.store.putTrustEdge({ peer: ben.did, display: "Ben", created_at: nowIso, expires_at: expiresIso });
+    anna.store.putTrustEdge({ peer: ben.did, display: "Ben", level: "friend", created_at: nowIso, expires_at: expiresIso });
 
     const res = await fetch(`http://127.0.0.1:${anna.server.port}/api/trust/export?format=vrc`);
     expect(res.status).toBe(200);
