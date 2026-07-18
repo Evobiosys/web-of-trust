@@ -6,6 +6,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import type { TrustLevel } from "@resource-web/protocol";
 import type { Daemon } from "../daemon/daemon.js";
 import { buildGuestListings, buildListingApiView, buildLoanApiView, buildReceivedListingApiView, buildThreadMessageApiView } from "./sanitize.js";
+import { InMemoryConnectionRecordStore, type ConnectionRecordStore } from "../store/connection_store.js";
 
 export interface StartedServer {
   close(): Promise<void>;
@@ -33,9 +34,21 @@ export interface ServerExtras {
   /**
    * DID card fields (Task 11's `getCardPayload`), merged into GET /api/card
    * when TRANSPORT=didcomm. Absent for mock/matrix — /api/card still works,
-   * just without `did`/`endpoint`.
+   * just without `did`/`endpoint`. `relays`/`ice_servers` (Task 8) are
+   * whatever `getCardPayload` produced — this type only needs to widen to
+   * carry them through; the handler's existing `...(extras.cardExtra ?? {})`
+   * spread already merges arbitrary extra fields, so no handler change.
    */
-  cardExtra?: { did: string; endpoint: string };
+  cardExtra?: { did: string; endpoint: string; relays?: string[]; ice_servers?: string[] };
+  /**
+   * Connection-record store (Task 8, core-transport-plan.md) — POST
+   * /api/connect persists `{did, relays, ice_servers}` here so a later
+   * transport ladder (LadderChannel, Task 3') knows how to reach a scanned
+   * peer. Defaults to an in-memory store when omitted (mock/matrix, or
+   * before a persistent one is wired at Task 10) so /api/connect always
+   * works even without main.ts threading a real one through.
+   */
+  connectionStore?: ConnectionRecordStore;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -86,6 +99,7 @@ const TRUST_LEVELS = new Set<TrustLevel>(["contact", "friend", "close"]);
 export function startServer(daemon: Daemon, port: number, extras: ServerExtras = {}): Promise<StartedServer> {
   const sockets = new Set<WebSocket>();
   const host = extras.host ?? process.env.API_HOST ?? "127.0.0.1";
+  const connectionStore: ConnectionRecordStore = extras.connectionStore ?? new InMemoryConnectionRecordStore();
 
   function broadcast(event: WsEvent): void {
     const payload = JSON.stringify(event);
@@ -206,6 +220,65 @@ export function startServer(daemon: Daemon, port: number, extras: ServerExtras =
       }
       daemon.removeTrust(peer);
       sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    // ------------------------------------- Task 8: QR scan → connect --
+    // Additive alongside POST /api/trust, not a replacement: a scanned meet
+    // card carries connection-bootstrap data (relays/ice_servers) a plain
+    // trust-only add doesn't. `did` IS the peer id in DIDComm mode (main.ts:
+    // `peerId = identity.did`), so the trust edge upsert reuses
+    // `daemon.addTrust` verbatim — same code path POST /api/trust runs,
+    // never duplicated — and the connection record is a second, independent
+    // write a later transport ladder (LadderChannel) will read.
+    if (method === "POST" && path === "/api/connect") {
+      const body = (await readJsonBody(req)) as {
+        did?: string;
+        display?: string;
+        endpoint?: string;
+        relays?: string[];
+        ice_servers?: string[];
+        level?: string;
+        vouched_by?: string;
+      };
+      if (typeof body.did !== "string" || body.did.length === 0) {
+        badRequest(res, "did is required");
+        return;
+      }
+      if (typeof body.display !== "string" || body.display.length === 0) {
+        badRequest(res, "display is required");
+        return;
+      }
+      if (body.level !== undefined && !TRUST_LEVELS.has(body.level as TrustLevel)) {
+        badRequest(res, `level must be one of ${[...TRUST_LEVELS].join(", ")}`);
+        return;
+      }
+      if (body.relays !== undefined && !Array.isArray(body.relays)) {
+        badRequest(res, "relays must be an array of relay DIDs");
+        return;
+      }
+      if (body.ice_servers !== undefined && !Array.isArray(body.ice_servers)) {
+        badRequest(res, "ice_servers must be an array");
+        return;
+      }
+      try {
+        const edge = await daemon.addTrust({
+          peer: body.did,
+          display: body.display,
+          level: body.level as TrustLevel | undefined,
+          vouched_by: body.vouched_by,
+        });
+        const connection = {
+          did: body.did,
+          relays: body.relays ?? [],
+          ice_servers: body.ice_servers,
+          updated_at: new Date().toISOString(),
+        };
+        connectionStore.putConnection(connection);
+        sendJson(res, 200, { trust_edge: edge, connection });
+      } catch (err) {
+        badRequest(res, (err as Error).message);
+      }
       return;
     }
 

@@ -194,13 +194,45 @@ export interface CardPayload {
   display: string;
   did: string;
   endpoint: string;
+  /**
+   * Relay-node DIDs (core-transport-plan.md Task 8) this peer is reachable
+   * through — resolved locally via `resolveDidPeer`, exactly like any other
+   * DID this package handles. No new endpoint format: a relay is just
+   * another did:peer:2 whose service block a LadderChannel can resolve.
+   * Omitted entirely (not merely undefined) when the caller supplies none,
+   * so the QR/compact card JSON stays byte-minimal for the mock/matrix path.
+   */
+  relays?: string[];
+  /**
+   * Optional STUN/TURN URLs for the deferred WebRTC rung (T4/T5, see
+   * core-transport-plan.md §0 SCOPE REVISION). Not exercised by any
+   * mediator-only code path today; carried here so a future rung-(a) upgrade
+   * is additive to the card shape rather than another breaking change.
+   */
+  ice_servers?: string[];
 }
 
 /**
  * The DID card payload for the meet-card (Task 5's /api/card). Exposed as a
  * function so this transport package stays decoupled from the daemon's HTTP
  * surface; wiring into /api/card happens at integration.
+ *
+ * `opts.relays`/`opts.ice_servers` are spread in only when explicitly
+ * supplied (Task 8) — an absent option leaves the key off the returned
+ * object entirely (not `{relays: undefined}`), which is what keeps the
+ * existing mock-transport card (no opts passed) byte-identical to before
+ * this change.
  */
-export function getCardPayload(identity: Identity, displayName: string): CardPayload {
-  return { display: displayName, did: identity.did, endpoint: identity.serviceEndpoint };
+export function getCardPayload(
+  identity: Identity,
+  displayName: string,
+  opts?: { relays?: string[]; ice_servers?: string[] }
+): CardPayload {
+  return {
+    display: displayName,
+    did: identity.did,
+    endpoint: identity.serviceEndpoint,
+    ...(opts?.relays !== undefined ? { relays: opts.relays } : {}),
+    ...(opts?.ice_servers !== undefined ? { ice_servers: opts.ice_servers } : {}),
+  };
 }

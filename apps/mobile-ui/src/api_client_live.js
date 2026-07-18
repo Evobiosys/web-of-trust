@@ -358,6 +358,15 @@ export function createLiveClient(agentUrl) {
    * Ceremony confirm → create a mutual-side trust edge. Sets the celebration
    * flags synchronously (the meet screen reads state.unlocked right after) then
    * POSTs and refetches.
+   *
+   * Task 8 (core-transport-plan.md): when the scanned card carries a `did`
+   * (a DIDComm meet-card, as opposed to a plain peer_id-only card),
+   * POST /api/connect instead of /api/trust — it reuses the same trust
+   * upsert on the daemon side AND persists the card's `relays`/`ice_servers`
+   * as a connection record for the transport ladder. A card with no `did`
+   * (existing mock/matrix-transport shape) keeps posting to /api/trust
+   * exactly as before — behavior-preserving for every caller that predates
+   * Task 8.
    * @param {any} card @param {string} level
    */
   function addTrust(card, level) {
@@ -367,6 +376,17 @@ export function createLiveClient(agentUrl) {
     state.mariaLevel = level;
     state.unlocked = level !== "Contact";
     state.justUnlocked = state.unlocked;
+    const did = typeof card === "object" && card ? card.did : undefined;
+    if (did) {
+      return mutate(req("/api/connect", {
+        did,
+        display,
+        endpoint: card.endpoint,
+        relays: card.relays,
+        ice_servers: card.ice_servers,
+        level: LEVEL_UI_TO_API[level] || "friend",
+      }));
+    }
     return mutate(req("/api/trust", { peer, display, level: LEVEL_UI_TO_API[level] || "friend" }));
   }
 
@@ -442,20 +462,40 @@ export function createLiveClient(agentUrl) {
    * Resolve a scanned/pasted meet card (compact JSON from the peer's QR) into
    * the pending-confirm person. Returns false on unparseable input so the
    * screen can keep the manual-entry field open.
+   *
+   * Task 8: a DIDComm meet-card additionally carries `did`/`endpoint`/
+   * `relays`/`ice_servers` (getCardPayload's shape) alongside the existing
+   * `peer_id`/`display` fields (in DIDComm mode `peer_id === did`, per
+   * main.ts). Those extra fields are carried through onto `pendingMeet.card`
+   * untouched so a later `addTrust(pm.card, level)` call can route to
+   * POST /api/connect; a plain `{peer_id, display}` card (no `did`) resolves
+   * exactly as before Task 8.
    * @param {string} text
    */
   function resolveCard(text) {
     try {
       const c = JSON.parse(text);
-      const peer = c.peer_id || c.peer;
+      const peer = c.peer_id || c.peer || c.did;
       if (!peer) return false;
       const display = c.display || peer;
-      state.pendingMeet = {
-        card: { peer, display },
+      // Cast to `any`: store.js's MeetCard typedef (out of this task's scope
+      // guard — untouched) only declares {peer, display}; the did/endpoint/
+      // relays/ice_servers fields below are carried through structurally
+      // (every reader that cares, addTrust() included, treats `card` as
+      // duck-typed) without widening that shared typedef.
+      state.pendingMeet = /** @type {any} */ ({
+        card: {
+          peer,
+          display,
+          did: c.did,
+          endpoint: c.endpoint,
+          relays: Array.isArray(c.relays) ? c.relays : undefined,
+          ice_servers: Array.isArray(c.ice_servers) ? c.ice_servers : undefined,
+        },
         display,
         initial: String(display).charAt(0).toUpperCase() || "?",
         ctxLabel: "☀ Met just now",
-      };
+      });
       notify();
       return true;
     } catch {
