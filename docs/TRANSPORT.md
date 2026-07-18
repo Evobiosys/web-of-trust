@@ -324,11 +324,17 @@ extension **structurally** (duck-typed via `hasRoomMessaging`), so no
 
 ### 10.4 VRCs (`vrc.ts`)
 
-On trust-edge creation each side issues an Ed25519-signed, W3C-VC-shaped
-`RelationshipCredential` about the peer DID. `verifyVrc` recovers the issuer
-key from its `did:peer:2` and checks the signature over the canonical,
-proof-stripped credential, binding `proof.verificationMethod` to the issuer.
-Served at `GET /api/trust/export?format=vrc`.
+Each side can issue an Ed25519-signed, W3C-VC-shaped `RelationshipCredential`
+about a peer DID. `verifyVrc` recovers the issuer key from its `did:peer:2` and
+checks the signature over the canonical, proof-stripped credential, binding
+`proof.verificationMethod` to the issuer.
+
+**Issuance timing (alpha):** VRCs are issued **on demand at export time** from
+the daemon's **current, non-expired** trust edges — they are **not** persisted,
+and there is no issue-and-store step on trust-edge creation. (Storing on
+creation would mean writing through `daemon.ts`/`store`, owned by other tasks;
+issuing at export keeps this task's daemon footprint additive.) Served at
+`GET /api/trust/export?format=vrc`.
 
 ### 10.5 HONEST LABELING (I7) — how this deviates from the RFCs
 
@@ -350,6 +356,9 @@ DIDComm agent or a conformant W3C-VC processor. Precise deviations:
   there is no `@context` dereferencing, no revocation/status list, no witness.
   A `verifyVrc → valid:true` means "this issuer really signed this", **not** "a
   witness attests the relationship". Keyring-wallet / OpenVTC witnessing is future work.
+  VRCs are **issued on demand at export time** from current non-expired trust
+  edges and **not persisted** — there is no issue-and-store on edge creation
+  (see §10.4).
 - **Replay window + secret storage are alpha-grade.** The dedup cache is
   in-memory and per-instance; identity secret keys are persisted as **plaintext**
   base64 JSON at `DID_IDENTITY_PATH` (file mode `0600`). A production build must

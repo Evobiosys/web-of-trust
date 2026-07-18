@@ -127,12 +127,18 @@ async function main(): Promise<void> {
   const didcommTransport = transport instanceof DidCommTransport ? transport : undefined;
   const server = await startServer(daemon, cfg.agentPort, {
     didcommInbound: didcommTransport ? (rawBody: string) => didcommTransport.receiveInbound(rawBody) : undefined,
+    // VRCs are issued on demand from the CURRENT (non-expired) trust edges at
+    // export time — self-asserted, not persisted (issuing+storing on edge
+    // creation would require touching daemon.ts/store, owned by other tasks).
     trustExport:
       identity !== undefined
-        ? (): VerifiableRelationshipCredential[] =>
-            store
+        ? (): VerifiableRelationshipCredential[] => {
+            const now = Date.now();
+            return store
               .getTrustEdges()
-              .map((edge) => issueVrc(identity, { peerDid: edge.peer, relationship: "trusted" }))
+              .filter((edge) => new Date(edge.expires_at).getTime() > now)
+              .map((edge) => issueVrc(identity, { peerDid: edge.peer, relationship: "trusted" }));
+          }
         : undefined,
   });
   // eslint-disable-next-line no-console
