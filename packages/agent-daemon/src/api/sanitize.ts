@@ -121,7 +121,7 @@ export function buildStateSnapshot(persona: { name: string; peer_id: string; acc
 
 // ------------------------------------------------------------- D14 views --
 
-function buildListingApiView(listing: ListingRecord): ListingApiView {
+export function buildListingApiView(listing: ListingRecord): ListingApiView {
   return {
     listing_id: listing.listing_id,
     kind: listing.kind,
@@ -138,7 +138,7 @@ function buildListingApiView(listing: ListingRecord): ListingApiView {
   };
 }
 
-function buildReceivedListingApiView(listing: ReceivedListingRecord): ReceivedListingApiView {
+export function buildReceivedListingApiView(listing: ReceivedListingRecord): ReceivedListingApiView {
   return {
     listing_id: listing.listing_id,
     kind: listing.kind,
@@ -158,7 +158,7 @@ function buildReceivedListingApiView(listing: ReceivedListingRecord): ReceivedLi
   };
 }
 
-function buildLoanApiView(loan: LoanRecord): LoanApiView {
+export function buildLoanApiView(loan: LoanRecord): LoanApiView {
   return {
     loan_id: loan.loan_id,
     listing_id: loan.listing_id,
@@ -175,6 +175,67 @@ function buildLoanApiView(loan: LoanRecord): LoanApiView {
 function buildThreadApiView(store: Store, peer: string): ThreadApiView {
   const messages: DmMessageApiView[] = store.getDmMessages(peer).map((m) => ({ direction: m.direction, text: m.text, ts: m.ts }));
   return { peer_id: peer, display: store.getTrustEdge(peer)?.display ?? peer, messages };
+}
+
+/**
+ * GET /api/threads (Task 5): brief's wire shape uses `{from, text, ts}`
+ * rather than the internal `direction` this daemon stores — `from` is
+ * either `"self"` (outgoing, matching the `room_message` WS event's own
+ * `from: "self"` convention at server.ts) or the thread's peer id
+ * (incoming). `/api/state`'s `threads` view (buildThreadApiView above) is
+ * untouched — this is an additive, differently-shaped view for the new
+ * endpoint only.
+ */
+export function buildThreadMessageApiView(store: Store, peer: string): { peer_id: string; display: string; messages: Array<{ from: string; text: string; ts: string }> } {
+  const messages = store.getDmMessages(peer).map((m) => ({ from: m.direction === "outgoing" ? "self" : peer, text: m.text, ts: m.ts }));
+  return { peer_id: peer, display: store.getTrustEdge(peer)?.display ?? peer, messages };
+}
+
+/**
+ * GET /api/listings?public=1 (Task 5, SECURITY-CRITICAL #1): the
+ * unauthenticated guest view. Two hard gates, both load-bearing:
+ *   - tier === "public" ONLY — NOT "wot_commons". schemas.ts is explicit
+ *     that "public" is wot_commons's reach PLUS guest-API visibility;
+ *     "wot_commons" alone reaches every trust edge but is NOT guest-visible.
+ *   - `where_gated` is never placed on the returned object at all (not
+ *     merely left `undefined`) — a JSON.stringify of an object with an
+ *     `undefined` value still omits that key today, but building the object
+ *     WITHOUT the key is the only version of this that stays correct if the
+ *     serialization path ever changes. A guest gets `where_public` only.
+ * Withdrawn listings are excluded too — a guest has no business use for a
+ * dead listing's public-tier text.
+ */
+export interface GuestListingApiView {
+  listing_id: string;
+  kind: "offer" | "gathering";
+  title: string;
+  description: string;
+  when?: string;
+  where_public?: string;
+  tier: "public";
+  owner_display: string;
+  created_at: string;
+}
+
+export function buildGuestListingApiView(listing: ListingRecord): GuestListingApiView {
+  return {
+    listing_id: listing.listing_id,
+    kind: listing.kind,
+    title: listing.title,
+    description: listing.description,
+    when: listing.when,
+    where_public: listing.where_public,
+    tier: "public",
+    owner_display: listing.owner_display,
+    created_at: listing.created_at,
+  };
+}
+
+export function buildGuestListings(store: Store): GuestListingApiView[] {
+  return store
+    .getListings()
+    .filter((l) => l.tier === "public" && l.state === "active")
+    .map(buildGuestListingApiView);
 }
 
 /**

@@ -31,6 +31,7 @@ export interface Store {
   putTrustEdge(edge: TrustEdge): void;
   getTrustEdges(): TrustEdge[];
   getTrustEdge(peer: string): TrustEdge | undefined;
+  removeTrustEdge(peer: string): void;
 
   // asks (asker-side lifecycle)
   putAsk(ask: AskRecord): void;
