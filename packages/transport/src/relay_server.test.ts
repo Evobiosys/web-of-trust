@@ -13,6 +13,10 @@ import { packMessage, unpackMessage } from "./didcomm_crypto.js";
 import { ENVELOPE_TYPE } from "./didcomm_transport.js";
 import { ENVELOPE_FIXTURES } from "./test_support/envelope_fixtures.js";
 import { RelayServer, type RelayServerOptions } from "./relay_server.js";
+import { InMemoryRelayQueueStore, SqliteRelayQueueStore } from "./relay_queue_store.js";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 function b64u(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64url");
@@ -113,7 +117,9 @@ describe("RelayServer — Task 6a: accept + persist + route", () => {
     const wire = buildWire(anna, ben, "offline-msg-1");
     const submitRes = await submitOverHttp(port, wire);
     expect(submitRes.status).toBe(202);
-    expect((submitRes.body as { routed: string }).routed).toBe("queued"); // Ben wasn't connected
+    // Non-informative success (finding 1): the response never reveals live vs
+    // queued, nor a queue id / recipient DID — just "accepted".
+    expect(submitRes.body).toEqual({ routed: "accepted" });
 
     const drain = openDrain(port);
     await waitForOpen(drain.ws);
@@ -187,10 +193,110 @@ describe("RelayServer — Task 6a: accept + persist + route", () => {
 
     const wire = buildWire(anna, ben, "live-msg-1");
     const submitRes = await submitOverHttp(port, wire);
-    expect((submitRes.body as { routed: string }).routed).toBe("live");
+    // Same non-informative "accepted" as the offline/queued case above — the
+    // submitter cannot tell that Ben was live (presence-oracle closed).
+    expect(submitRes.body).toEqual({ routed: "accepted" });
 
     await waitFor(() => drain.messages.some((m) => m.type === "wire"));
     expect(drain.messages.find((m) => m.type === "wire")!.wire).toBe(wire);
+  });
+});
+
+describe("RelayServer — finding 1: ingress oracle closed + validate-before-enqueue", () => {
+  it("the submit response is byte-identical ('accepted', no queueId/toDid) whether the recipient is live or offline", async () => {
+    const anna = createIdentity("http://anna.example/didcomm");
+    const ben = createIdentity("http://ben.example/didcomm");
+    const carol = createIdentity("http://carol.example/didcomm");
+    const { port } = await bootRelay();
+
+    // Carol is offline → queued path.
+    const queuedRes = await submitOverHttp(port, buildWire(anna, carol, "q-1"));
+
+    // Ben authenticates → live path.
+    const drain = openDrain(port);
+    await waitForOpen(drain.ws);
+    await authenticate(drain, ben);
+    await waitFor(() => drain.messages.some((m) => m.type === "auth_ok"));
+    const liveRes = await submitOverHttp(port, buildWire(anna, ben, "l-1"));
+
+    // Identical body, identical status — no live/queued, no queueId, no toDid.
+    expect(queuedRes.body).toEqual({ routed: "accepted" });
+    expect(liveRes.body).toEqual({ routed: "accepted" });
+    expect(queuedRes.status).toBe(liveRes.status);
+    expect(JSON.stringify(queuedRes.body)).toBe(JSON.stringify(liveRes.body));
+  });
+
+  it("a probe to a non-connected DID grows that DID's queue by exactly one, and a rejected/garbage submit does not grow it at all (validate-before-enqueue)", async () => {
+    const anna = createIdentity("http://anna.example/didcomm");
+    const ben = createIdentity("http://ben.example/didcomm"); // routable
+    const stranger = createIdentity("http://stranger.example/didcomm"); // NOT routable
+    const store = new InMemoryRelayQueueStore();
+    const { relay } = await bootRelay({ isRoutable: (did) => did === ben.did, queueStore: store });
+
+    // One valid probe for the offline (but routable) Ben → exactly one row.
+    expect(relay.submit(buildWire(anna, ben, "probe-1")).routed).toBe("accepted");
+    expect(store.count(ben.did)).toBe(1);
+
+    // A second valid probe → exactly two (no double-enqueue per submit).
+    expect(relay.submit(buildWire(anna, ben, "probe-2")).routed).toBe("accepted");
+    expect(store.count(ben.did)).toBe(2);
+
+    // Unroutable, malformed-JSON, and missing-`to` submits must NOT enqueue.
+    expect(relay.submit(buildWire(anna, stranger, "probe-3")).routed).toBe("rejected");
+    expect(relay.submit("not json").routed).toBe("rejected");
+    expect(relay.submit(JSON.stringify({ ciphertext: "x" })).routed).toBe("rejected");
+    expect(store.count(stranger.did)).toBe(0);
+    expect(store.total()).toBe(2); // only the two valid probes ever landed
+  });
+});
+
+describe("RelayServer — finding 2: wire-size cap inside submit() (protects every caller)", () => {
+  it("submit() itself rejects an oversize wire before parse/enqueue, independent of the HTTP streaming guard", async () => {
+    const ben = createIdentity("http://ben.example/didcomm");
+    const store = new InMemoryRelayQueueStore();
+    const { relay } = await bootRelay({ maxWireBytes: 512, queueStore: store });
+
+    const oversize = JSON.stringify({ to: ben.did, ciphertext: "x".repeat(1024) });
+    expect(Buffer.byteLength(oversize, "utf8")).toBeGreaterThan(512);
+    const result = relay.submit(oversize);
+    expect(result.routed).toBe("rejected");
+    expect((result as { reason: string }).reason).toMatch(/exceeds/);
+    expect(store.total()).toBe(0); // nothing enqueued
+  });
+});
+
+describe("RelayServer — finding 3: per-DID and global queue caps", () => {
+  it("rejects a submit once the per-DID cap is reached, without dropping already-queued mail", async () => {
+    const anna = createIdentity("http://anna.example/didcomm");
+    const ben = createIdentity("http://ben.example/didcomm");
+    const store = new InMemoryRelayQueueStore();
+    const { relay } = await bootRelay({ maxQueuePerDid: 3, queueStore: store });
+
+    for (let i = 0; i < 3; i++) expect(relay.submit(buildWire(anna, ben, `cap-${i}`)).routed).toBe("accepted");
+    expect(store.count(ben.did)).toBe(3);
+
+    // The 4th is refused — and the existing three are untouched.
+    const over = relay.submit(buildWire(anna, ben, "cap-over"));
+    expect(over.routed).toBe("rejected");
+    expect((over as { reason: string }).reason).toMatch(/queue is full/);
+    expect(store.count(ben.did)).toBe(3);
+  });
+
+  it("rejects a submit once the global cap is reached, even spread across distinct recipient DIDs", async () => {
+    const anna = createIdentity("http://anna.example/didcomm");
+    const ben = createIdentity("http://ben.example/didcomm");
+    const carol = createIdentity("http://carol.example/didcomm");
+    const store = new InMemoryRelayQueueStore();
+    const { relay } = await bootRelay({ maxQueueGlobal: 2, queueStore: store });
+
+    expect(relay.submit(buildWire(anna, ben, "g-1")).routed).toBe("accepted");
+    expect(relay.submit(buildWire(anna, carol, "g-2")).routed).toBe("accepted");
+    expect(store.total()).toBe(2);
+
+    // A third for a brand-new DID (well under its own per-DID cap) still fails.
+    const over = relay.submit(buildWire(anna, createIdentity("http://dave.example/didcomm"), "g-3"));
+    expect(over.routed).toBe("rejected");
+    expect(store.total()).toBe(2);
   });
 });
 
@@ -371,5 +477,38 @@ describe("RelayServer — Task 6c: forward-on-connect, ack, and liveness", () =>
     await authenticate(drain2, ben);
     await waitFor(() => drain2.messages.some((m) => m.type === "wire"));
     expect(drain2.messages.find((m) => m.type === "wire")!.wire).toBe(wire);
+  });
+});
+
+describe("RelayServer — finding 4: durable store-and-forward across a relay restart", () => {
+  it("a wire queued for an offline DID survives a relay restart (new RelayServer on the same Sqlite store path) and drains afterward", async () => {
+    const anna = createIdentity("http://anna.example/didcomm");
+    const ben = createIdentity("http://ben.example/didcomm");
+    const dbPath = join(mkdtempSync(join(tmpdir(), "relay-durable-")), "relay_queue.db");
+
+    // Boot #1: Ben is offline; Anna submits — the wire is persisted to SQLite.
+    const store1 = new SqliteRelayQueueStore(dbPath);
+    const relay1 = new RelayServer({ queueStore: store1 });
+    const { port: port1 } = await relay1.listen(0, "127.0.0.1");
+    const wire = buildWire(anna, ben, "durable-1");
+    expect((await submitOverHttp(port1, wire)).body).toEqual({ routed: "accepted" });
+
+    // Simulate a full relay restart: tear down the server AND its store handle.
+    await relay1.close();
+    store1.close();
+
+    // Boot #2: a brand-new RelayServer on the SAME db path — held mail intact.
+    const store2 = new SqliteRelayQueueStore(dbPath);
+    const relay2 = new RelayServer({ queueStore: store2 });
+    const { port: port2 } = await relay2.listen(0, "127.0.0.1");
+
+    const drain = openDrain(port2);
+    await waitForOpen(drain.ws);
+    await authenticate(drain, ben);
+    await waitFor(() => drain.messages.some((m) => m.type === "wire"));
+    expect(drain.messages.find((m) => m.type === "wire")!.wire).toBe(wire); // survived restart, verbatim
+
+    await relay2.close();
+    store2.close();
   });
 });

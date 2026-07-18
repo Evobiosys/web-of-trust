@@ -52,10 +52,23 @@ function unb64u(s: string): Uint8Array {
   return new Uint8Array(Buffer.from(s, "base64url"));
 }
 
-export type SubmitResult =
-  | { routed: "live"; toDid: string; queueId: string }
-  | { routed: "queued"; toDid: string; queueId: string }
-  | { routed: "rejected"; reason: string };
+// Ingress result. DELIBERATELY non-informative on success: a single
+// `{ routed: "accepted" }` crosses the wire back to an (unauthenticated)
+// submitter whether the wire was delivered live to a connected recipient or
+// queued for an offline one, and carries NO queue id or recipient DID.
+//
+// WHY (adversarial-review finding 1 — ingress presence/volume oracle): the
+// former {routed:"live"|"queued", toDid, queueId} response let any submitter
+// probe (a) whether a recipient DID currently has an authenticated drain
+// online (a presence oracle) and (b) the relay's global monotonic throughput
+// via queueId (a volume oracle). Both are metadata leaks a store-and-forward
+// relay must not emit. `rejected` (with a reason) is retained ONLY because a
+// RelayChannel caller needs it to fall back to the next ladder rung — it
+// signals "this relay won't carry this wire", never presence/volume.
+export type SubmitResult = { routed: "accepted" } | { routed: "rejected"; reason: string };
+
+/** The single non-informative success returned once a wire is accepted (live-flushed or queued — indistinguishable to the submitter). */
+const ACCEPTED: SubmitResult = { routed: "accepted" };
 
 /**
  * How long an opened drain socket has to complete a valid `auth` before the
@@ -67,16 +80,45 @@ export type SubmitResult =
 const AUTH_DEADLINE_MS = 5_000;
 
 /**
- * Hard cap on a single ingress HTTP request body (raw wire bytes). DoS
- * hardening: `submit`/`handleIngressRequest` runs before any auth check (by
- * design — ingress is unauthenticated store-and-forward, see file header),
- * so an unbounded body would let anyone stream arbitrary amounts of data
- * into this process's memory before a single validity check runs. 128 KiB
- * comfortably exceeds any real didcomm_crypto.ts EncryptedWire (Ed25519 keys,
- * a nonce, and ciphertext for chat-sized payloads are all a few KB at most)
- * while still bounding worst-case memory per request.
+ * Hard cap on a single accepted wire (raw bytes). DoS hardening: ingress is
+ * unauthenticated store-and-forward (by design — see file header), so without
+ * a cap anyone could push arbitrary amounts of data into this process.
+ *
+ * ENFORCED IN TWO PLACES (finding 2 — the cap was previously dead on the
+ * shipped path): (1) `submit()` itself rejects an over-cap `rawWire` BEFORE
+ * parsing or enqueue, so EVERY caller is protected — including the alpha's
+ * real path, agent-daemon/src/api/server.ts's `POST /relay/send`, which calls
+ * `submit()` directly rather than going through `listen()`; and (2)
+ * `handleIngressRequest` (only used by the standalone `listen()` deployment)
+ * additionally bounds the *streamed* body so an oversize request is rejected
+ * mid-stream without ever being fully buffered. server.ts's `/relay/send`
+ * bounds its own read the same way (its RELAY_MAX_BODY_BYTES == this value).
+ *
+ * 128 KiB comfortably exceeds any real didcomm_crypto.ts EncryptedWire
+ * (Ed25519 keys, a nonce, and ciphertext for chat-sized payloads are all a
+ * few KB at most) while still bounding worst-case memory per request.
  */
 const MAX_WIRE_BYTES = 128 * 1024;
+
+/**
+ * Per-recipient queue-depth cap. Bounds queue-poisoning: an unauthenticated
+ * submitter (or a flood of them) cannot grow one DID's held-mail queue without
+ * limit — the (N+1)th undelivered wire for a DID already holding this many is
+ * rejected (submit → "rejected"), never silently dropping already-queued mail.
+ * 1000 undelivered wires for a single offline recipient is far beyond any
+ * legitimate alpha backlog (a recipient reconnects and drains long before
+ * that) while capping per-victim memory at ~1000 * MAX_WIRE_BYTES worst case.
+ */
+const MAX_QUEUE_PER_DID = 1000;
+
+/**
+ * Global queue cap across all recipients. Second-order bound: even spread
+ * across many victim DIDs (each under MAX_QUEUE_PER_DID), total held mail is
+ * capped so the relay's memory/disk cannot be exhausted. 100k wires bounds the
+ * whole store at ~100k * MAX_WIRE_BYTES (~12 GiB worst case, far less in
+ * practice) — a generous alpha ceiling that still refuses an unbounded flood.
+ */
+const MAX_QUEUE_GLOBAL = 100_000;
 
 export interface RelayServerOptions {
   /** Persistence for undelivered wires. Defaults to an in-memory store (lost on restart — pass a SqliteRelayQueueStore for production use). */
@@ -89,6 +131,10 @@ export interface RelayServerOptions {
   authDeadlineMs?: number;
   /** Max accepted ingress HTTP body size in bytes. Defaults to MAX_WIRE_BYTES. */
   maxWireBytes?: number;
+  /** Max undelivered wires held for any single recipient DID. Defaults to MAX_QUEUE_PER_DID. */
+  maxQueuePerDid?: number;
+  /** Max undelivered wires held across all recipients. Defaults to MAX_QUEUE_GLOBAL. */
+  maxQueueGlobal?: number;
 }
 
 /** Per-WebSocket connection state. Never exported — internal bookkeeping only. */
@@ -119,6 +165,8 @@ export class RelayServer {
   private readonly heartbeatIntervalMs: number;
   private readonly authDeadlineMs: number;
   private readonly maxWireBytes: number;
+  private readonly maxQueuePerDid: number;
+  private readonly maxQueueGlobal: number;
 
   /** DID -> its single active authenticated drain socket (a fresh auth for the same DID replaces the prior one). */
   private readonly liveDrains = new Map<string, WebSocket>();
@@ -133,6 +181,8 @@ export class RelayServer {
     this.heartbeatIntervalMs = opts.heartbeatIntervalMs ?? 30_000;
     this.authDeadlineMs = opts.authDeadlineMs ?? AUTH_DEADLINE_MS;
     this.maxWireBytes = opts.maxWireBytes ?? MAX_WIRE_BYTES;
+    this.maxQueuePerDid = opts.maxQueuePerDid ?? MAX_QUEUE_PER_DID;
+    this.maxQueueGlobal = opts.maxQueueGlobal ?? MAX_QUEUE_GLOBAL;
   }
 
   // ---- 6a: ingress -------------------------------------------------------
@@ -142,8 +192,32 @@ export class RelayServer {
    * field via a plain JSON.parse of the wire's outer envelope — this is
    * the cleartext routing header didcomm_crypto.ts's EncryptedWire always
    * carries; the ciphertext payload is never touched. Never throws.
+   *
+   * VALIDATE-BEFORE-ENQUEUE (finding 1): the queue is grown ONLY after every
+   * cheap check passes — size cap, JSON/`to` shape, routability, and the
+   * queue-depth caps. A garbage, oversize, unroutable, or over-cap submit
+   * therefore never injects a row into a victim's queue. Order matters: the
+   * size cap runs first (before we even parse), then routing shape, then the
+   * caps (after a prune, so aged-out rows don't count against the ceiling).
+   *
+   * A wire that IS accepted is enqueued and, if the recipient has a live
+   * authenticated drain, immediately flushed to it. The RESPONSE is the same
+   * non-informative `{ routed: "accepted" }` either way — the submitter never
+   * learns whether delivery was live or queued (presence oracle) nor any queue
+   * id (volume oracle). We still persist-then-flush on the live path (rather
+   * than delivering without a queue row) to preserve the at-least-once /
+   * non-destructive-drain guarantee: the live recipient's prompt ack removes
+   * its row, but a crash between flush and ack redelivers on reconnect.
    */
   submit(rawWire: string): SubmitResult {
+    // finding 2: bound the wire before touching it, so no caller can stream an
+    // unbounded body into memory ahead of validation (server.ts's /relay/send
+    // reaches submit() directly). Byte length, not string length — the cap is
+    // on wire bytes.
+    if (Buffer.byteLength(rawWire, "utf8") > this.maxWireBytes) {
+      return { routed: "rejected", reason: `wire exceeds ${this.maxWireBytes} bytes` };
+    }
+
     let to: string;
     try {
       const parsed = JSON.parse(rawWire) as { to?: unknown };
@@ -159,15 +233,24 @@ export class RelayServer {
       return { routed: "rejected", reason: `no route to ${to}` };
     }
 
+    // finding 3: prune first so freshness-aged rows are not counted against the
+    // caps, then refuse to grow the queue past the per-DID or global ceiling.
+    // Rejecting (not dropping) preserves already-queued mail for the recipient.
     this.queueStore.prune(Date.now());
-    const queueId = this.queueStore.enqueue(to, rawWire);
+    if (this.queueStore.count(to) >= this.maxQueuePerDid) {
+      return { routed: "rejected", reason: "recipient queue is full" };
+    }
+    if (this.queueStore.total() >= this.maxQueueGlobal) {
+      return { routed: "rejected", reason: "relay queue is full" };
+    }
+
+    this.queueStore.enqueue(to, rawWire);
 
     const live = this.liveDrains.get(to);
     if (live && live.readyState === WebSocket.OPEN) {
       this.flush(to);
-      return { routed: "live", toDid: to, queueId };
     }
-    return { routed: "queued", toDid: to, queueId };
+    return ACCEPTED;
   }
 
   /** Push every currently-queued, not-yet-sent-on-this-socket wire for `toDid` if it has a live authenticated drain. Idempotent. */
