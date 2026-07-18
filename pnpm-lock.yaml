@@ -87,6 +87,9 @@ importers:
       '@resource-web/app-profiles':
         specifier: workspace:*
         version: link:../../packages/app-profiles
+      '@resource-web/browser-agent':
+        specifier: workspace:*
+        version: link:../../packages/browser-agent
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4

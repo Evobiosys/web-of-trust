@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@resource-web/app-profiles": "workspace:*",
+    "@resource-web/browser-agent": "workspace:*",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {

@@ -17,6 +17,12 @@ const STORAGE_KEYS = {
   appId: "resource-web.runtime_config.appId",
   personaKey: "resource-web.runtime_config.personaKey",
   mode: "resource-web.runtime_config.mode",
+  // QR-onboarding Task 5: the scanned connect URL's `?connect=<origin DID>` +
+  // `?relay=<mediator base origin>`. Persisted like the rest so a bare reload
+  // after the first scan still carries the connect intent (identity + the
+  // in-flight/established connection survive) — see main.js's connect branch.
+  connect: "resource-web.runtime_config.connect",
+  relay: "resource-web.runtime_config.relay",
 };
 
 const DEFAULTS = {
@@ -62,12 +68,34 @@ function writeStorage(key, value) {
   }
 }
 
+/** @param {string} key */
+function removeStorage(key) {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    getFallbackStore().delete(key);
+  }
+}
+
+/**
+ * Forget the persisted connect intent (`connect` + `relay`). Called after a
+ * declined CONNECT so a later bare reload lands on normal onboarding instead
+ * of re-sending a CONNECT to an origin that already said no (Task 5). Leaves
+ * every other runtime-config key untouched.
+ */
+export function clearConnectConfig() {
+  removeStorage(STORAGE_KEYS.connect);
+  removeStorage(STORAGE_KEYS.relay);
+}
+
 /**
  * @typedef {Object} RuntimeConfig
  * @property {string} agentUrl
  * @property {string} appId
  * @property {string} personaKey
  * @property {"fixture" | "live"} mode
+ * @property {string} [connect] - origin DID a scanned connect URL wants to join (Task 5). Undefined for the normal (non-connect) flow.
+ * @property {string} [relay] - mediator relay base ORIGIN the connect flow submits/drains through (Task 5). Only meaningful alongside `connect`.
  */
 
 /**
@@ -88,6 +116,8 @@ export function getRuntimeConfig() {
   const queryAgent = params.get("agent") ?? undefined;
   const queryApp = params.get("app") ?? undefined;
   const queryPersona = params.get("persona") ?? undefined;
+  const queryConnect = params.get("connect") ?? undefined;
+  const queryRelay = params.get("relay") ?? undefined;
   const queryModeRaw = params.get("mode") ?? undefined;
   const queryMode = queryModeRaw === "live" || queryModeRaw === "fixture" ? queryModeRaw : undefined;
 
@@ -100,15 +130,19 @@ export function getRuntimeConfig() {
   if (queryAgent) writeStorage(STORAGE_KEYS.agentUrl, queryAgent);
   if (queryApp) writeStorage(STORAGE_KEYS.appId, queryApp);
   if (queryPersona) writeStorage(STORAGE_KEYS.personaKey, queryPersona);
+  if (queryConnect) writeStorage(STORAGE_KEYS.connect, queryConnect);
+  if (queryRelay) writeStorage(STORAGE_KEYS.relay, queryRelay);
   if (inferredMode) writeStorage(STORAGE_KEYS.mode, inferredMode);
 
   const agentUrl = queryAgent ?? readStorage(STORAGE_KEYS.agentUrl) ?? DEFAULTS.agentUrl;
   const appId = queryApp ?? readStorage(STORAGE_KEYS.appId) ?? DEFAULTS.appId;
   const personaKey = queryPersona ?? readStorage(STORAGE_KEYS.personaKey) ?? DEFAULTS.personaKey;
+  const connect = queryConnect ?? readStorage(STORAGE_KEYS.connect);
+  const relay = queryRelay ?? readStorage(STORAGE_KEYS.relay);
   const storedMode = readStorage(STORAGE_KEYS.mode);
   const mode = /** @type {"fixture" | "live"} */ (
     inferredMode ?? (storedMode === "live" || storedMode === "fixture" ? storedMode : DEFAULTS.mode)
   );
 
-  return { agentUrl, appId, personaKey, mode };
+  return { agentUrl, appId, personaKey, mode, connect, relay };
 }

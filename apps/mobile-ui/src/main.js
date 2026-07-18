@@ -8,6 +8,8 @@ import { state } from "./store.js";
 import { getRuntimeConfig } from "./runtime_config.js";
 import { applySkin } from "./skin.js";
 import { getProfile } from "@resource-web/app-profiles";
+import { runConnectFlow, hasEstablishedConnection, enterEstablishedConnection } from "./screens/connect_flow.js";
+import { loadOrCreateIdentity, createRelayClient } from "@resource-web/browser-agent";
 
 const runtimeConfig = getRuntimeConfig();
 const appCtx = bootApp({ mode: runtimeConfig.mode, agentUrl: runtimeConfig.agentUrl });
@@ -17,13 +19,25 @@ applySkin(getProfile(runtimeConfig.appId));
 // live aliases to start() — start() is idempotent.)
 appCtx.api.start();
 
-// A join URL that names a persona (the alpha launcher's per-friend links) drops
-// you straight into the app AS that persona — the identity already lives in the
-// agent daemon this client is pointed at, so re-typing a name in onboarding is
-// friction, not sovereignty. A URL with NO persona (a fresh device scanning an
-// origin's QR) still gets the full onboarding, which is where a new profile is
-// born.
-if (runtimeConfig.personaKey && runtimeConfig.mode === "live") {
+// Boot branch (highest precedence first):
+//  1. An ESTABLISHED self-sovereign connection (this device already scanned an
+//     origin and was accepted) — re-enter directly, even on a bare reload.
+//  2. A fresh/in-flight connect intent (`?connect=<origin DID>&relay=<mediator>`,
+//     no persona) — the self-sovereign path: generate browser keys, ask a name,
+//     CONNECT over the mediator relay, enter on the origin's ACK (Task 5).
+//  3. A persona-named live join URL (alpha launcher's per-friend links) — drop
+//     straight into the app AS that daemon-held persona.
+//  4. Anything else (a bare, no-persona URL) — full onboarding, where a brand-
+//     new profile is born.
+if (hasEstablishedConnection()) {
+  enterEstablishedConnection();
+} else if (runtimeConfig.connect && runtimeConfig.relay) {
+  void runConnectFlow({
+    connect: runtimeConfig.connect,
+    relay: runtimeConfig.relay,
+    deps: { loadOrCreateIdentity, createRelayClient },
+  });
+} else if (runtimeConfig.personaKey && runtimeConfig.mode === "live") {
   autoEnterAsPersona(runtimeConfig.personaKey, runtimeConfig.agentUrl);
 } else {
   onb("welcome");

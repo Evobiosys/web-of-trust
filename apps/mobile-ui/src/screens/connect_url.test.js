@@ -3,35 +3,47 @@ import { describe, it, expect } from "vitest";
 import { buildConnectUrl } from "./connect_url.js";
 
 describe("buildConnectUrl", () => {
-  it("encodes did + relay(=endpoint) + app, with NO persona param", () => {
+  it("encodes did + relay(=mediator relay_url) + app, with NO persona param", () => {
     const card = {
       peer_id: "did:peer:2.abc",
       display: "Anna",
       did: "did:peer:2.Ez6MkAbc",
       endpoint: "https://192.168.1.42:4101/didcomm",
+      relay_url: "https://192.168.1.42:4101",
     };
     const url = buildConnectUrl("http://192.168.1.42:5173", card, "ecstatic");
     const expected = new URL("http://192.168.1.42:5173");
     expected.searchParams.set("connect", card.did);
-    expected.searchParams.set("relay", card.endpoint);
+    expected.searchParams.set("relay", card.relay_url);
     expected.searchParams.set("app", "ecstatic");
     expect(url).toBe(expected.toString());
     expect(url).not.toBeNull();
     expect(String(url)).not.toContain("persona=");
   });
 
-  it("uses the card's own didcomm endpoint as relay (no dedicated relay URL yet), even when relays[] (DIDs) is present", () => {
+  it("uses the card's mediator relay_url (the shared mediator base origin, NOT this origin's own endpoint)", () => {
     const card = {
       did: "did:peer:2.Ez6MkAbc",
       endpoint: "https://192.168.1.42:4101/didcomm",
+      relay_url: "https://192.168.1.42:4101",
       relays: ["did:peer:2.RelayDid1"],
     };
     const url = /** @type {string} */ (buildConnectUrl("http://192.168.1.42:5173", card, "ecstatic"));
     const parsed = new URL(url);
-    expect(parsed.searchParams.get("relay")).toBe(card.endpoint);
+    expect(parsed.searchParams.get("relay")).toBe(card.relay_url);
+    expect(parsed.searchParams.get("relay")).not.toBe(card.endpoint);
     expect(parsed.searchParams.get("connect")).toBe(card.did);
     expect(parsed.searchParams.get("app")).toBe("ecstatic");
     expect(parsed.searchParams.has("persona")).toBe(false);
+  });
+
+  it("falls back to the origin's own didcomm endpoint when a card predates relay_url", () => {
+    const card = {
+      did: "did:peer:2.Ez6MkAbc",
+      endpoint: "https://192.168.1.42:4101/didcomm",
+    };
+    const url = /** @type {string} */ (buildConnectUrl("http://192.168.1.42:5173", card, "ecstatic"));
+    expect(new URL(url).searchParams.get("relay")).toBe(card.endpoint);
   });
 
   it("returns null when the card has no did (mock/matrix transport — no DIDComm identity yet)", () => {

@@ -18,17 +18,24 @@
  * @property {string[]} [relays] - relay-node DIDs (Task 8) this peer is
  * reachable through — DIDs, not URLs, so not directly usable as a `relay=`
  * query value yet.
+ * @property {string} [relay_url] - Task 5: the HTTP base ORIGIN of the shared
+ * trust-graph mediator this origin's daemon routes through. This IS a URL a
+ * browser can open — the value the connect URL's `relay=` param carries so the
+ * scanning device points its RelayClient at the mediator (not this origin's
+ * own endpoint), matching the daemon's own `RelayChannel` target (topology:
+ * every daemon drains the single shared mediator).
  */
 
 /**
  * Build the connect URL a fresh device's camera opens:
  * `<origin>/?connect=<did>&relay=<relayUrl>&app=<appId>` — no `persona` param.
  *
- * `relay` is presently the origin's OWN didcomm inbound endpoint
- * (`card.endpoint`), not a dedicated relay service: /api/card's `relays[]`
- * (Task 8) carries relay-node DIDs, not URLs a browser can open, so there is
- * nothing else to point at yet.
- * TODO(Task3): use a dedicated relay URL once one exists in the card payload.
+ * `relay` carries the shared trust-graph mediator's base ORIGIN
+ * (`card.relay_url`, Task 5) — the URL the scanning device points its
+ * RelayClient at so its CONNECT reaches this origin the same way every daemon
+ * routes: via the single mediator each daemon drains. Falls back to the
+ * origin's own didcomm endpoint (`card.endpoint`) only when a card predates
+ * `relay_url` (defensive; the alpha's daemon always supplies `relay_url`).
  *
  * @param {string} origin - window.location.origin
  * @param {MeetCard | null | undefined} card - GET /api/card response
@@ -40,7 +47,7 @@
 export function buildConnectUrl(origin, card, appId) {
   const did = card && card.did;
   if (!did) return null;
-  const relay = (card && card.endpoint) || "";
+  const relay = (card && (card.relay_url || card.endpoint)) || "";
   const url = new URL(origin);
   url.search = "";
   url.hash = "";
