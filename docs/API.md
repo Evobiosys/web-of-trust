@@ -46,15 +46,89 @@ State changes also arrive via WS.
 ### POST /api/rooms/:room_id/message `{ "text": string }` → `{ "ok": true }`
 ### GET /api/audit → `{ "entries": [ { ts, decision, detail } ] }`  (human-readable, I6)
 
-Errors: 4xx `{ "error": string }`. All endpoints bind 127.0.0.1 only.
+Errors: 4xx `{ "error": string }`. CORS (`Access-Control-Allow-Origin: *`, `-Headers: content-type`,
+`-Methods: GET,POST,DELETE,OPTIONS`) is set on **every** response including 4xx/5xx; `OPTIONS` on any
+path returns `204` with no body. Bind host defaults to `127.0.0.1`; set `API_HOST=0.0.0.0` (or a LAN IP)
+to opt into LAN exposure (Task 5/8's alpha-test mode) — **there is no auth**, so this is a deliberate,
+explicit opt-in, never the default.
+
+### Task 5 — trust management
+
+#### GET /api/trust → `{ "trust_edges": [ TrustEdge ] }`
+#### POST /api/trust `{ "peer": string, "display": string, "level"?: "contact"|"friend"|"close", "vouched_by"?: string }` → `{ "trust_edge": TrustEdge }`
+Upsert by `peer`. Adding a new peer creates the edge (`created_at` = now, `expires_at` defaults +1y,
+I9); posting again for an existing peer updates `display`/`level`/`vouched_by` **in place** —
+`created_at` (and therefore the default expiry) is preserved, not reset. `400` on missing
+`peer`/`display` or an invalid `level`.
+#### DELETE /api/trust `?peer=<peer_id>` (or JSON body `{ "peer": string }`) → `{ "ok": true }`
+Removes the edge from *this persona's own* trust graph only (D1 §5: individual-scale exclusion, no
+notification to the removed peer, no appeals process). `400` if `peer` is missing.
+
+### Task 5 — second-brain notes
+
+#### POST /api/notes `{ "labels": string[], "description": string, "tags"?: string[], "owner": string, "location_area"?: string, "availability"?: string }` → `{ "item_id": string }`
+Creates an `Item` with `provenance: { kind: "second_brain", owner, noted_at }` — "I know `owner` has
+this," without `owner` owning it themselves. **Sends nothing over the wire** (D1.6/I8): the noted
+owner is *not* notified that the note exists; they are pinged only at first relay attempt, via the
+normal REQUEST→consent-card→relay flow once someone else's ask matches this item (see
+`daemon/listings.ts`'s `forwardRelay`). `400` on missing `labels`/`description`/`owner`.
+
+### Task 5 — listings (offers/gatherings)
+
+#### GET /api/listings → `{ "mine": [ Listing ], "received": [ ReceivedListing ] }`
+Authenticated owner view — full records (incl. `where_gated`) for everything this persona published
+or received. Add `?public=1` for the **guest/unauthenticated view**:
+`{ "mine": [ GuestListing ], "received": [] }` where `GuestListing` is `mine`'s **`tier: "public"`,
+`state: "active"` listings only**, with `where_gated` entirely absent from the object (not merely
+`undefined`) — guests get `where_public` only. `wot_commons`-tier listings reach every trust edge at
+the daemon layer but are **not** guest-visible; only `public` is (schemas.ts's tier semantics).
+```jsonc
+// Listing (mine) / ReceivedListing (received, adds via/from_peer/received_at)
+{ "listing_id": "…", "kind": "offer" | "gathering", "title": "…", "description": "…",
+  "when"?: "…", "where_public"?: "…", "where_gated"?: "…",
+  "tier": "private" | "close" | "trusted" | "wot_commons" | "public", "steps": 1 | 2 | 3,
+  "state": "active" | "withdrawn", "owner_display": "…", "created_at": iso }
+```
+#### POST /api/listings `{ "kind": "offer"|"gathering", "title": string, "description": string, "when"?: string, "where_public"?: string, "where_gated"?: string, "tier": ListingTier, "steps"?: 1|2|3 }` → `{ "listing_id": string }`
+Publishes and broadcasts to eligible trust edges by tier (see `daemon/listings.ts`). WS: `listing`.
+#### POST /api/listings/:id/withdraw → `{ "ok": true }`
+Flips state to `withdrawn` and re-propagates. `400` on an unknown `listing_id`. WS: `listing`.
+
+### Task 5 — loans (borrow lifecycle)
+
+#### POST /api/borrow `{ "listing_id": string, "note"?: string }` → `{ "loan_id": string }`
+Borrows a *received* listing (alpha: direct connections only — a forwarded/via-chain listing 400s).
+WS: `loan`.
+#### POST /api/loans/:loan_id `{ "state": "approved"|"declined"|"lent"|"returned"|"complete"|"not_yet", "note"?: string }` → `{ "ok": true }`
+Owner-side: `approved`/`declined` (from `requested`), `lent` (from `approved`). Borrower-side:
+`returned` (from `lent`). Either side: `complete`/`not_yet` completion check-in (from `returned`, or
+re-entrant from `complete`/`not_yet` — see `checkInLoanCompletion`'s doc comment). `note` for
+`complete`/`not_yet` is the local-only "not yet" explanation (mockup RES-5) — **never placed on the
+wire** for either outcome. `400` on an invalid `state` or an illegal transition. WS: `loan`.
+
+### Task 5 — DM threads
+
+#### GET /api/threads → `{ "threads": [ { "peer_id": string, "display": string, "messages": [ { "from": string, "text": string, "ts": iso } ] } ] }`
+`from` is `"self"` for outgoing messages, the peer's id for incoming — distinct from `/api/state`'s
+`threads` view, which keeps its original `{direction, text, ts}` shape unchanged.
+#### POST /api/threads/:peer_id/message `{ "text": string }` → `{ "ok": true }`
+Connected peers only (any trust level) — `400` if there is no trust edge to `peer_id`. WS: `dm`.
+
+### Task 5 — meet card
+
+#### GET /api/card → `{ "peer_id": string, "display": string, "level_offer_default": "friend", "did"?: string, "endpoint"?: string }`
+The "my QR card" payload. `level_offer_default` is a UI hint only (I9's conservative default), not
+persisted. `did`/`endpoint` are present only when `TRANSPORT=didcomm` (Task 11's `getCardPayload`).
 
 ## WS `/ws`
 Server → client JSON events, each `{ "type": …, …payload }`:
-`state_changed` (no payload — client refetches /api/state) · `steward_reply { text }` · `consent_card { card_id }` · `ask_update { request_id, state }` · `room_message { room_id, from, text, ts }`.
+`state_changed` (no payload — client refetches /api/state) · `steward_reply { text }` · `consent_card { card_id }` · `ask_update { request_id, state }` · `room_message { room_id, from, text, ts }` ·
+`listing { listing_id }` · `loan { loan_id }` · `dm { peer_id }`.
 `state_changed` is the only event the UI strictly needs; the rest are hints.
 
 ## Daemon config (per persona)
 Env: `PERSONA_NAME`, `PEER_ID`, `AGENT_PORT`, `DB_PATH`, `TRUSTED_PEERS_PATH`, `FIXTURES_PATH?`,
 `MATRIX_HOMESERVER_URL`, `MATRIX_ACCESS_TOKEN` or (`MATRIX_REGISTRATION_SECRET` + auto-provision),
 `OLLAMA_URL`, `CHAT_MODEL`, `EMBED_MODEL`, `STATUS_DELAY_MS` (default 30000 — uniform, no jitter, I3),
-`TRANSPORT` = `matrix` | `mock`.
+`TRANSPORT` = `matrix` | `mock` | `didcomm`, `API_HOST` (Task 5, default `127.0.0.1` — LAN exposure is
+opt-in only).
