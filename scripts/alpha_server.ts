@@ -2,10 +2,20 @@
 // alpha_server.ts — Task 8: boots N agent-daemon personas IN ONE PROCESS for
 // the one-command LAN alpha (`pnpm alpha`). Each persona gets its own DID
 // identity + SQLite store + REST/WS server bound on 0.0.0.0, wired to a real
-// DidCommTransport (localhost/LAN HTTP, Task 11's OpenVTC pillar — same
-// mechanism the two-daemon integration test in
+// DidCommTransport (Task 11's OpenVTC pillar — same mechanism the two-daemon
+// integration test in
 // packages/agent-daemon/src/api/didcomm_lifecycle.integration.test.ts proves
 // works over real HTTP).
+//
+// Task 10 (core-transport-plan.md §0 mediator-only core): each persona's
+// DidCommTransport now delivers over a `LadderChannel([relay, lan_http])`
+// instead of a bare HttpPostChannel. Exactly ONE persona (`mediatorKey`,
+// defaults to the first persona) also runs a `RelayServer` — the trust-graph
+// mediator ("this computer") every persona's `RelayChannel` targets, mounted
+// onto that persona's own HTTP server via server.ts's additive `relayServer`
+// extras hook (attachDrainWss + POST /relay/send). The LAN-HTTP `POST
+// /didcomm` floor (rung "lan_http") keeps working exactly as before — the
+// ladder falls back to it if the relay rung fails.
 //
 // `bootPersonas` is the reusable core: the CLI entry point below calls it with
 // personas read from alpha/personas.json + the detected LAN IP, and
@@ -28,6 +38,11 @@ import {
   deserializeIdentity,
   getCardPayload,
   issueVrc,
+  LadderChannel,
+  RelayChannel,
+  RelayServer,
+  HttpPostChannel,
+  SqliteDedupStore,
   type Identity,
   type VerifiableRelationshipCredential,
 } from "@resource-web/transport";
@@ -57,6 +72,12 @@ export interface BootedPersona {
   daemon: Daemon;
   store: SqliteStore;
   server: StartedServer;
+  /** This persona's delivery ladder (Task 10) — closed by shutdownAll (closes its RelayChannel drain connection to the mediator). */
+  channel: LadderChannel;
+  /** This persona's replay-protection store (Task 2/10) — closed by shutdownAll to release its SQLite handle. */
+  dedup: SqliteDedupStore;
+  /** Present ONLY on the persona hosting the mediator (Task 10's `mediatorKey`) — closed by shutdownAll. */
+  relayServer?: RelayServer;
 }
 
 export interface BootOptions {
@@ -69,6 +90,14 @@ export interface BootOptions {
   /** Skip seeding all-to-all trust edges (used by callers that want to seed differently, e.g. tests). Default false. */
   skipTrustSeed?: boolean;
   ollamaUrl?: string;
+  /**
+   * Which persona (by `key`) hosts the single trust-graph mediator
+   * (RelayServer, Task 10, core-transport-plan.md §0 mediator-only core).
+   * Defaults to `personas[0].key`. Every persona's `RelayChannel` targets
+   * this one node — single-mediator alpha, so sender and recipient always
+   * share a mediator and store-and-forward works.
+   */
+  mediatorKey?: string;
 }
 
 /**
@@ -103,8 +132,10 @@ function loadOrCreateIdentity(path: string, endpoint: string): Identity {
  * keyed by DID and DIDs only exist after `loadOrCreateIdentity`.
  */
 export async function bootPersonas(personas: PersonaConfig[], opts: BootOptions): Promise<BootedPersona[]> {
+  if (personas.length === 0) throw new Error("bootPersonas: personas must not be empty");
   const apiHost = opts.apiHost ?? "0.0.0.0";
   const ollamaUrl = opts.ollamaUrl ?? process.env.OLLAMA_URL ?? "http://localhost:11434";
+  const mediatorKey = opts.mediatorKey ?? personas[0].key;
 
   // Pass 1: identities (needed up front — a persona's DID is its peer id AND
   // the value every OTHER persona's trust edge points at).
@@ -116,13 +147,40 @@ export async function bootPersonas(personas: PersonaConfig[], opts: BootOptions)
     identities.set(persona.key, loadOrCreateIdentity(join(personaDir, "identity.json"), endpoint));
   }
 
+  const mediatorIdentity = identities.get(mediatorKey);
+  if (!mediatorIdentity) throw new Error(`bootPersonas: mediatorKey "${mediatorKey}" is not a configured persona`);
+  // Task 10 (core-transport-plan.md §0 mediator-only core): every persona's
+  // RelayChannel targets this ONE node ("this computer") as the trust-graph
+  // mediator. Reuse the mediator's own DIDComm service endpoint as the relay
+  // base URL — RelayChannel resolves its ingress ("/relay/send") and drain
+  // ("/relay/drain") paths as ABSOLUTE paths off that URL's origin (see
+  // relay_channel.ts's `new URL(ingressPath, endpoint)` / `u.pathname =
+  // drainPath`), so no second endpoint format is needed: a relay is just
+  // another did:peer:2 whose service block resolves to a URL (did_identity.ts's
+  // CardPayload doc comment).
+  const mediatorEndpoint = mediatorIdentity.serviceEndpoint;
+
+  // One RelayServer for the whole boot — mounted onto the mediator persona's
+  // own HTTP server below via server.ts's additive `relayServer` extras hook
+  // (attachDrainWss + POST /relay/send). Default in-memory queue store: T10
+  // requires SqliteDedupStore per persona (below) but not relay-queue
+  // persistence — an in-memory queue needs no close() and leaks no handle.
+  const relayServer = new RelayServer();
+
   // Pass 2: store + transport + daemon + server, per persona.
   const booted: BootedPersona[] = [];
   for (const persona of personas) {
     const identity = identities.get(persona.key)!;
     const personaDir = join(opts.stateDir, persona.key);
     const store = new SqliteStore(join(personaDir, "state.db"));
-    const transport = new DidCommTransport(identity);
+    const dedup = new SqliteDedupStore(join(personaDir, "dedup.db"));
+    const channel = new LadderChannel({
+      dataRungs: [
+        { name: "relay", channel: new RelayChannel(identity, { relayEndpoints: [mediatorEndpoint] }) },
+        { name: "lan_http", channel: new HttpPostChannel(identity) },
+      ],
+    });
+    const transport = new DidCommTransport(identity, { channel, dedup });
     const clock = new SystemClock();
 
     const config: DaemonConfig = {
@@ -145,6 +203,7 @@ export async function bootPersonas(personas: PersonaConfig[], opts: BootOptions)
     });
     await daemon.init();
 
+    const isMediator = persona.key === mediatorKey;
     const server = await startServer(daemon, persona.port, {
       host: apiHost,
       didcommInbound: (rawBody: string) => transport.receiveInbound(rawBody),
@@ -155,10 +214,25 @@ export async function bootPersonas(personas: PersonaConfig[], opts: BootOptions)
           .filter((edge) => new Date(edge.expires_at).getTime() > now)
           .map((edge) => issueVrc(identity, { peerDid: edge.peer, relationship: "trusted" }));
       },
-      cardExtra: getCardPayload(identity, persona.name),
+      // Every persona's card advertises the shared mediator's DID (Task 10) —
+      // a peer resolves it via resolveDidPeer, exactly like any other DID.
+      cardExtra: getCardPayload(identity, persona.name, { relays: [mediatorIdentity.did] }),
+      ...(isMediator ? { relayServer } : {}),
     });
 
-    booted.push({ key: persona.key, name: persona.name, port: persona.port, app: persona.app, did: identity.did, daemon, store, server });
+    booted.push({
+      key: persona.key,
+      name: persona.name,
+      port: persona.port,
+      app: persona.app,
+      did: identity.did,
+      daemon,
+      store,
+      server,
+      channel,
+      dedup,
+      relayServer: isMediator ? relayServer : undefined,
+    });
   }
 
   if (!opts.skipTrustSeed) seedAllToAllTrust(booted);
@@ -183,11 +257,21 @@ function seedAllToAllTrust(booted: BootedPersona[]): void {
   console.log(`[alpha_server] seeded ${seeded} trust edge(s) (${booted.length * (booted.length - 1) - seeded} already present)`);
 }
 
-/** Closes every booted persona's server + store. Safe to call once; awaits full shutdown before returning. */
+/**
+ * Closes every booted persona's server + store + ladder + dedup, and the
+ * mediator's RelayServer (Task 10). Safe to call once; awaits full shutdown
+ * before returning. Also safe if a caller already closed a given persona's
+ * `server` itself (e.g. to simulate that persona going offline for a test) —
+ * `StartedServer.close()` tolerates being called twice (verified: a second
+ * `httpServer.close()`/`wss.close()` resolves rather than throwing).
+ */
 export async function shutdownAll(booted: BootedPersona[]): Promise<void> {
   await Promise.all(
     booted.map(async (p) => {
+      await p.channel.close(); // closes this persona's RelayChannel drain connection to the mediator
+      if (p.relayServer) await p.relayServer.close(); // the mediator persona: terminate live drains + its own drain wss
       await p.server.close();
+      p.dedup.close();
       p.store.close();
     })
   );

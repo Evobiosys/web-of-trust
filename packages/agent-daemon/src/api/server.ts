@@ -1,7 +1,8 @@
 // REST + WS server — implements docs/API.md exactly (paths, shapes, event
 // names). Plain node:http + ws (brief: "keep deps lean"). Binds 127.0.0.1 by
 // default; LAN exposure is opt-in via API_HOST (Task 5), never the default.
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse, type Server as NodeHttpServer } from "node:http";
+import { EventEmitter } from "node:events";
 import { WebSocketServer, WebSocket } from "ws";
 import type { TrustLevel } from "@resource-web/protocol";
 import type { Daemon } from "../daemon/daemon.js";
@@ -11,6 +12,60 @@ import { InMemoryConnectionRecordStore, type ConnectionRecordStore } from "../st
 export interface StartedServer {
   close(): Promise<void>;
   port: number;
+}
+
+/**
+ * Structural shape of the trust-graph mediator relay server this persona can
+ * host (Task 10, core-transport-plan.md §0 mediator-only core). Deliberately
+ * NOT an import of @resource-web/transport's concrete `RelayServer` class —
+ * server.ts stays decoupled from the transport package's types, exactly like
+ * `cardExtra`'s inline shape below; `RelayServer` already satisfies this
+ * structurally (`submit()`/`attachDrainWss()` are its real public API).
+ */
+export interface RelayMediator {
+  /** Accepts an opaque wire addressed to a DID; never decrypts (see relay_server.ts). */
+  submit(rawWire: string): { routed: "live" | "queued" | "rejected" };
+  /** Mounts the authenticated drain WS onto an existing http.Server (additive `ws` upgrade-path hook). */
+  attachDrainWss(httpServer: NodeHttpServer, path?: string): void;
+}
+
+/** Path this persona's mediator drain WS is mounted at when it hosts one (Task 10). */
+const RELAY_DRAIN_PATH = "/relay/drain";
+
+/**
+ * Filters an http.Server's "upgrade" events down to ONLY requests whose path
+ * matches `path`, re-emitting just those on a private EventEmitter that
+ * `RelayMediator.attachDrainWss` can be pointed at instead of the real
+ * server.
+ *
+ * WHY THIS EXISTS: `ws`'s `WebSocketServer` constructor, given `{server,
+ * path}` (which `RelayServer.attachDrainWss` — packages/transport/src/
+ * relay_server.ts, out of scope for this change — always uses), registers
+ * its OWN unconditional "upgrade" listener on that server. For ANY upgrade
+ * whose path does not match, that listener calls `abortHandshake()`
+ * (`socket.end()`) — regardless of whether a DIFFERENT listener on the SAME
+ * server already completed the handshake for that request (Node calls every
+ * registered "upgrade" listener for every event; there is no
+ * first-listener-wins short-circuit). Mounting `attachDrainWss` directly on
+ * THIS server.ts httpServer — which already runs its own `/ws` mount below
+ * — would therefore corrupt BOTH endpoints: whichever listener does not own
+ * a given request's path kills the connection the other one just accepted.
+ * Verified empirically via scripts/alpha_server.smoke.test.ts's Task 10
+ * relay-path proof: both sides closed immediately with WS code 1006 (abnormal
+ * closure) before this proxy was added. Since the fix cannot live in
+ * relay_server.ts (out of scope), it lives here: this proxy pre-filters by
+ * path before relay's own listener ever sees an event for a path it doesn't
+ * own, so it never has cause to abort anything, and `/ws` below is
+ * completely unaffected (it still listens on the real httpServer directly).
+ */
+class PathFilteredUpgradeProxy extends EventEmitter {
+  constructor(real: NodeHttpServer, path: string) {
+    super();
+    real.on("upgrade", (req: IncomingMessage, socket: unknown, head: unknown) => {
+      const pathname = (req.url ?? "/").split("?")[0];
+      if (pathname === path) this.emit("upgrade", req, socket, head);
+    });
+  }
 }
 
 /**
@@ -49,6 +104,17 @@ export interface ServerExtras {
    * works even without main.ts threading a real one through.
    */
   connectionStore?: ConnectionRecordStore;
+  /**
+   * This persona hosting the trust-graph mediator (Task 10, core-transport-
+   * plan.md §0 mediator-only core). When provided, this persona's own HTTP
+   * server ALSO becomes the single mediator every persona's `RelayChannel`
+   * targets: mounts the authenticated drain WS at `/relay/drain`
+   * (`attachDrainWss`) and an ingress route at `POST /relay/send` that calls
+   * `submit()` directly. Additive — server.ts's existing routing/WS mount
+   * (`/ws`) are unaffected when this is omitted (every other persona, and
+   * mock/matrix transports).
+   */
+  relayServer?: RelayMediator;
 }
 
 const CORS_HEADERS: Record<string, string> = {
@@ -113,6 +179,17 @@ export function startServer(daemon: Daemon, port: number, extras: ServerExtras =
       if (!res.headersSent) sendJson(res, 500, { error: (err as Error).message });
     });
   });
+
+  // Task 10: this persona hosts the mediator — mount its authenticated
+  // drain WS via a PathFilteredUpgradeProxy (see its doc comment for why a
+  // direct `attachDrainWss(httpServer)` would corrupt both this and the
+  // `/ws` mount below). No-op when extras.relayServer is absent.
+  if (extras.relayServer) {
+    extras.relayServer.attachDrainWss(
+      new PathFilteredUpgradeProxy(httpServer, RELAY_DRAIN_PATH) as unknown as NodeHttpServer,
+      RELAY_DRAIN_PATH
+    );
+  }
 
   async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -513,6 +590,23 @@ export function startServer(daemon: Daemon, port: number, extras: ServerExtras =
       return;
     }
 
+    // ------------------------------------------- Task 10: mediator ingress --
+    // POST /relay/send — the trust-graph mediator's store-and-forward
+    // ingress (RelayChannel's rung "b" client posts here; RelayServer's
+    // default ingress path). Only mounted (functionally) when this persona
+    // hosts the mediator (extras.relayServer, Task 10) — the relay never
+    // decrypts; submit() reads only the outer wire's cleartext `to` field.
+    if (method === "POST" && path === "/relay/send") {
+      if (!extras.relayServer) {
+        sendJson(res, 404, { error: "relay mediator not enabled on this persona" });
+        return;
+      }
+      const rawWire = await readTextBody(req);
+      const result = extras.relayServer.submit(rawWire);
+      sendJson(res, result.routed === "rejected" ? 404 : 202, result);
+      return;
+    }
+
     // GET /api/trust/export?format=vrc — this daemon's signed VRCs.
     if (method === "GET" && path === "/api/trust/export") {
       if (url.searchParams.get("format") !== "vrc") {
@@ -544,7 +638,18 @@ export function startServer(daemon: Daemon, port: number, extras: ServerExtras =
     sendJson(res, 404, { error: `not found: ${method} ${path}` });
   }
 
-  const wss = new WebSocketServer({ server: httpServer, path: "/ws" });
+  // Task 10: when this persona ALSO hosts the mediator (extras.relayServer),
+  // this own `/ws` mount must go through the SAME PathFilteredUpgradeProxy
+  // technique — filtering only ONE of the two mounts is not enough (verified
+  // empirically): the OTHER, unfiltered mount's own unconditional "upgrade"
+  // listener still sees and aborts every request for a path it doesn't own,
+  // corrupting the properly-filtered side's handshake in turn. With no
+  // relayServer (the common case), this mounts on the real httpServer
+  // exactly as before — zero behavior change.
+  const wss = new WebSocketServer({
+    server: extras.relayServer ? (new PathFilteredUpgradeProxy(httpServer, "/ws") as unknown as NodeHttpServer) : httpServer,
+    path: "/ws",
+  });
   wss.on("connection", (ws) => {
     sockets.add(ws);
     ws.on("close", () => sockets.delete(ws));
