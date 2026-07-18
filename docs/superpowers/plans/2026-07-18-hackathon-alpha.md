@@ -113,7 +113,7 @@ Lift Task 3's profiles (branch alpha-t3, `apps/device-ui/src/profiles/*`) into `
 
 ### Task 8: alpha server + LAN scripts + ALPHA.md
 
-As R1-Task-6, updated: alpha_server hosts N daemons (in-memory hub) with `API_HOST=0.0.0.0`, ports 4101…; serves `mobile-ui` dev server `--host` on 5173; join URLs `http://<ip>:5173/?agent=http://<ip>:410N&app=ecstatic&persona=<key>` (+ housing variant URLs) + QR printout (`qrcode-terminal` via npx, plain URLs fallback); EXIT trap kills everything; smoke test (2 personas: state OK, listing propagates, borrow round-trips); ALPHA.md quickstart + ⚠️ no-auth LAN warning + Matrix path (`--profile local` synapse, image prefetched; matrix.myceli.al later) + troubleshooting (LuLu inbound, same subnet). Root script `"alpha"`.
+As R1-Task-6, updated: alpha_server hosts N daemons with `API_HOST=0.0.0.0`, ports 4101…; default `TRANSPORT=didcomm` (real OpenVTC-pillar transport over localhost/LAN HTTP, Task 11; in-memory hub remains the test/fallback mode, `TRANSPORT=mock`); serves `mobile-ui` dev server `--host` on 5173; join URLs `http://<ip>:5173/?agent=http://<ip>:410N&app=ecstatic&persona=<key>` (+ housing variant URLs) + QR printout (`qrcode-terminal` via npx, plain URLs fallback); EXIT trap kills everything; smoke test (2 personas: state OK, listing propagates, borrow round-trips); ALPHA.md quickstart + ⚠️ no-auth LAN warning + Matrix path (`--profile local` synapse, image prefetched; matrix.myceli.al later) + troubleshooting (LuLu inbound, same subnet). Root script `"alpha"`.
 
 ---
 
@@ -123,9 +123,25 @@ As R1-Task-7 plus: mockup-fidelity pass (each ANCHOR-tagged surface present and 
 
 ---
 
-### Task 10 [#opt]: keyring-wallet / VRC-shaped export
+### Task 11: OpenVTC pillar — DID identities, DIDComm transport, signed VRC trust edges (BEFORE any further Matrix work; D12)
 
-As R1-Task-8: timeboxed 45 min; `GET /api/trust/export?format=vrc` emitting unsigned W3C-VC-shaped relationship credentials (aligns D1.1 OpenVTC target); honest labeling (unsigned, alpha). Sebra witness/moderator hosting: FUTURE.md only.
+**Files:**
+- Create: `packages/transport/src/didcomm_transport.ts`, `packages/transport/src/did_identity.ts`, `packages/transport/src/vrc.ts` (+ colocated tests)
+- Modify: `packages/agent-daemon/src/config.ts` (TRANSPORT="didcomm" option + identity paths), `packages/agent-daemon/src/main.ts` (wire), `packages/agent-daemon/src/api/server.ts` (mount transport's inbound HTTP handler at `POST /didcomm`; add `GET /api/trust/export?format=vrc`)
+- Modify: `docs/TRANSPORT.md` (+OpenVTC section), `PRIVACY.md` (transport-metadata note: DIDComm peer-to-peer removes homeserver metadata residual)
+
+**Design (exact):**
+- `did_identity.ts`: `createIdentity(): { did, secrets }` — did:peer:2 with one Ed25519 signing key + one X25519 key-agreement key + serviceEndpoint (`http://<host>:<port>/didcomm`); deterministic (de)serialization to disk (`DID_IDENTITY_PATH`). Resolution: local resolver that decodes did:peer:2 inline keys (no network). Use `@noble/curves`/`@noble/hashes` + `multiformats` (in pnpm store) — pure JS, no wasm dependency risk; the `didcomm` wasm package is in the store as fallback if full JWM compliance turns out cheaper that way.
+- `didcomm_transport.ts` implements the frozen `TransportAdapter`: `send(peerDid, env)` → resolve endpoint from did:peer:2 → encrypt (X25519 ECDH-ES + XChaCha20-Poly1305 via @noble/ciphers, sender-authenticated: include sender DID, sign payload Ed25519) → HTTP POST; inbound handler decrypts/verifies → `onEnvelope(fromDid, env)`. Message format: JWM-shaped JSON `{ id, type: "https://didcomm.org/basicmessage/2.0/message"-style app type, from, to, created_time, body: <protocol envelope> }`. Honest labeling: "DIDComm v2-shaped, not certified-interoperable yet" — docs/TRANSPORT.md states exactly what deviates from the RFC (I7 spirit).
+- `createSharedRoom(peers, ctx)`: DIDComm has no rooms — implement group threads: `room_id = uuid`, room-create message fanned to all peers; `send`-to-room = fan-out to members. Same TransportAdapter surface, so MatrixTransport stays drop-in (D12's "easy to add Matrix later" = the seam, already proven by MockTransport/MatrixTransport).
+- `vrc.ts`: on trust-edge creation, issue + store an **unsigned-claims-free, Ed25519-signed** VRC-shaped W3C VC: `{ "@context": [...], type: ["VerifiableCredential","RelationshipCredential"], issuer: myDid, credentialSubject: { id: peerDid, relationship: level, met_context? }, issuanceDate, proof: { type: "Ed25519Signature2020"-shaped JWS } }`. Both directions (each side issues). `GET /api/trust/export?format=vrc` returns mine. Verification helper + test. README/PRIVACY honesty: alpha VRCs are self-asserted pairwise, no witness (keyring-wallet/OpenVTC witness = future).
+- PeerId remains a string; DIDs are valid PeerIds (protocol comment updated, no schema change). Meet-card payload (`/api/card`, Task 5) gains `did` + `endpoint` when TRANSPORT=didcomm.
+- Tests: two daemons over real DidCommTransport on localhost HTTP complete REQUEST/STATUS/CONSENT/INTRO/WITHDRAWN + LISTING/LOAN/DM; tamper test (bad signature rejected + audit-logged); VRC issue/verify round-trip.
+- Commit granularity: identity, transport, vrc, wiring.
+
+### Task 10 [FOLDED INTO TASK 11]: keyring-wallet / VRC export
+
+Superseded — Task 11 ships signed VRCs + the export endpoint as core (D12). Keyring-wallet mapping notes + sebra witness/moderator hosting: FUTURE.md only.
 
 ## Self-review notes (R2)
 
