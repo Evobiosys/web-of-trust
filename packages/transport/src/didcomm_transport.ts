@@ -21,8 +21,8 @@ import { parseEnvelope, serializeEnvelope } from "@resource-web/protocol";
 import type { Envelope, PeerId, RoomContext, TransportAdapter, TransportConfig } from "@resource-web/protocol";
 import { v4 as uuidv4 } from "uuid";
 import type { Identity } from "./did_identity.js";
-import { resolveDidPeer } from "./did_identity.js";
 import { packMessage, unpackMessage, type JwmMessage } from "./didcomm_crypto.js";
+import { HttpPostChannel, type DeliveryChannel, type HttpPost } from "./delivery_channel.js";
 
 // JWM `type` discriminators (DIDComm-shaped app-protocol URIs).
 export const ENVELOPE_TYPE = "https://didcomm.org/resource-web/2.0/envelope";
@@ -40,21 +40,9 @@ export interface RoomMessage {
 type EnvelopeListener = (from: PeerId, env: Envelope) => void;
 type RoomMessageListener = (msg: RoomMessage) => void;
 
-/** Injectable transport for tests; defaults to global fetch. Throws on non-2xx. */
-export type HttpPost = (url: string, body: string) => Promise<void>;
-
-const defaultHttpPost: HttpPost = async (url, body) => {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body,
-  });
-  if (!res.ok) {
-    throw new Error(`DidCommTransport: POST ${url} failed with ${res.status}`);
-  }
-  // Drain the body so the socket can be reused/closed.
-  await res.text().catch(() => undefined);
-};
+// `HttpPost` re-exported for back-compat; the type and default implementation
+// now live in delivery_channel.ts (the HttpPostChannel is the default rung).
+export type { HttpPost };
 
 // Replay-protection window: messages older than this (or duplicate ids within
 // it) are rejected. Small, in-memory, per-instance — sufficient for alpha; a
@@ -63,7 +51,10 @@ const REPLAY_WINDOW_MS = 5 * 60_000;
 const FUTURE_SKEW_MS = 60_000;
 
 export interface DidCommTransportOptions {
+  /** Back-compat: overrides the POST implementation of the default HttpPostChannel. Ignored if `channel` is given. */
   httpPost?: HttpPost;
+  /** The delivery seam (see delivery_channel.ts). Defaults to an HttpPostChannel — today's exact behavior. */
+  channel?: DeliveryChannel;
 }
 
 export class DidCommTransport implements TransportAdapter {
@@ -71,11 +62,11 @@ export class DidCommTransport implements TransportAdapter {
   private readonly roomListeners: RoomMessageListener[] = [];
   private readonly rooms = new Map<string, PeerId[]>();
   private readonly seen = new Map<string, number>(); // message id -> created_time
-  private readonly httpPost: HttpPost;
+  private readonly channel: DeliveryChannel;
   private self: PeerId | undefined;
 
   constructor(private readonly identity: Identity, opts: DidCommTransportOptions = {}) {
-    this.httpPost = opts.httpPost ?? defaultHttpPost;
+    this.channel = opts.channel ?? new HttpPostChannel(identity, { httpPost: opts.httpPost });
   }
 
   async init(cfg: TransportConfig): Promise<void> {
@@ -87,6 +78,12 @@ export class DidCommTransport implements TransportAdapter {
       );
     }
     this.self = this.identity.did;
+    // Every inbound wire the channel produces funnels into the unchanged
+    // receiveInbound path — no second decrypt/verify/dispatch path is ever
+    // created (core-transport-plan.md §1 rule 1). HttpPostChannel's onInbound
+    // is a no-op: HTTP inbound stays mounted at POST /didcomm, which calls
+    // receiveInbound directly.
+    this.channel.onInbound((wire) => void this.receiveInbound(wire));
   }
 
   private requireSelf(): PeerId {
@@ -95,9 +92,8 @@ export class DidCommTransport implements TransportAdapter {
   }
 
   private async deliver(recipientDid: string, message: JwmMessage): Promise<void> {
-    const endpoint = resolveDidPeer(recipientDid).serviceEndpoint;
     const wire = packMessage({ sender: this.identity, recipientDid, message });
-    await this.httpPost(endpoint, wire);
+    await this.channel.deliver(recipientDid, wire);
   }
 
   private buildMessage(type: string, to: string, body: unknown): JwmMessage {

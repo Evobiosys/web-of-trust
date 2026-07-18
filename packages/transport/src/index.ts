@@ -30,9 +30,15 @@ export {
   ROOM_MESSAGE_TYPE,
   ROOM_CREATE_TYPE,
   type RoomMessage as DidCommRoomMessage,
-  type HttpPost,
   type DidCommTransportOptions,
 } from "./didcomm_transport.js";
+export {
+  HttpPostChannel,
+  defaultHttpPost,
+  type DeliveryChannel,
+  type HttpPost,
+  type HttpPostChannelOptions,
+} from "./delivery_channel.js";
 export { packMessage, unpackMessage, type JwmMessage } from "./didcomm_crypto.js";
 export {
   issueVrc,
