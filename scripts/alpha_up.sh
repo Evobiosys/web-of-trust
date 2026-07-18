@@ -186,7 +186,7 @@ jq -c '.[]' "$PERSONAS_FILE" | while read -r row; do
   name="$(echo "$row" | jq -r '.name')"
   port="$(echo "$row" | jq -r '.port')"
   app="$(echo "$row" | jq -r '.app')"
-  url="http://${HOST_IP}:${MOBILE_PORT}/?agent=http://${HOST_IP}:${port}&app=${app}&persona=${key}"
+  url="http://${HOST_IP}:${MOBILE_PORT}/?agent=http://${HOST_IP}:${port}&app=${app}&persona=${key}&mode=live"
   echo "${name}  (app=${app}, port=${port})"
   echo "  ${url}"
   if command -v npx >/dev/null 2>&1; then

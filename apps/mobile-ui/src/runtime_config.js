@@ -91,17 +91,23 @@ export function getRuntimeConfig() {
   const queryModeRaw = params.get("mode") ?? undefined;
   const queryMode = queryModeRaw === "live" || queryModeRaw === "fixture" ? queryModeRaw : undefined;
 
+  // An explicit `agent` URL means "talk to this real backend" — infer live mode
+  // so the alpha launcher's join URLs (which carry ?agent= but not ?mode=) work
+  // without every friend remembering to append &mode=live. An explicit
+  // ?mode=fixture still wins for anyone who wants the offline mock.
+  const inferredMode = queryMode ?? (queryAgent ? "live" : undefined);
+
   if (queryAgent) writeStorage(STORAGE_KEYS.agentUrl, queryAgent);
   if (queryApp) writeStorage(STORAGE_KEYS.appId, queryApp);
   if (queryPersona) writeStorage(STORAGE_KEYS.personaKey, queryPersona);
-  if (queryMode) writeStorage(STORAGE_KEYS.mode, queryMode);
+  if (inferredMode) writeStorage(STORAGE_KEYS.mode, inferredMode);
 
   const agentUrl = queryAgent ?? readStorage(STORAGE_KEYS.agentUrl) ?? DEFAULTS.agentUrl;
   const appId = queryApp ?? readStorage(STORAGE_KEYS.appId) ?? DEFAULTS.appId;
   const personaKey = queryPersona ?? readStorage(STORAGE_KEYS.personaKey) ?? DEFAULTS.personaKey;
   const storedMode = readStorage(STORAGE_KEYS.mode);
   const mode = /** @type {"fixture" | "live"} */ (
-    queryMode ?? (storedMode === "live" || storedMode === "fixture" ? storedMode : DEFAULTS.mode)
+    inferredMode ?? (storedMode === "live" || storedMode === "fixture" ? storedMode : DEFAULTS.mode)
   );
 
   return { agentUrl, appId, personaKey, mode };
