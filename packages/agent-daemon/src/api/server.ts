@@ -23,14 +23,63 @@ export interface StartedServer {
  * structurally (`submit()`/`attachDrainWss()` are its real public API).
  */
 export interface RelayMediator {
-  /** Accepts an opaque wire addressed to a DID; never decrypts (see relay_server.ts). */
-  submit(rawWire: string): { routed: "live" | "queued" | "rejected" };
+  /**
+   * Accepts an opaque wire addressed to a DID; never decrypts (see
+   * relay_server.ts). Returns a DELIBERATELY non-informative success —
+   * `{ routed: "accepted" }` whether the wire was flushed live or queued — so
+   * the ingress response leaks neither recipient presence nor relay volume
+   * (adversarial-review finding 1). `rejected` (malformed/unroutable/oversize/
+   * over-cap) carries a reason only so a RelayChannel caller can fall back.
+   */
+  submit(rawWire: string): { routed: "accepted" | "rejected"; reason?: string };
   /** Mounts the authenticated drain WS onto an existing http.Server (additive `ws` upgrade-path hook). */
   attachDrainWss(httpServer: NodeHttpServer, path?: string): void;
 }
 
 /** Path this persona's mediator drain WS is mounted at when it hosts one (Task 10). */
 const RELAY_DRAIN_PATH = "/relay/drain";
+
+/**
+ * Hard cap on a `POST /relay/send` body (finding 2). The alpha mounts ingress
+ * here — NOT via RelayServer.listen() — so this is the real path an
+ * unauthenticated submitter hits; without a bound, `readTextBody` would buffer
+ * an arbitrarily large body into memory before `submit()` ever runs. Kept
+ * equal to RelayServer's own MAX_WIRE_BYTES (128 KiB) so the two cannot drift;
+ * `submit()` re-checks the same cap, so this is belt-and-suspenders (reject
+ * mid-stream here; reject-before-enqueue there).
+ */
+const RELAY_MAX_BODY_BYTES = 128 * 1024;
+
+/** Sentinel returned by readBoundedBody when the request body exceeded its cap and a 413 was already written+the socket destroyed — the caller must simply `return`. */
+const BODY_TOO_LARGE = Symbol("body-too-large");
+
+/**
+ * Reads a request body into a string, but stops the moment it exceeds
+ * `maxBytes`: it writes a 413 response FIRST (with `Connection: close` so the
+ * response flushes cleanly), THEN destroys the socket — the exact
+ * respond-then-destroy ordering RelayServer.handleIngressRequest uses.
+ * Destroying before responding would reset the connection and surface as an
+ * ECONNRESET to the client instead of a clean 413. Returns BODY_TOO_LARGE
+ * (never a string) in that case; the caller just returns.
+ */
+async function readBoundedBody(req: IncomingMessage, res: ServerResponse, maxBytes: number): Promise<string | typeof BODY_TOO_LARGE> {
+  const chunks: Buffer[] = [];
+  let received = 0;
+  for await (const chunk of req) {
+    const buf = chunk as Buffer;
+    received += buf.length;
+    if (received > maxBytes) {
+      if (!res.headersSent) {
+        res.writeHead(413, { ...CORS_HEADERS, "content-type": "application/json; charset=utf-8", connection: "close" });
+        res.end(JSON.stringify({ error: `request body exceeds ${maxBytes} bytes` }));
+      }
+      req.destroy();
+      return BODY_TOO_LARGE;
+    }
+    chunks.push(buf);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 /**
  * Filters an http.Server's "upgrade" events down to ONLY requests whose path
@@ -601,8 +650,15 @@ export function startServer(daemon: Daemon, port: number, extras: ServerExtras =
         sendJson(res, 404, { error: "relay mediator not enabled on this persona" });
         return;
       }
-      const rawWire = await readTextBody(req);
+      // finding 2: bound the streamed body on the REAL alpha ingress path
+      // (this handler, NOT RelayServer.listen()). Oversize → 413, no submit().
+      const rawWire = await readBoundedBody(req, res, RELAY_MAX_BODY_BYTES);
+      if (rawWire === BODY_TOO_LARGE) return; // 413 already written + socket closed
       const result = extras.relayServer.submit(rawWire);
+      // Non-informative success (finding 1): the mediator returns
+      // `{ routed: "accepted" }` for both live and queued — the HTTP status is
+      // likewise uniform (202) so it cannot become a side-channel. Only a
+      // `rejected` maps to 404 (lets a RelayChannel caller fall back a rung).
       sendJson(res, result.routed === "rejected" ? 404 : 202, result);
       return;
     }

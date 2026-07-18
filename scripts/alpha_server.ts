@@ -41,6 +41,7 @@ import {
   LadderChannel,
   RelayChannel,
   RelayServer,
+  SqliteRelayQueueStore,
   HttpPostChannel,
   SqliteDedupStore,
   type Identity,
@@ -78,6 +79,8 @@ export interface BootedPersona {
   dedup: SqliteDedupStore;
   /** Present ONLY on the persona hosting the mediator (Task 10's `mediatorKey`) — closed by shutdownAll. */
   relayServer?: RelayServer;
+  /** The mediator's durable relay queue (finding 4) — present only on the mediator persona; its SQLite handle is closed by shutdownAll. */
+  relayQueueStore?: SqliteRelayQueueStore;
 }
 
 export interface BootOptions {
@@ -162,10 +165,13 @@ export async function bootPersonas(personas: PersonaConfig[], opts: BootOptions)
 
   // One RelayServer for the whole boot — mounted onto the mediator persona's
   // own HTTP server below via server.ts's additive `relayServer` extras hook
-  // (attachDrainWss + POST /relay/send). Default in-memory queue store: T10
-  // requires SqliteDedupStore per persona (below) but not relay-queue
-  // persistence — an in-memory queue needs no close() and leaks no handle.
-  const relayServer = new RelayServer();
+  // (attachDrainWss + POST /relay/send). DURABLE store-and-forward (finding 4):
+  // the queue is persisted to SQLite under the mediator persona's own state
+  // dir (created in pass 1), so held mail for an offline recipient survives a
+  // relay restart — an in-memory queue would silently drop it on restart,
+  // breaking the offline-delivery promise. Closed by shutdownAll below.
+  const relayQueueStore = new SqliteRelayQueueStore(join(opts.stateDir, mediatorKey, "relay_queue.db"));
+  const relayServer = new RelayServer({ queueStore: relayQueueStore });
 
   // Pass 2: store + transport + daemon + server, per persona.
   const booted: BootedPersona[] = [];
@@ -232,6 +238,7 @@ export async function bootPersonas(personas: PersonaConfig[], opts: BootOptions)
       channel,
       dedup,
       relayServer: isMediator ? relayServer : undefined,
+      relayQueueStore: isMediator ? relayQueueStore : undefined,
     });
   }
 
@@ -273,6 +280,7 @@ export async function shutdownAll(booted: BootedPersona[]): Promise<void> {
       await p.server.close();
       p.dedup.close();
       p.store.close();
+      if (p.relayQueueStore) p.relayQueueStore.close(); // release the durable relay-queue SQLite handle (finding 4)
     })
   );
 }

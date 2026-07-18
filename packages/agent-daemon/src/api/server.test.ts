@@ -24,6 +24,8 @@ interface BootOpts {
   personaName?: string;
   peerId?: string;
   bus?: InMemoryBus;
+  /** When set, the persona hosts the trust-graph mediator: startServer mounts POST /relay/send → relayServer.submit (Task 10 / finding 2). */
+  relayServer?: { submit(rawWire: string): { routed: "accepted" | "rejected"; reason?: string }; attachDrainWss(httpServer: unknown, path?: string): void };
 }
 
 async function bootDaemon(port: number, opts: BootOpts = {}): Promise<{ daemon: Daemon; server: StartedServer; store: SqliteStore; transport: InMemoryTransport }> {
@@ -49,7 +51,7 @@ async function bootDaemon(port: number, opts: BootOpts = {}): Promise<{ daemon: 
     chatClient: new FakeChatClient(),
   });
   await daemon.init();
-  const server = await startServer(daemon, port);
+  const server = await startServer(daemon, port, opts.relayServer ? { relayServer: opts.relayServer as never } : {});
   return { daemon, server, store, transport };
 }
 
@@ -593,5 +595,57 @@ describe("REST/WS server — Task 5 extended HTTP surface", () => {
     expect(events.some((e) => (e as { type: string }).type === "listing")).toBe(true);
     expect(events.some((e) => (e as { type: string }).type === "state_changed")).toBe(true);
     ws.close();
+  });
+
+  // --------------------------------------- Task 10 / finding 2: relay ingress --
+
+  it("POST /relay/send bounds the body: an oversize wire is rejected 413 and never reaches submit()", async () => {
+    const port = nextPort();
+    const submitted: string[] = [];
+    const relayServer = {
+      submit(rawWire: string): { routed: "accepted" | "rejected"; reason?: string } {
+        submitted.push(rawWire);
+        return { routed: "accepted" };
+      },
+      attachDrainWss(): void {
+        /* no drain WS needed for this ingress-body test */
+      },
+    };
+    const { server } = await bootDaemon(port, { relayServer });
+    cleanup = () => server.close();
+
+    // A small wire is accepted and reaches submit().
+    const small = JSON.stringify({ to: "did:peer:2.xyz", ciphertext: "small" });
+    const okRes = await fetch(`http://127.0.0.1:${port}/relay/send`, { method: "POST", body: small });
+    expect(okRes.status).toBe(202);
+    expect(await okRes.json()).toEqual({ routed: "accepted" });
+    expect(submitted).toHaveLength(1);
+
+    // An oversize body (> the 128 KiB /relay/send cap) is rejected 413 mid-read
+    // and submit() is NEVER called — the guard runs on the REAL alpha path, not
+    // only inside RelayServer.listen()'s handleIngressRequest.
+    const oversize = JSON.stringify({ to: "did:peer:2.xyz", ciphertext: "x".repeat(200 * 1024) });
+    const bigRes = await fetch(`http://127.0.0.1:${port}/relay/send`, { method: "POST", body: oversize });
+    expect(bigRes.status).toBe(413);
+    expect(submitted).toHaveLength(1); // still just the small one
+  });
+
+  it("POST /relay/send returns the mediator's non-informative {routed:'accepted'} verbatim (no live/queued oracle)", async () => {
+    const port = nextPort();
+    const relayServer = {
+      submit(): { routed: "accepted" | "rejected"; reason?: string } {
+        return { routed: "accepted" };
+      },
+      attachDrainWss(): void {},
+    };
+    const { server } = await bootDaemon(port, { relayServer });
+    cleanup = () => server.close();
+
+    const res = await fetch(`http://127.0.0.1:${port}/relay/send`, {
+      method: "POST",
+      body: JSON.stringify({ to: "did:peer:2.xyz", ciphertext: "c" }),
+    });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ routed: "accepted" });
   });
 });
