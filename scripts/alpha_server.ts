@@ -101,6 +101,15 @@ export interface BootOptions {
    * share a mediator and store-and-forward works.
    */
   mediatorKey?: string;
+  /**
+   * Base ORIGIN of an EXTERNAL mediator relay (e.g. `https://questhub.eco`,
+   * the questhub deployment). When set (also readable from
+   * `MEDIATOR_RELAY_URL`), every persona's RelayChannel + advertised
+   * `relay_url` point at this public relay and NO local RelayServer is hosted —
+   * this is what makes the alpha work cross-network / off the churning LAN IP.
+   * Unset ⇒ the mediator persona co-hosts a local relay on its own HTTP server.
+   */
+  mediatorRelayUrl?: string;
 }
 
 /**
@@ -161,17 +170,23 @@ export async function bootPersonas(personas: PersonaConfig[], opts: BootOptions)
   // drainPath`), so no second endpoint format is needed: a relay is just
   // another did:peer:2 whose service block resolves to a URL (did_identity.ts's
   // CardPayload doc comment).
-  const mediatorEndpoint = mediatorIdentity.serviceEndpoint;
+  // When an external relay is configured (MEDIATOR_RELAY_URL / opts), delegate
+  // store-and-forward to it (e.g. the internet-reachable questhub deployment) —
+  // this is what lets the alpha work cross-network, off the churning LAN IP.
+  // Every persona's RelayChannel + advertised relay_url then point at that
+  // public origin. Otherwise the mediator persona co-hosts a local RelayServer
+  // on its own HTTP server, with a DURABLE SQLite queue (finding 4) so held
+  // mail for an offline recipient survives a relay restart. Closed by
+  // shutdownAll below.
+  const externalRelayUrl = opts.mediatorRelayUrl ?? process.env.MEDIATOR_RELAY_URL;
+  const mediatorEndpoint = externalRelayUrl ?? mediatorIdentity.serviceEndpoint;
 
-  // One RelayServer for the whole boot — mounted onto the mediator persona's
-  // own HTTP server below via server.ts's additive `relayServer` extras hook
-  // (attachDrainWss + POST /relay/send). DURABLE store-and-forward (finding 4):
-  // the queue is persisted to SQLite under the mediator persona's own state
-  // dir (created in pass 1), so held mail for an offline recipient survives a
-  // relay restart — an in-memory queue would silently drop it on restart,
-  // breaking the offline-delivery promise. Closed by shutdownAll below.
-  const relayQueueStore = new SqliteRelayQueueStore(join(opts.stateDir, mediatorKey, "relay_queue.db"));
-  const relayServer = new RelayServer({ queueStore: relayQueueStore });
+  let relayQueueStore: SqliteRelayQueueStore | undefined;
+  let relayServer: RelayServer | undefined;
+  if (!externalRelayUrl) {
+    relayQueueStore = new SqliteRelayQueueStore(join(opts.stateDir, mediatorKey, "relay_queue.db"));
+    relayServer = new RelayServer({ queueStore: relayQueueStore });
+  }
 
   // Pass 2: store + transport + daemon + server, per persona.
   const booted: BootedPersona[] = [];
@@ -230,7 +245,7 @@ export async function bootPersonas(personas: PersonaConfig[], opts: BootOptions)
       // origin, since relay_client (like RelayChannel) resolves the absolute
       // `/relay/send` + `/relay/drain` paths off the URL's origin.
       cardExtra: { ...getCardPayload(identity, persona.name, { relays: [mediatorIdentity.did] }), relay_url: new URL(mediatorEndpoint).origin },
-      ...(isMediator ? { relayServer } : {}),
+      ...(isMediator && relayServer ? { relayServer } : {}),
     });
 
     booted.push({
