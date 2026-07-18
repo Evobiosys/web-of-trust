@@ -66,6 +66,22 @@ function tryBarcodeScan() {
   }).catch(() => { /* no camera — the paste fallback carries the flow */ });
 }
 
+/**
+ * Pull an honest "met at <place>" clause out of a pendingMeet's ctxLabel.
+ * Fixture's ctxLabel is shaped "☀ Ecstatic Dance Palermo · today" — a real
+ * place + date. Live's default (api_client_live.js resolveCard) is the
+ * generic "☀ Met just now" — no place, so the met-at clause is omitted
+ * rather than inventing one (I1).
+ * @param {any} pm
+ * @returns {string | null}
+ */
+function meetPlace(pm) {
+  const raw = (pm && pm.ctxLabel) || "";
+  const stripped = raw.replace(/^[^\w]+/, "").trim();
+  const parts = stripped.split("·").map((/** @type {string} */ s) => s.trim()).filter(Boolean);
+  return parts.length > 1 ? parts[0] : null;
+}
+
 /** @param {HTMLCanvasElement} canvas */
 function fakeQR(canvas) {
   const x = /** @type {CanvasRenderingContext2D} */ (canvas.getContext("2d"));
@@ -236,18 +252,38 @@ export function renderCeremony(step) {
       '<path d="M5 30 C 60 5, 90 55, 115 30 S 190 5, 225 30" fill="none" stroke="url(#wv)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="300" stroke-dashoffset="300">' +
       (reduced ? "" : '<animate attributeName="stroke-dashoffset" from="300" to="0" dur="1.1s" fill="freeze"/>') +
       "</path></svg>" +
-      '<p class="sub">' + pm.display + " is confirming you on her phone.</p>";
+      '<p class="sub">' + pm.display + " is confirming you on their phone.</p>";
     setTimeout(() => {
       void Promise.resolve(ctx.api.addTrust(pm.card, state.mariaLevel || "Friend"));
       const opens = state.unlocked;
       renderList();
-      $("celebText").textContent = opens
-        ? "You and " + pm.display + " now hold each other’s thread — " + levelLabel().toLowerCase() + "s, at Ecstatic Dance Palermo. Her circle’s Moon Ceremony just opened to you."
-        : "You and " + pm.display + " now hold each other’s cards — contacts, met at Ecstatic Dance Palermo. Deeper rooms open as you grow closer.";
-      $("seeOpened").style.display = opens ? "" : "none";
+      // The bag is the only source of truth for what actually opened: fixture
+      // always carries a privateEvent (Moon Ceremony); live carries none yet
+      // (I1 — never promise content that isn't really there).
+      const newlyOpened = opens && !!ctx.api.getState().privateEvent;
+      const place = meetPlace(pm);
+      const base = opens
+        ? "You and " + pm.display + " now hold each other’s thread — " + levelLabel().toLowerCase() + "s" + (place ? ", at " + place : "") + "."
+        : "You and " + pm.display + " now hold each other’s cards — contacts" + (place ? ", met at " + place : "") + ".";
+      const tail = newlyOpened
+        ? " Their circle’s Moon Ceremony just opened to you."
+        : " Deeper rooms open as you grow closer.";
+      $("celebText").textContent = base + tail;
+      $("seeOpened").style.display = newlyOpened ? "" : "none";
       ctx.show("celebrate");
       confetti();
-      showCoach(opens ? "Now check <b>Discover</b> and <b>Your Web</b>" : "“Contact” doesn’t open the Moon Ceremony — levels have teeth");
+      // "Now check Discover" is generically true whenever a level actually
+      // unlocked. The Contact-level coach line named the Moon Ceremony by
+      // name — fine in fixture (it's real there), invented in live (I1), so
+      // gate the wording on the bag actually carrying gated content at all.
+      const hasGatedContent = !!ctx.api.getState().privateEvent;
+      showCoach(
+        opens
+          ? "Now check <b>Discover</b> and <b>Your Web</b>"
+          : hasGatedContent
+            ? "“Contact” doesn’t open the Moon Ceremony — levels have teeth"
+            : "“Contact” keeps things light — grow the level anytime to open more"
+      );
     }, reduced ? 500 : 2100);
   }
 }

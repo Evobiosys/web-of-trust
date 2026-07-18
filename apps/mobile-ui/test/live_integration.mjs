@@ -2,7 +2,8 @@
 // agent-daemons in-process over one InMemoryBus, points a live mobile-ui
 // ApiClient at each, and drives the golden path end to end:
 //   meet (mutual trust) → host gathering (tier-filtered) → borrow round-trip
-//   with activity cards → DM both ways → withdraw flips the card.
+//   with activity cards → DM both ways → real WS push (no manual refresh) →
+//   withdraw flips the card.
 //
 // Standalone node script (not vitest) so it runs in a pure Node environment —
 // no jsdom shims, real global fetch + WebSocket, real ws/sqlite in the daemon.
@@ -131,13 +132,37 @@ async function main() {
   check("B's thread with Anna carries the message", (B.getState().threads[ANNA] || []).some((m) => m[1] === "Bringing them Sunday"));
   check("A's thread with Ben carries the reply", (A.getState().threads[BEN] || []).some((m) => m[1] === "Perfect, thank you"));
 
-  // 5) WITHDRAW flips the card ----------------------------------------------
-  console.log("\n[5] Withdraw flips the card");
+  // 5) REAL PUSH PATH — daemon broadcast → real socket → normalize ----------
+  // (Finding 4, DoD) Every other step above polls via `until()`, which itself
+  // calls X.refresh() on each tick — that would pass even if the WS were
+  // dead. This step proves the actual push path: it never calls B.refresh()
+  // anywhere; B's live client must pick up the change entirely on its own,
+  // via its own WS `state_changed` → refresh() → notify() chain.
+  console.log("\n[5] Real push path: daemon broadcast → socket → client (no manual B.refresh())");
+  let bNotified = false;
+  const unsubB = B.subscribe(() => { bNotified = true; });
+  await A.sendDm(BEN, "Testing the real push path — no manual refresh");
+  await until(
+    "B's client updates via its own WS-triggered refresh, not a manual B.refresh() call",
+    () => bNotified && (B.getState().threads[ANNA] || []).some((m) => m[1] === "Testing the real push path — no manual refresh"),
+    8000
+  );
+  unsubB();
+  check("at least one store notification fired while waiting (the push actually happened, not a coincidence)", bNotified);
+  check(
+    "B's thread with Anna carries the DM, delivered purely by the real WS broadcast",
+    (B.getState().threads[ANNA] || []).some((m) => m[1] === "Testing the real push path — no manual refresh")
+  );
+
+  // 6) WITHDRAW flips the card ----------------------------------------------
+  console.log("\n[6] Withdraw flips the card");
   const bOffer = B.getState().offers.find((o) => o.t === "PA speakers");
   await B.withdrawListing(bOffer.id);
   await until("A's offer disappears after withdraw", async () => { await A.refresh(); return !A.getState().offers.some((o) => o.t === "PA speakers"); });
   check("withdrawn offer is gone from A's Discover", !A.getState().offers.some((o) => o.t === "PA speakers"));
 
+  A.stop();
+  B.stop();
   await a.server.close();
   await b.server.close();
 

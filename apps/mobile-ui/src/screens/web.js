@@ -113,16 +113,21 @@ export function renderRings() {
 
 export function renderIntros() {
   const w = $("intWrap");
-  if (state.introDone === "dismissed" || state.guest) {
+  /** @type {any[]} */
+  const suggestions = ctx.api.getState().introSuggestions || [];
+  // Fixture mode carries the designer's Rafa/Lucía suggestion; live carries
+  // none yet (real suggestions are a future feature) — nothing invented here.
+  if (state.introDone === "dismissed" || state.guest || !suggestions.length) {
     w.innerHTML = "";
     return;
   }
+  const s = suggestions[0];
   w.innerHTML =
     '<div class="int-head">Threads that could meet</div>' +
     '<div class="int-card" data-anchor="INT-1">' +
     (state.introDone === "done"
-      ? "<b>Introduced ✓</b> Rafa and Lucía each hold the other’s card now. The rest is theirs."
-      : "<b>Rafa</b> is looking for speakers for Sunday. <b>Lucía</b> has a pair — they don’t know each other, but they both know you." +
+      ? "<b>Introduced ✓</b> " + s.aName + " and " + s.bName + " each hold the other’s card now. The rest is theirs."
+      : "<b>" + s.aName + "</b> " + s.aNeed + " <b>" + s.bName + "</b> " + s.bHave + " — they don’t know each other, but they both know you." +
         '<div class="act-btns">' +
         '<button class="btn btn-sm btn-electric" id="introGo">Introduce them</button>' +
         '<button class="btn btn-sm btn-ghost" id="introNo">Let it be</button>' +
@@ -131,7 +136,7 @@ export function renderIntros() {
   const g = document.getElementById("introGo");
   if (g) g.onclick = () => {
     openSheet(
-      '<div class="grab"></div><div data-anchor="INT-2"><h3>Introduce Rafa and Lucía</h3>' +
+      '<div class="grab"></div><div data-anchor="INT-2"><h3>Introduce ' + s.aName + " and " + s.bName + "</h3>" +
         '<div class="meta">You’d share each of their cards with the other — nothing more. They each choose whether to meet. Neither is connected to the other until they do their own twenty seconds, face to face.</div>' +
         '<button class="btn btn-coral" id="introConfirm">Share both cards</button>' +
         '<button class="btn btn-ghost" id="introCancel">Cancel</button></div>'

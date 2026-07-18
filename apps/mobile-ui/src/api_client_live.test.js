@@ -71,7 +71,7 @@ function installFetch() {
 let lastWs;
 class MockWebSocket {
   /** @param {string} url */
-  constructor(url) { this.url = url; lastWs = this; this.onmessage = null; this.onclose = null; this.onerror = null; }
+  constructor(url) { this.url = url; lastWs = this; this.onopen = null; this.onmessage = null; this.onclose = null; this.onerror = null; }
   close() {}
 }
 
@@ -170,6 +170,69 @@ describe("live ApiClient", () => {
     await settle();
     const after = ctl.calls.filter((c) => c.path === "/api/state").length;
     expect(after).toBeGreaterThan(before);
+  });
+
+  it("Finding 3: a failed mutation surfaces a dismissible error and logs the detail, without throwing", async () => {
+    document.body.innerHTML = '<div class="coach" id="coach" style="display:none"><span id="coachText"></span><button id="coachX"></button></div>';
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const api = await boot();
+
+    // Force the next request (the /api/trust POST below) to fail at the daemon.
+    ctl.fetchMock.mockImplementationOnce(async () => (
+      { ok: false, status: 500, text: async () => JSON.stringify({ error: "boom" }) }
+    ));
+
+    await api.addTrust({ peer: "@x:wot.local", display: "X" }, "Friend");
+
+    expect(errSpy).toHaveBeenCalled();
+    expect(/** @type {HTMLElement} */ (document.getElementById("coach")).style.display).toBe("flex");
+    expect(document.getElementById("coachText")?.textContent).toMatch(/didn.t go through/i);
+
+    errSpy.mockRestore();
+  });
+
+  it("Finding 4: reconnects the WS with capped backoff after a close, and refetches state on every reopen", async () => {
+    vi.useFakeTimers();
+    try {
+      const api = createApiClient({ mode: "live", agentUrl: "http://localhost:4101" });
+      api.start();
+      await settle();
+      const ws1 = lastWs;
+      expect(ws1).toBeTruthy();
+
+      // First close: reconnect happens after the 1s base delay, not before.
+      ws1.onclose();
+      await vi.advanceTimersByTimeAsync(999);
+      expect(lastWs).toBe(ws1); // still no new socket
+      await vi.advanceTimersByTimeAsync(1);
+      expect(lastWs).not.toBe(ws1); // reconnected — a new WebSocket was constructed
+      const ws2 = lastWs;
+
+      // Second close WITHOUT a successful open in between: backoff doubles (2s, not 1s again).
+      ws2.onclose();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(lastWs).toBe(ws2); // 1s isn't enough this time
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(lastWs).not.toBe(ws2); // reconnected at 2s
+      const ws3 = lastWs;
+
+      // A successful open resets the backoff AND triggers a refetch.
+      const before = ctl.calls.filter((c) => c.path === "/api/state").length;
+      ws3.onopen();
+      await settle();
+      const after = ctl.calls.filter((c) => c.path === "/api/state").length;
+      expect(after).toBeGreaterThan(before);
+
+      ws3.onclose();
+      await vi.advanceTimersByTimeAsync(999);
+      expect(lastWs).toBe(ws3); // still not reconnected at 999ms...
+      await vi.advanceTimersByTimeAsync(1);
+      expect(lastWs).not.toBe(ws3); // ...but is at 1s — backoff reset by the earlier onopen
+
+      api.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("resolveCard parses a scanned card into pendingMeet; setVisibilityDial is client-side", async () => {

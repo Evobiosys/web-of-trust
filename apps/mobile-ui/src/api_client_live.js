@@ -13,6 +13,7 @@
 
 import { state, subscribe, notify } from "./store.js";
 import { VIS, REACH } from "./api_client.js";
+import { showCoach } from "./coach.js";
 
 // -- small mappers between the UI's vocabulary and the daemon's -----------------
 
@@ -81,6 +82,31 @@ export function createLiveClient(agentUrl) {
     const json = text ? JSON.parse(text) : {};
     if (!res.ok) throw new Error(json && json.error ? json.error : "HTTP " + res.status);
     return json;
+  }
+
+  // ------------------------------------------------------ error surface ----
+  // Finding 3: failed mutations must never fail silently. One shared spot —
+  // every mutating method funnels its request promise through `mutate()`, so
+  // screens keep their fire-and-forget calls (activity-card actions,
+  // addTrust, requestBorrow, sendDm, publishListing, …) with no per-callsite
+  // try/catch. Reuses the existing coach chip (dismissible via its own ✕).
+
+  /** @param {unknown} err */
+  function reportMutationError(err) {
+    // eslint-disable-next-line no-console
+    console.error("[live] mutation failed:", err);
+    showCoach("That didn’t go through — try again.");
+  }
+
+  /**
+   * Wrap a mutating request promise: refetch state on success (awaited, same
+   * as before), surface a dismissible error (and log the detail) on failure
+   * — never rejects, so fire-and-forget call sites stay fire-and-forget.
+   * @param {Promise<any>} p
+   * @returns {Promise<void>}
+   */
+  function mutate(p) {
+    return p.then(refresh).catch((err) => { reportMutationError(err); });
   }
 
   // -------------------------------------------------------- normalization --
@@ -316,6 +342,8 @@ export function createLiveClient(agentUrl) {
       ...state, ...bag,
       privateEvent: null, vis: VIS, reach: REACH,
       myCard, pendingMeet: state.pendingMeet || null,
+      // Finding 1: no real intro-suggestion feature yet — never invent one.
+      introSuggestions: [],
     };
   }
 
@@ -339,7 +367,7 @@ export function createLiveClient(agentUrl) {
     state.mariaLevel = level;
     state.unlocked = level !== "Contact";
     state.justUnlocked = state.unlocked;
-    return req("/api/trust", { peer, display, level: LEVEL_UI_TO_API[level] || "friend" }).then(refresh);
+    return mutate(req("/api/trust", { peer, display, level: LEVEL_UI_TO_API[level] || "friend" }));
   }
 
   /** @param {any} listing host form: { t, m, when, where, vis, steps } */
@@ -353,37 +381,37 @@ export function createLiveClient(agentUrl) {
       when: listing.when, tier, steps: listing.steps,
       ...(tier === "public" ? { where_public: where } : { where_gated: where }),
     };
-    return req("/api/listings", body).then(refresh);
+    return mutate(req("/api/listings", body));
   }
 
   /** @param {string} listingId */
   function requestBorrow(listingId) {
-    return req("/api/borrow", { listing_id: listingId }).then(refresh);
+    return mutate(req("/api/borrow", { listing_id: listingId }));
   }
 
   /** Withdraw one of my own listings — receivers flip it to withdrawn. @param {string} listingId */
   function withdrawListing(listingId) {
-    return req("/api/listings/" + encodeURIComponent(listingId) + "/withdraw", {}).then(refresh);
+    return mutate(req("/api/listings/" + encodeURIComponent(listingId) + "/withdraw", {}));
   }
 
   /** @param {string} loanId @param {string} uiState */
   function loanAction(loanId, uiState) {
-    return req("/api/loans/" + encodeURIComponent(loanId), { state: LOAN_UI_TO_API[uiState] || uiState }).then(refresh);
+    return mutate(req("/api/loans/" + encodeURIComponent(loanId), { state: LOAN_UI_TO_API[uiState] || uiState }));
   }
 
   /** @param {string} cardId */
   function consent(cardId) {
-    return req("/api/consent", { card_id: cardId }).then(refresh);
+    return mutate(req("/api/consent", { card_id: cardId }));
   }
   /** @param {string} cardId */
   function decline(cardId) {
-    return req("/api/decline", { card_id: cardId }).then(refresh);
+    return mutate(req("/api/decline", { card_id: cardId }));
   }
 
   /** @param {string} peer @param {string} text */
   function sendDm(peer, text) {
     if (!text) return Promise.resolve();
-    return req("/api/threads/" + encodeURIComponent(peer) + "/message", { text }).then(refresh);
+    return mutate(req("/api/threads/" + encodeURIComponent(peer) + "/message", { text }));
   }
 
   /** @param {string} text */
@@ -391,7 +419,7 @@ export function createLiveClient(agentUrl) {
     return req("/api/steward", { text }).then(async (r) => {
       await refresh();
       return (r && r.reply) || null;
-    });
+    }).catch((err) => { reportMutationError(err); return null; });
   }
 
   /** @param {any} fields */
@@ -399,7 +427,7 @@ export function createLiveClient(agentUrl) {
     return req("/api/notes", fields).then(async (r) => {
       await refresh();
       return (r && r.item_id) || null;
-    });
+    }).catch((err) => { reportMutationError(err); return null; });
   }
 
   /** Visibility dial has no daemon field yet — keep it client-side. @param {boolean} on */
@@ -448,7 +476,21 @@ export function createLiveClient(agentUrl) {
     openWs();
   }
 
+  // Finding 4: the daemon can restart, the network can blip, a laptop can
+  // sleep — a WS that never reconnects silently stops delivering pushes
+  // until the next full page reload. Reconnect with capped exponential
+  // backoff (1s → 2s → 4s → … → 15s), reset on a successful open, and
+  // refetch state on every (re)open so a missed broadcast during the outage
+  // is never lost.
+  const BASE_BACKOFF_MS = 1000;
+  const MAX_BACKOFF_MS = 15000;
+  let backoff = BASE_BACKOFF_MS;
+  /** @type {ReturnType<typeof setTimeout> | null} */
+  let reconnectTimer = null;
+  let stopped = false;
+
   function openWs() {
+    if (stopped || typeof WebSocket === "undefined") return;
     let wsUrl;
     try {
       const u = new URL(base);
@@ -458,21 +500,50 @@ export function createLiveClient(agentUrl) {
     } catch {
       wsUrl = base.replace(/^http/, "ws") + "/ws";
     }
-    if (typeof WebSocket === "undefined") return;
     try {
       ws = new WebSocket(wsUrl);
-      // Any event is a hint to refetch; state_changed is the only one we need.
-      ws.onmessage = () => { void refresh(); };
-      ws.onclose = () => { ws = null; };
-      ws.onerror = () => {};
     } catch {
+      ws = null;
+      scheduleReconnect();
+      return;
+    }
+    ws.onopen = () => {
+      backoff = BASE_BACKOFF_MS; // the connection is healthy again — reset the backoff
+      void refresh(); // catch up on anything broadcast while we were disconnected
+    };
+    // Any event is a hint to refetch; state_changed is the only one we need.
+    ws.onmessage = () => { void refresh(); };
+    ws.onclose = () => {
+      ws = null;
+      scheduleReconnect();
+    };
+    ws.onerror = () => {};
+  }
+
+  /** Schedule the next reconnect attempt, doubling the backoff (capped). */
+  function scheduleReconnect() {
+    if (stopped || reconnectTimer) return;
+    const delay = backoff;
+    backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      openWs();
+    }, delay);
+  }
+
+  /** Tear down: stop reconnecting and close any live socket. Test/dev cleanup hook. */
+  function stop() {
+    stopped = true;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (ws) {
+      try { ws.close(); } catch { /* already closing */ }
       ws = null;
     }
   }
 
   return {
     mode, agentUrl: base,
-    getState, subscribe, offerById, seed, start, refresh,
+    getState, subscribe, offerById, seed, start, stop, refresh,
     publishListing, requestBorrow, loanAction, withdrawListing,
     sendDm, addTrust, setVisibilityDial, sendSteward, addNote, resolveCard,
   };

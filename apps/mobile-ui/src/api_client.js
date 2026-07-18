@@ -116,6 +116,16 @@ const MARIA_PERSON = { id: "maria", n: "Maria", c: "Ecstatic Dance Palermo · to
 /** Names visible per tier (before Maria). @type {Record<string, string[]>} */
 const REACH_NAMES = { commons: ["Lucía", "Rafa", "Tomás", "Bruno"], friends: ["Lucía", "Rafa"], close: ["Lucía"] };
 
+/**
+ * The quiet introduction suggestion on Your Web ("Threads that could meet").
+ * Fixture-only demo data — live has no real suggestion engine yet, so the
+ * live client's bag carries an empty array (I1: nothing invented pre-feature).
+ * @type {any[]}
+ */
+const INTRO_SUGGESTIONS_SEED = [
+  { id: "rafa-lucia", aId: "rafa", aName: "Rafa", aNeed: "is looking for speakers for Sunday.", bId: "lucia", bName: "Lucía", bHave: "has a pair" },
+];
+
 /** The canned "person in front of you" for the fixture ceremony. */
 const FIXTURE_PENDING_MEET = {
   card: { peer: "maria", display: "Maria" },
@@ -199,6 +209,7 @@ function createFixtureClient(mode, agentUrl) {
     return {
       ...state, events, privateEvent, offers, threads, threadList, vis: VIS, reach: REACH,
       people, rings: { ring1, ring2 }, reachNames, pendingMeet, myCard: null,
+      introSuggestions: INTRO_SUGGESTIONS_SEED,
     };
   }
 
@@ -346,6 +357,9 @@ function createFixtureClient(mode, agentUrl) {
   /** Live-mode boot hook (fetch + WS). Fixture has nothing to fetch. */
   function start() {}
 
+  /** Live-mode teardown (stop WS reconnect + close socket). Fixture has no WS. */
+  function stop() {}
+
   /** Live-mode data refetch. Fixture data is already in memory. */
   function refresh() { return Promise.resolve(); }
 
@@ -354,7 +368,7 @@ function createFixtureClient(mode, agentUrl) {
 
   return {
     mode, agentUrl,
-    getState, subscribe, offerById, seed, start, refresh,
+    getState, subscribe, offerById, seed, start, stop, refresh,
     publishListing, requestBorrow, loanAction, withdrawListing,
     sendDm, addTrust, setVisibilityDial, sendSteward, addNote, resolveCard,
   };

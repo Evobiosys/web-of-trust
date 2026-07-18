@@ -11,6 +11,7 @@ import { resolve, dirname } from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { resetState } from "../store.js";
 import { bootApp } from "../app.js";
+import { renderCeremony } from "./meet.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const indexHtml = readFileSync(resolve(here, "../../index.html"), "utf8");
@@ -78,6 +79,10 @@ describe("live mode renders every screen without throwing", () => {
     expect(el("rings").textContent).toContain("Ben");
     el("segPeople").click();
     expect(el("pplList").textContent).toContain("Ben");
+    // Finding 1 (I1/honest-labeling): live has no real intro-suggestion feature
+    // yet — the fixture's Rafa/Lucía suggestion must NOT render for live users.
+    expect(el("intWrap").innerHTML).toBe("");
+    expect(el("intWrap").textContent).not.toContain("Rafa");
 
     ctx.show("chat");
     expect(el("threadList").textContent).toContain("Ben");
@@ -98,5 +103,53 @@ describe("live mode renders every screen without throwing", () => {
 
     ctx.show("you");
     expect(el("youOffers").textContent).toContain("What you offer");
+  });
+
+  it("Finding 2: live celebration copy stays honest — no fabricated venue/content, no seeOpened when nothing actually opened", async () => {
+    const ctx = bootApp({ mode: "live", agentUrl: "http://localhost:4101" });
+    ctx.api.start();
+    await settle();
+
+    ctx.show("meet");
+    const ok = ctx.api.resolveCard(JSON.stringify({ peer_id: "@cora:wot.local", display: "Cora" }));
+    expect(ok).toBe(true);
+    // Jump straight to the confirm step — resolveCard already set pendingMeet.
+    renderCeremony("confirm");
+    const friend = /** @type {HTMLElement} */ (el("cerInner").querySelector('.lvl-pill[data-l="Friend"]'));
+    friend.click();
+    /** @type {HTMLButtonElement} */ (el("confirmBtn")).click();
+    expect(el("cerInner").textContent).toContain("Weaving");
+
+    await new Promise((r) => setTimeout(r, 600)); // weaving → celebration (reduced-motion = 500ms)
+    await settle();
+
+    const text = el("celebText").textContent || "";
+    // Live has no privateEvent (I1) — nothing fabricated, nothing promised open.
+    expect(text).not.toContain("Ecstatic Dance Palermo");
+    expect(text).not.toContain("Moon Ceremony");
+    expect(text).toContain("Deeper rooms open as you grow closer.");
+    expect(el("seeOpened").style.display).toBe("none");
+    // Pronouns: the weaving step must not assume a gender for the peer.
+    expect(el("cerInner").textContent).not.toContain(" her phone");
+  });
+
+  it("Finding 2: live Contact-level celebration + coach chip never name the fixture-only Moon Ceremony", async () => {
+    const ctx = bootApp({ mode: "live", agentUrl: "http://localhost:4101" });
+    ctx.api.start();
+    await settle();
+
+    ctx.show("meet");
+    ctx.api.resolveCard(JSON.stringify({ peer_id: "@dora:wot.local", display: "Dora" }));
+    renderCeremony("confirm");
+    const contact = /** @type {HTMLElement} */ (el("cerInner").querySelector('.lvl-pill[data-l="Contact"]'));
+    contact.click();
+    /** @type {HTMLButtonElement} */ (el("confirmBtn")).click();
+
+    await new Promise((r) => setTimeout(r, 600));
+    await settle();
+
+    expect(el("celebText").textContent).not.toContain("Moon Ceremony");
+    expect(el("coachText").innerHTML).not.toContain("Moon Ceremony");
+    expect(el("seeOpened").style.display).toBe("none");
   });
 });
