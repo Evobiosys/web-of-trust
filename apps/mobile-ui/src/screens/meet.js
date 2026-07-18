@@ -158,7 +158,17 @@ export function renderCeremony(step) {
     // Task 2 (QR-onboarding): only a card with a `did` can build a connect
     // URL (I1 — never invent a fake one for mock/matrix transport), so the
     // whole disclosure is absent rather than shown hollow when it can't.
-    const myConnectUrl = myCard ? buildConnectUrl(window.location.origin, myCard, getRuntimeConfig().appId) : null;
+    //
+    // Deliberately origin + directory path, NOT bare `window.location.origin`:
+    // this app may be served under a URL path prefix (e.g. a shared host
+    // deploying it at "<origin>/wot-app/" rather than the domain root).
+    // `buildConnectUrl` does `new URL(base)`, which drops any path a bare
+    // origin string carries (there is none) — passing only the origin would
+    // silently produce a connect URL that lands the scanning device back at
+    // the domain root instead of this app. Stripping a trailing filename
+    // (e.g. "index.html") keeps the URL as the directory index either way.
+    const appBaseUrl = window.location.origin + window.location.pathname.replace(/[^/]*$/, "");
+    const myConnectUrl = myCard ? buildConnectUrl(appBaseUrl, myCard, getRuntimeConfig().appId) : null;
     const qrCard = myCard
       ? '<div class="qr-card" data-anchor="CER-3"><div id="qrsvg" style="width:180px;height:180px;display:flex;align-items:center;justify-content:center">…</div></div>' +
         '<button class="btn btn-ghost btn-sm" id="copyCode" style="margin-top:6px">Copy my code</button>'
