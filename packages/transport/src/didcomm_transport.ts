@@ -89,7 +89,17 @@ export class DidCommTransport implements TransportAdapter {
     // created (core-transport-plan.md §1 rule 1). HttpPostChannel's onInbound
     // is a no-op: HTTP inbound stays mounted at POST /didcomm, which calls
     // receiveInbound directly.
-    this.channel.onInbound((wire) => void this.receiveInbound(wire));
+    // receiveInbound rejects on EXPECTED inbound errors (duplicate/replay,
+    // too-old past H, future-skew, tampered ciphertext) — it logs the reason
+    // itself before throwing so the HTTP route can answer 4xx. On the
+    // channel-driven path (relay/ladder rungs) there is no response to send and
+    // duplicates are normal (store-and-forward re-drain, cross-rung delivery,
+    // all absorbed by the dedup store), so swallow the rejection here to avoid
+    // an unhandled promise rejection taking down the process. The reason is
+    // already logged inside receiveInbound.
+    this.channel.onInbound((wire) => {
+      void this.receiveInbound(wire).catch(() => {});
+    });
   }
 
   private requireSelf(): PeerId {
