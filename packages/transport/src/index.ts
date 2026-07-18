@@ -47,6 +47,13 @@ export {
 } from "./dedup_store.js";
 export { packMessage, unpackMessage, type JwmMessage } from "./didcomm_crypto.js";
 export {
+  InMemoryRelayQueueStore,
+  SqliteRelayQueueStore,
+  type RelayQueueStore,
+  type QueuedWire,
+} from "./relay_queue_store.js";
+export { RelayServer, type RelayServerOptions, type SubmitResult } from "./relay_server.js";
+export {
   issueVrc,
   verifyVrc,
   type VerifiableRelationshipCredential,

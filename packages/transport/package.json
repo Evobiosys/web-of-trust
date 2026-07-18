@@ -16,9 +16,11 @@
     "@resource-web/protocol": "workspace:*",
     "matrix-bot-sdk": "^0.8.0",
     "multiformats": "^14.0.4",
-    "uuid": "^14.0.1"
+    "uuid": "^14.0.1",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
+    "@types/ws": "^8.18.1",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   }
