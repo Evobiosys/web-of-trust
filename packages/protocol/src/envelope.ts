@@ -22,7 +22,7 @@
 //   correlation id of its own (fire-and-forget chat), so its `request_id` is
 //   just a fresh per-message uuid.
 import { z } from "zod";
-import { IsoDateTimeSchema, PeerIdSchema, SharePolicyAudienceSchema } from "./schemas.js";
+import { IsoDateTimeSchema, PeerIdSchema, SharePolicyAudienceSchema, TrustLevelSchema } from "./schemas.js";
 
 const ProtocolVersionSchema = z.literal("0.1");
 const RequestIdSchema = z.string().uuid();
@@ -111,6 +111,35 @@ const DmBodySchema = z
   })
   .strict();
 
+/** D18 (additive, v stays "0.1"): a brand-new self-sovereign peer's "let me
+ * in" request to an origin it scanned. `display` is the requester's own
+ * chosen name (I4: the origin owner sees who is asking). `relay` is an
+ * optional hint of the relay/mediator the origin can reach the requester back
+ * through (real-transport routing; the in-memory harness ignores it). `level`
+ * is the trust level the requester WISHES for — the origin owner is never
+ * bound by it (never auto-escalated; see daemon.ts's `clampConnectLevel`,
+ * I9). The transport-authenticated `from` is the connecting DID — this body
+ * carries NO identity field, deliberately (the envelope has no `from`). */
+const ConnectBodySchema = z
+  .object({
+    display: z.string().min(1),
+    relay: z.string().optional(),
+    level: TrustLevelSchema.optional(),
+  })
+  .strict();
+
+/** D18: the origin's reply to a CONNECT. `accepted:false` is a gentle,
+ * minimal "not accepted" — it reveals nothing beyond that (the origin-node
+ * model: the owner decided). `display` (the origin's own name) is present
+ * only on `accepted:true`, so the new peer can name the edge it now forms
+ * back to the origin. Echoes the CONNECT's `request_id` for correlation. */
+const ConnectAckBodySchema = z
+  .object({
+    accepted: z.boolean(),
+    display: z.string().min(1).optional(),
+  })
+  .strict();
+
 const RequestEnvelopeSchema = z
   .object({
     v: ProtocolVersionSchema,
@@ -191,6 +220,26 @@ const DmEnvelopeSchema = z
   })
   .strict();
 
+const ConnectEnvelopeSchema = z
+  .object({
+    v: ProtocolVersionSchema,
+    type: z.literal("CONNECT"),
+    request_id: RequestIdSchema,
+    ts: IsoDateTimeSchema,
+    body: ConnectBodySchema,
+  })
+  .strict();
+
+const ConnectAckEnvelopeSchema = z
+  .object({
+    v: ProtocolVersionSchema,
+    type: z.literal("CONNECT_ACK"),
+    request_id: RequestIdSchema,
+    ts: IsoDateTimeSchema,
+    body: ConnectAckBodySchema,
+  })
+  .strict();
+
 export const EnvelopeSchema = z.discriminatedUnion("type", [
   RequestEnvelopeSchema,
   StatusEnvelopeSchema,
@@ -200,6 +249,8 @@ export const EnvelopeSchema = z.discriminatedUnion("type", [
   ListingEnvelopeSchema,
   LoanEnvelopeSchema,
   DmEnvelopeSchema,
+  ConnectEnvelopeSchema,
+  ConnectAckEnvelopeSchema,
 ]);
 export type Envelope = z.infer<typeof EnvelopeSchema>;
 
@@ -211,6 +262,8 @@ export type WithdrawnBody = z.infer<typeof WithdrawnBodySchema>;
 export type ListingBody = z.infer<typeof ListingBodySchema>;
 export type LoanBody = z.infer<typeof LoanBodySchema>;
 export type DmBody = z.infer<typeof DmBodySchema>;
+export type ConnectBody = z.infer<typeof ConnectBodySchema>;
+export type ConnectAckBody = z.infer<typeof ConnectAckBodySchema>;
 
 /**
  * Deterministic deep-key-sorted JSON stringify. Guarantees that two

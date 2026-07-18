@@ -28,6 +28,14 @@ Base URL: `http://localhost:<AGENT_PORT>` (anna 4101, ben 4102, timo 4103). WS a
     "state": "pending" | "consented" | "declined" | "inactive",   // inactive after WITHDRAWN
     "created_at": iso
   } ],
+  "connect_cards": [ {                     // D-QR4: consent-gated CONNECT handshakes (both directions)
+    "card_id": "…",
+    "direction": "inbound" | "outbound",   // inbound = a new peer wants in (owner decides); outbound = a CONNECT I sent
+    "peer": { "peer_id": "…", "display": "Anna" },   // the counterparty (I4 owner-side; the origin I chose new-peer-side)
+    "requested_level": "contact" | "friend" | "close" | undefined,  // the level the CONNECT wished for (advisory only)
+    "state": "pending" | "accepted" | "declined",
+    "created_at": iso
+  } ],
   "rooms": [ { "room_id": "…", "peers": [{peer_id, display}], "messages": [{from, text, ts}], "context": "…" } ],
   "steward_log": [ { "role": "user" | "agent", "text": "…", "ts": iso } ]
 }
@@ -63,6 +71,28 @@ I9); posting again for an existing peer updates `display`/`level`/`vouched_by` *
 #### DELETE /api/trust `?peer=<peer_id>` (or JSON body `{ "peer": string }`) → `{ "ok": true }`
 Removes the edge from *this persona's own* trust graph only (D1 §5: individual-scale exclusion, no
 notification to the removed peer, no appeals process). `400` if `peer` is missing.
+
+### Task 4 (D-QR4) — consent-gated inbound CONNECT (origin-node onboarding)
+
+A brand-new self-sovereign peer (a browser that generated its own DID, holding **no** prior trust edge)
+sends a `CONNECT` envelope to an origin it scanned — the ONE inbound envelope the daemon accepts from an
+edge-less peer. The origin daemon surfaces a **pending inbound connect card** in `/api/state`'s
+`connect_cards[]` (I4: requester DID + display) and forms **no** edge until the OWNER decides. On accept,
+a reciprocal trust edge is formed on **both** sides and a `CONNECT_ACK` is returned. These endpoints are
+distinct from Task 8's `POST /api/connect` (that is the QR direct-trust-add; these gate an inbound
+request).
+
+#### POST /api/connect/accept `{ "card_id": string, "level"?: "contact"|"friend"|"close" }` → `{ "ok": true }`
+Forms a `TrustEdge` to the new peer and sends `CONNECT_ACK{accepted:true, display}`. `level` is the
+owner's **explicit** sovereign choice (I4); omitted, the daemon uses the CONNECT's requested level
+clamped conservatively (`contact`→`contact`, else `friend` — never auto-escalates to `close`, I9).
+`expires_at` defaults +1y (I9). `400` on missing `card_id`, invalid `level`, or a card that is not a
+pending inbound request.
+
+#### POST /api/connect/decline `{ "card_id": string }` → `{ "ok": true }`
+Forms no edge and returns `CONNECT_ACK{accepted:false}` — a gentle, minimal "not accepted" that reveals
+nothing further (origin-node model: the owner simply decided). `400` on missing `card_id` or a
+non-pending/outbound card.
 
 ### Task 5 — second-brain notes
 
@@ -124,7 +154,9 @@ persisted. `did`/`endpoint` are present only when `TRANSPORT=didcomm` (Task 11's
 Server → client JSON events, each `{ "type": …, …payload }`:
 `state_changed` (no payload — client refetches /api/state) · `steward_reply { text }` · `consent_card { card_id }` · `ask_update { request_id, state }` · `room_message { room_id, from, text, ts }` ·
 `listing { listing_id }` · `loan { loan_id }` · `dm { peer_id }`.
-`state_changed` is the only event the UI strictly needs; the rest are hints.
+`state_changed` is the only event the UI strictly needs; the rest are hints. (D-QR4 connect cards
+surface via `state_changed` + `connect_cards[]` — the same way resource consent cards do; the
+`consent_card` hint is declared but not currently broadcast for any card kind.)
 
 ## Daemon config (per persona)
 Env: `PERSONA_NAME`, `PEER_ID`, `AGENT_PORT`, `DB_PATH`, `TRUSTED_PEERS_PATH`, `FIXTURES_PATH?`,

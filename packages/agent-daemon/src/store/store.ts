@@ -5,6 +5,8 @@ import type { Item, TrustEdge } from "@resource-web/protocol";
 import type {
   AskRecord,
   AuditRecord,
+  ConnectDirection,
+  ConnectRecord,
   DmMessageRecord,
   IncomingRecord,
   ListingRecord,
@@ -47,6 +49,15 @@ export interface Store {
   // relay links (I8 two-hop consent chain bookkeeping)
   putRelayLink(link: RelayLinkRecord): void;
   getRelayLinkByDownstream(downstreamRequestId: string): RelayLinkRecord | undefined;
+
+  // connect cards (D-QR4 consent-gated inbound CONNECT handshake)
+  putConnect(record: ConnectRecord): void;
+  getConnect(cardId: string): ConnectRecord | undefined;
+  getConnects(): ConnectRecord[];
+  /** Dedupe/routing lookup: the one connect record for a (peer, direction) pair, if any. */
+  getConnectByPeer(peer: string, direction: ConnectDirection): ConnectRecord | undefined;
+  /** Correlation lookup for an inbound CONNECT_ACK: the outbound record awaiting this request_id. */
+  getConnectByRequest(requestId: string, direction: ConnectDirection): ConnectRecord | undefined;
 
   // rooms + messages
   putRoom(room: RoomRecord): void;

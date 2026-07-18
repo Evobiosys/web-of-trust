@@ -8,6 +8,7 @@ import type {
   AskApiState,
   AskApiView,
   AuditApiEntry,
+  ConnectCardApiView,
   ConsentCardApiView,
   DmMessageApiView,
   ListingApiView,
@@ -95,6 +96,19 @@ export function buildStateSnapshot(persona: { name: string; peer_id: string; acc
     };
   });
 
+  // D-QR4: connect handshakes. Both directions are the persona's OWN
+  // relationship data — the owner legitimately sees the requester (I4), and a
+  // new peer legitimately knows the origin it chose to connect to. No I2
+  // asker-blindness concern applies (this is not the resource-request flow).
+  const connect_cards: ConnectCardApiView[] = store.getConnects().map((c) => ({
+    card_id: c.card_id,
+    direction: c.direction,
+    peer: { peer_id: c.peer, display: c.display },
+    requested_level: c.requested_level,
+    state: c.state,
+    created_at: c.created_at,
+  }));
+
   const rooms: RoomApiView[] = store.getRooms().map((room) => ({
     room_id: room.room_id,
     peers: room.peers,
@@ -110,6 +124,7 @@ export function buildStateSnapshot(persona: { name: string; peer_id: string; acc
     trust_edges: store.getTrustEdges(),
     asks,
     consent_cards,
+    connect_cards,
     rooms,
     steward_log,
     listings_mine: store.getListings().map(buildListingApiView),

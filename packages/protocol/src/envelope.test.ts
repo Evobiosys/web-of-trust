@@ -321,6 +321,77 @@ describe("EnvelopeSchema — DM (D14)", () => {
   });
 });
 
+describe("EnvelopeSchema — CONNECT (D18: consent-gated inbound connect)", () => {
+  it("parses a minimal CONNECT with just display", () => {
+    const env = EnvelopeSchema.parse({ v: "0.1", type: "CONNECT", request_id: REQUEST_ID, ts: TS, body: { display: "Anna" } });
+    if (env.type !== "CONNECT") throw new Error("expected CONNECT");
+    expect(env.body.display).toBe("Anna");
+    expect(env.body.relay).toBeUndefined();
+    expect(env.body.level).toBeUndefined();
+  });
+
+  it("accepts an optional relay hint and a requested level", () => {
+    const env = EnvelopeSchema.parse({
+      v: "0.1",
+      type: "CONNECT",
+      request_id: REQUEST_ID,
+      ts: TS,
+      body: { display: "Anna", relay: "did:web:relay.wot.local", level: "close" },
+    });
+    if (env.type !== "CONNECT") throw new Error("expected CONNECT");
+    expect(env.body.relay).toBe("did:web:relay.wot.local");
+    expect(env.body.level).toBe("close");
+  });
+
+  it("rejects an empty display", () => {
+    expect(() =>
+      EnvelopeSchema.parse({ v: "0.1", type: "CONNECT", request_id: REQUEST_ID, ts: TS, body: { display: "" } })
+    ).toThrow();
+  });
+
+  it("rejects a missing display", () => {
+    expect(() => EnvelopeSchema.parse({ v: "0.1", type: "CONNECT", request_id: REQUEST_ID, ts: TS, body: {} })).toThrow();
+  });
+
+  it("rejects an invalid requested level", () => {
+    expect(() =>
+      EnvelopeSchema.parse({ v: "0.1", type: "CONNECT", request_id: REQUEST_ID, ts: TS, body: { display: "Anna", level: "bff" } })
+    ).toThrow();
+  });
+
+  it("rejects extra keys (strict — no body-claimed identity field)", () => {
+    expect(() =>
+      EnvelopeSchema.parse({ v: "0.1", type: "CONNECT", request_id: REQUEST_ID, ts: TS, body: { display: "Anna", from: "@evil:x" } })
+    ).toThrow();
+  });
+});
+
+describe("EnvelopeSchema — CONNECT_ACK (D18)", () => {
+  it("accepts accepted:true with the origin's display", () => {
+    const env = EnvelopeSchema.parse({ v: "0.1", type: "CONNECT_ACK", request_id: REQUEST_ID, ts: TS, body: { accepted: true, display: "Ben" } });
+    if (env.type !== "CONNECT_ACK") throw new Error("expected CONNECT_ACK");
+    expect(env.body.accepted).toBe(true);
+    expect(env.body.display).toBe("Ben");
+  });
+
+  it("accepts a minimal accepted:false decline (reveals nothing beyond 'not accepted')", () => {
+    const env = EnvelopeSchema.parse({ v: "0.1", type: "CONNECT_ACK", request_id: REQUEST_ID, ts: TS, body: { accepted: false } });
+    if (env.type !== "CONNECT_ACK") throw new Error("expected CONNECT_ACK");
+    expect(env.body.accepted).toBe(false);
+    expect(env.body.display).toBeUndefined();
+  });
+
+  it("rejects a missing accepted flag", () => {
+    expect(() => EnvelopeSchema.parse({ v: "0.1", type: "CONNECT_ACK", request_id: REQUEST_ID, ts: TS, body: {} })).toThrow();
+  });
+
+  it("rejects extra keys (strict)", () => {
+    expect(() =>
+      EnvelopeSchema.parse({ v: "0.1", type: "CONNECT_ACK", request_id: REQUEST_ID, ts: TS, body: { accepted: false, reason: "spam" } })
+    ).toThrow();
+  });
+});
+
 describe("EnvelopeSchema — versioning & discrimination", () => {
   it("rejects a non-'0.1' version", () => {
     expect(() =>

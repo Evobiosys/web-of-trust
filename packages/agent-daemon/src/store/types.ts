@@ -96,6 +96,46 @@ export interface RelayLinkRecord {
   state: RelayLinkState;
 }
 
+// ---------------------------------------------------------------- D-QR4: consent-gated inbound CONNECT --
+
+export type ConnectDirection = "inbound" | "outbound";
+export type ConnectCardState = "pending" | "accepted" | "declined";
+
+/**
+ * D-QR4 (Task 4): one side of a consent-gated CONNECT handshake between a
+ * brand-new self-sovereign peer and an origin it scanned. Kept in its own
+ * table (NOT the `incoming` consent-card table) because a connect card has no
+ * matched item — the `IncomingRecord`/`ConsentCardApiView` path requires one
+ * (sanitize.ts throws on a missing item) and its lifecycle/dispatch machinery
+ * (I3 uniform-delay STATUS) does not apply here.
+ *
+ * `direction` splits the two roles:
+ *  - "inbound"  — a CONNECT this persona RECEIVED (origin/owner side). Surfaces
+ *    as an owner consent card (I4: full requester context). Accept forms an
+ *    edge + sends CONNECT_ACK back; decline sends a gentle CONNECT_ACK{false}.
+ *  - "outbound" — a CONNECT this persona SENT (new-peer side). Recorded so a
+ *    later CONNECT_ACK can be correlated by `request_id` and its `from`
+ *    verified against `peer` BEFORE forming the reciprocal edge — an
+ *    unsolicited CONNECT_ACK must never create an edge.
+ *
+ * `peer` is the transport-authenticated counterparty DID (never body-claimed).
+ * `requested_level` is the level the CONNECT body wished for (advisory only;
+ * clamped, never auto-escalated — I9). `relay` is the CONNECT's optional
+ * relay-routing hint, stored for a real transport (the in-memory harness
+ * ignores it).
+ */
+export interface ConnectRecord {
+  card_id: string;
+  request_id: string;
+  direction: ConnectDirection;
+  peer: string;
+  display: string;
+  requested_level?: "contact" | "friend" | "close";
+  relay?: string;
+  state: ConnectCardState;
+  created_at: string;
+}
+
 // ---------------------------------------------------------------- D14: listings, loans, DM threads --
 
 export type ListingKind = "offer" | "gathering";

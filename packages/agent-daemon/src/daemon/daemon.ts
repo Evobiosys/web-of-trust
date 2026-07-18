@@ -28,11 +28,11 @@ import {
 import type { Clock, Scheduler } from "../clock.js";
 import { hasRoomMessaging, type RoomMessage } from "../transport/in_memory_transport.js";
 import type { Store } from "../store/store.js";
-import type { AskPeerRecord, AskRecord, IncomingKind, IncomingRecord, ListingRecord, LoanRecord, RelayLinkRecord } from "../store/types.js";
+import type { AskPeerRecord, AskRecord, ConnectRecord, IncomingKind, IncomingRecord, ListingRecord, LoanRecord, RelayLinkRecord } from "../store/types.js";
 import { matchRequestToItems, type MatcherConfig } from "../matcher/matcher.js";
 import type { ChatClient, EmbedClient } from "../matcher/clients.js";
 import { logAsker, logOwner } from "../audit/audit.js";
-import { consentEnvelope, introEnvelope, requestEnvelope, statusEnvelope, withdrawnEnvelope } from "./envelopes.js";
+import { connectAckEnvelope, connectEnvelope, consentEnvelope, introEnvelope, requestEnvelope, statusEnvelope, withdrawnEnvelope } from "./envelopes.js";
 import { classifyAndRespond, type StewardDeps } from "../steward/steward.js";
 import {
   approveLoan,
@@ -777,6 +777,168 @@ export class Daemon {
     this.notifyChange();
   }
 
+  // -------------------------------------- Task 4 (D-QR4): inbound CONNECT --
+
+  /**
+   * I9 conservative default: a CONNECT body may WISH for a trust level, but the
+   * daemon never auto-escalates to one. "friend" is the cap the daemon grants
+   * on its own — it can't know the app skin's per-context default, and the
+   * origin-node model puts the escalation decision in the human owner's hands
+   * (an explicit level passed to `acceptConnect` is their sovereign I4 choice).
+   * `contact` (a looser level) is honoured as requested; `close`/absent clamp
+   * down to `friend`.
+   */
+  private clampConnectLevel(requested?: TrustLevel): TrustLevel {
+    return requested === "contact" ? "contact" : "friend";
+  }
+
+  /**
+   * New-peer side: send a CONNECT ("I scanned your code, let me in") to an
+   * origin this persona holds no edge to yet, and record an OUTBOUND pending
+   * connect card so a later CONNECT_ACK can be correlated by `request_id` and
+   * its transport-authenticated sender verified before any reciprocal edge is
+   * formed (`handleConnectAck`). The wire `display` is THIS persona's own name
+   * (what the origin owner will see, I4); the record's `display` is a
+   * placeholder for the origin's name until the ACK reveals it.
+   */
+  async sendConnect(peer: string, opts: { display?: string; level?: TrustLevel; relay?: string } = {}): Promise<ConnectRecord> {
+    const requestId = randomUUID();
+    const now = this.clock.now();
+    const myDisplay = opts.display ?? this.cfg.personaName;
+    const record: ConnectRecord = {
+      card_id: randomUUID(),
+      request_id: requestId,
+      direction: "outbound",
+      peer,
+      display: peer, // origin's display unknown until CONNECT_ACK; placeholder
+      requested_level: opts.level,
+      relay: opts.relay,
+      state: "pending",
+      created_at: now.toISOString(),
+    };
+    this.store.putConnect(record);
+    // Connect is NOT the I2-blind asker flow — the local user legitimately
+    // knows the counterparty (they chose it), so the audit names the peer via
+    // logOwner (D14's sanctioned "label-of-convenience" for non-resource-flow
+    // actions; logAsker would throw on a peer id, sanitize.ts).
+    logOwner(this.store, this.clock, requestId, "connect_sent", `Sent CONNECT to origin ${peer} (requesting to be let in).`);
+    await this.transport.send(peer, connectEnvelope(requestId, now, { display: myDisplay, relay: opts.relay, level: opts.level }));
+    this.notifyChange();
+    return this.store.getConnect(record.card_id)!;
+  }
+
+  /**
+   * Origin/owner side: a CONNECT arrived — the ONE inbound envelope allowed
+   * from a peer with no trust edge (everything else stays connected-only).
+   * Surfaces an INBOUND pending connect card (I4: requester DID + display); it
+   * NEVER auto-creates an edge. Abuse guard: at most one pending inbound card
+   * per requester — a repeat CONNECT from the same DID refreshes the existing
+   * card (latest request_id/display) rather than piling up new ones.
+   */
+  private async handleConnect(from: string, env: Extract<Envelope, { type: "CONNECT" }>): Promise<void> {
+    const existing = this.store.getConnectByPeer(from, "inbound");
+    const cardId = existing && existing.state === "pending" ? existing.card_id : randomUUID();
+    const record: ConnectRecord = {
+      card_id: cardId,
+      request_id: env.request_id,
+      direction: "inbound",
+      peer: from,
+      display: env.body.display,
+      requested_level: env.body.level,
+      relay: env.body.relay,
+      state: "pending",
+      created_at: existing?.created_at ?? this.clock.now().toISOString(),
+    };
+    this.store.putConnect(record);
+    logOwner(
+      this.store,
+      this.clock,
+      env.request_id,
+      existing && existing.state === "pending" ? "connect_received_dup" : "connect_received",
+      `${env.body.display} wants to connect (they scanned your code) — peer ${from}. Awaiting owner decision.`
+    );
+    this.notifyChange();
+  }
+
+  /**
+   * Owner accepts an inbound connect card: forms a trust edge to the new peer
+   * (level = owner's explicit choice, else the clamped requested level; +1y
+   * expiry via addTrust, I9) AND sends CONNECT_ACK{accepted:true} back so the
+   * new peer can form ITS edge. `await`s the send so a caller (and the test
+   * harness) observes both edges once this resolves.
+   */
+  async acceptConnect(cardId: string, level?: TrustLevel): Promise<void> {
+    const card = this.store.getConnect(cardId);
+    if (!card) throw new Error(`acceptConnect: unknown card ${cardId}`);
+    if (card.direction !== "inbound") throw new Error(`acceptConnect: card ${cardId} is outbound, not an inbound request`);
+    if (card.state !== "pending") throw new Error(`acceptConnect: card ${cardId} is not pending (state=${card.state})`);
+
+    const finalLevel = level ?? this.clampConnectLevel(card.requested_level);
+    await this.addTrust({ peer: card.peer, display: card.display, level: finalLevel });
+    card.state = "accepted";
+    this.store.putConnect(card);
+    await this.transport.send(card.peer, connectAckEnvelope(card.request_id, this.clock.now(), { accepted: true, display: this.cfg.personaName }));
+    logOwner(
+      this.store,
+      this.clock,
+      card.request_id,
+      "connect_accepted",
+      `Accepted connect from ${card.display} (${card.peer}) at level ${finalLevel}; trust edge formed, CONNECT_ACK sent.`
+    );
+    this.notifyChange();
+  }
+
+  /**
+   * Owner declines an inbound connect card: no edge is formed and a gentle
+   * CONNECT_ACK{accepted:false} is returned. Per the origin-node model the
+   * owner simply decided; the decline reveals nothing beyond "not accepted"
+   * (no reason, no counter-offer) — the new peer is waiting, so a quiet no is
+   * kinder than silence, and this is NOT the I3 resource-flow (a connect is
+   * not a PASS), so an explicit `accepted:false` is correct here.
+   */
+  async declineConnect(cardId: string): Promise<void> {
+    const card = this.store.getConnect(cardId);
+    if (!card) throw new Error(`declineConnect: unknown card ${cardId}`);
+    if (card.direction !== "inbound") throw new Error(`declineConnect: card ${cardId} is outbound, not an inbound request`);
+    if (card.state !== "pending") throw new Error(`declineConnect: card ${cardId} is not pending (state=${card.state})`);
+
+    card.state = "declined";
+    this.store.putConnect(card);
+    await this.transport.send(card.peer, connectAckEnvelope(card.request_id, this.clock.now(), { accepted: false }));
+    logOwner(this.store, this.clock, card.request_id, "connect_declined", `Declined connect from ${card.display} (${card.peer}); no edge formed, gentle CONNECT_ACK sent.`);
+    this.notifyChange();
+  }
+
+  /**
+   * New-peer side: a CONNECT_ACK arrived. It is only actioned if it matches an
+   * OUTBOUND connect this persona actually sent (correlated by `request_id`)
+   * AND its transport-authenticated sender equals that record's target peer —
+   * an unsolicited CONNECT_ACK{accepted:true} can never conjure an edge. On
+   * accept, forms the reciprocal edge to the origin (display from the ACK,
+   * level at this persona's own conservative default per I9). On decline,
+   * marks the outbound card declined; nothing else leaks.
+   */
+  private async handleConnectAck(from: string, env: Extract<Envelope, { type: "CONNECT_ACK" }>): Promise<void> {
+    const record = this.store.getConnectByRequest(env.request_id, "outbound");
+    if (!record || record.peer !== from || record.state !== "pending") {
+      logOwner(this.store, this.clock, env.request_id, "connect_ack_ignored", `Ignored an unsolicited/mismatched CONNECT_ACK from ${from} (no matching pending outbound connect).`);
+      return;
+    }
+    if (env.body.accepted) {
+      const display = env.body.display ?? record.display;
+      record.display = display;
+      record.state = "accepted";
+      this.store.putConnect(record);
+      await this.addTrust({ peer: from, display, level: this.clampConnectLevel(record.requested_level) });
+      logOwner(this.store, this.clock, env.request_id, "connect_ack_accepted", `Origin ${display} (${from}) accepted our connect; formed reciprocal trust edge.`);
+    } else {
+      record.state = "declined";
+      this.store.putConnect(record);
+      logOwner(this.store, this.clock, env.request_id, "connect_ack_declined", `Origin ${from} did not accept our connect; no edge formed.`);
+    }
+    this.notifyChange();
+  }
+
   // ------------------------------------------------------ Task 5: notes --
 
   /**
@@ -968,6 +1130,14 @@ export class Daemon {
         break;
       case "DM":
         receiveDm(this.listingsDeps, from, env.body.text);
+        break;
+      case "CONNECT":
+        // The ONE inbound envelope accepted from a peer with NO trust edge
+        // (origin-node onboarding). Surfaces a consent card; never auto-edges.
+        await this.handleConnect(from, env);
+        break;
+      case "CONNECT_ACK":
+        await this.handleConnectAck(from, env);
         break;
     }
     this.notifyChange();
