@@ -11,7 +11,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket as WsWebSocket } from "ws";
 import { ed25519 } from "@noble/curves/ed25519.js";
-import { RelayServer } from "@resource-web/transport";
+import {
+  RelayServer,
+  createIdentity,
+  packMessage as transportPackMessage,
+  unpackMessage as transportUnpackMessage,
+} from "@resource-web/transport";
 import { generateIdentity } from "./identity.js";
 import { fromBase64url, toBase64url } from "./identity.js";
 import { packMessage, unpackMessage } from "./didcomm_crypto.js";
@@ -154,10 +159,70 @@ describe("didcomm_crypto (browser port) — tamper detection", () => {
     });
 
     const parsed = JSON.parse(wire) as { ciphertext: string };
-    const lastChar = parsed.ciphertext.at(-1);
-    const flipped = lastChar === "A" ? "B" : "A";
-    const tampered = { ...parsed, ciphertext: parsed.ciphertext.slice(0, -1) + flipped };
+    // Flip an INTERIOR character, never the last one: an unpadded base64url
+    // string's final character can carry unused low bits when the encoded
+    // byte length isn't a multiple of 3, so flipping it sometimes decodes to
+    // the SAME bytes (a spuriously non-flaky-looking pass that isn't
+    // actually testing tamper detection). An interior character always
+    // encodes 6 significant bits, so flipping it always changes the
+    // decoded byte and always fails the AEAD tag.
+    const firstChar = parsed.ciphertext[0];
+    const flipped = firstChar === "A" ? "B" : "A";
+    const tampered = { ...parsed, ciphertext: flipped + parsed.ciphertext.slice(1) };
 
     expect(() => unpackMessage({ recipient: ben, wire: JSON.stringify(tampered) })).toThrow();
+  });
+});
+
+describe("didcomm_crypto (browser port) — cross-implementation interop with transport", () => {
+  // The browser<->browser round trip above proves the base64url/HKDF/AEAD
+  // plumbing is internally consistent, and the drain-auth handshake proves
+  // browser base64url agrees with transport's (auth_ok wouldn't fire
+  // otherwise). These two tests go further and prove the actual production
+  // path: a browser identity and a transport (Node daemon) identity resolving
+  // and decrypting EACH OTHER's wires, byte-for-byte, via the two
+  // independent didcomm_crypto.ts implementations.
+  it("a wire packed by the browser client is decrypted by transport's unpackMessage (browser -> Node peer)", () => {
+    const annaBrowser = generateIdentity({ endpoint: "https://relay.invalid/anna" });
+    const benTransport = createIdentity("http://ben.example/didcomm");
+
+    const wire = packMessage({
+      sender: annaBrowser,
+      recipientDid: benTransport.did,
+      message: {
+        id: "interop-browser-to-node",
+        type: ENVELOPE_TYPE,
+        from: annaBrowser.did,
+        to: [benTransport.did],
+        created_time: Date.now(),
+        body: { hello: "from-browser" },
+      },
+    });
+
+    const result = transportUnpackMessage({ recipient: benTransport, wire });
+    expect(result.from).toBe(annaBrowser.did);
+    expect(result.message.body).toEqual({ hello: "from-browser" });
+  });
+
+  it("a wire packed by transport's packMessage is decrypted by the browser's unpackMessage (Node peer -> browser)", () => {
+    const annaTransport = createIdentity("http://anna.example/didcomm");
+    const benBrowser = generateIdentity({ endpoint: "https://relay.invalid/ben" });
+
+    const wire = transportPackMessage({
+      sender: annaTransport,
+      recipientDid: benBrowser.did,
+      message: {
+        id: "interop-node-to-browser",
+        type: ENVELOPE_TYPE,
+        from: annaTransport.did,
+        to: [benBrowser.did],
+        created_time: Date.now(),
+        body: { hello: "from-node" },
+      },
+    });
+
+    const result = unpackMessage({ recipient: benBrowser, wire });
+    expect(result.from).toBe(annaTransport.did);
+    expect(result.message.body).toEqual({ hello: "from-node" });
   });
 });
