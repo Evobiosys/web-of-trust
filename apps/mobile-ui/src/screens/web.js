@@ -25,19 +25,11 @@ export function renderRings() {
   const wrap = $("rings");
   wrap.innerHTML = "";
   const C = 176, R1 = 78, R2 = 142;
+  const rings = ctx.api.getState().rings;
   /** @type {any[]} */
-  const ring1 = [
-    { id: "lucia", n: "Lucía", lvl: "Close friend", deg: 210, offer: "speakers" },
-    { id: "rafa", n: "Rafa", lvl: "Friend", deg: 330 },
-  ];
+  const ring1 = rings.ring1;
   /** @type {any[]} */
-  const ring2 = [{ id: "bruno", n: "Bruno", via: "Lucía", deg: 235, asym: true }];
-  if (state.met) {
-    ring1.push({ id: "maria", n: "Maria", lvl: levelLabel(), deg: 90 });
-    ring2.push({ id: "sofia", n: "Sofía", via: "Maria", deg: 55 });
-    ring2.push({ id: "nico", n: "Nico", via: "Maria", deg: 125 });
-    ring2.push({ anon: true, offer: "a projector", via: "Maria", deg: 160 });
-  }
+  const ring2 = rings.ring2;
   $("webCount").textContent = ring1.length + " connected · " + ring2.length + " beyond";
 
   const svg = document.createElementNS(NS, "svg");
@@ -70,8 +62,8 @@ export function renderRings() {
     const key = n.id || "g" + idx;
     n.key = key;
     pos[key] = polar(C, C, R2, n.deg);
-    const viaId = n.via === "Maria" ? "maria" : "lucia";
-    if (pos[viaId]) thread(pos[viaId][0], pos[viaId][1], pos[key][0], pos[key][1]);
+    const viaId = n.viaId;
+    if (viaId && pos[viaId]) thread(pos[viaId][0], pos[viaId][1], pos[key][0], pos[key][1]);
   });
   wrap.appendChild(svg);
 
@@ -121,16 +113,21 @@ export function renderRings() {
 
 export function renderIntros() {
   const w = $("intWrap");
-  if (state.introDone === "dismissed" || state.guest) {
+  /** @type {any[]} */
+  const suggestions = ctx.api.getState().introSuggestions || [];
+  // Fixture mode carries the designer's Rafa/Lucía suggestion; live carries
+  // none yet (real suggestions are a future feature) — nothing invented here.
+  if (state.introDone === "dismissed" || state.guest || !suggestions.length) {
     w.innerHTML = "";
     return;
   }
+  const s = suggestions[0];
   w.innerHTML =
     '<div class="int-head">Threads that could meet</div>' +
     '<div class="int-card" data-anchor="INT-1">' +
     (state.introDone === "done"
-      ? "<b>Introduced ✓</b> Rafa and Lucía each hold the other’s card now. The rest is theirs."
-      : "<b>Rafa</b> is looking for speakers for Sunday. <b>Lucía</b> has a pair — they don’t know each other, but they both know you." +
+      ? "<b>Introduced ✓</b> " + s.aName + " and " + s.bName + " each hold the other’s card now. The rest is theirs."
+      : "<b>" + s.aName + "</b> " + s.aNeed + " <b>" + s.bName + "</b> " + s.bHave + " — they don’t know each other, but they both know you." +
         '<div class="act-btns">' +
         '<button class="btn btn-sm btn-electric" id="introGo">Introduce them</button>' +
         '<button class="btn btn-sm btn-ghost" id="introNo">Let it be</button>' +
@@ -139,7 +136,7 @@ export function renderIntros() {
   const g = document.getElementById("introGo");
   if (g) g.onclick = () => {
     openSheet(
-      '<div class="grab"></div><div data-anchor="INT-2"><h3>Introduce Rafa and Lucía</h3>' +
+      '<div class="grab"></div><div data-anchor="INT-2"><h3>Introduce ' + s.aName + " and " + s.bName + "</h3>" +
         '<div class="meta">You’d share each of their cards with the other — nothing more. They each choose whether to meet. Neither is connected to the other until they do their own twenty seconds, face to face.</div>' +
         '<button class="btn btn-coral" id="introConfirm">Share both cards</button>' +
         '<button class="btn btn-ghost" id="introCancel">Cancel</button></div>'
@@ -157,8 +154,7 @@ export function renderIntros() {
 function personSheet(n, ring) {
   let html = '<div class="grab"></div><div data-anchor="WEB-2"><h3>' + n.n + "</h3></div>";
   if (ring === 1) {
-    const ctxLine = n.id === "maria" ? "Ecstatic Dance Palermo · today" :
-      n.id === "lucia" ? "Biodanza — Casa Luna · May" : "Ecstatic Dance Palermo · June";
+    const ctxLine = n.ctx || "Ecstatic Dance Palermo · June";
     html +=
       '<div class="meta">' + (n.lvl || levelLabel()) + " · met at " + ctxLine + "</div>" +
       '<div class="path">You ⟷ <b>' + n.n + '</b><br><span style="color:var(--ink-soft)">Connected in person, confirmed both ways — you hold each other’s thread.</span></div>' +
@@ -190,12 +186,7 @@ export function renderPeople() {
   const w = $("pplList");
   w.innerHTML = "";
   /** @type {any[]} */
-  const ppl = [
-    { id: "lucia", n: "Lucía", c: "Biodanza — Casa Luna · May", s: "mutual", sl: "Connected" },
-    { id: "rafa", n: "Rafa", c: "Ecstatic Dance Palermo · June", s: "mutual", sl: "Connected" },
-    { id: "tomas", n: "Tomás", c: "Contact Improv Jam · June", s: "out", sl: "Pending" },
-  ];
-  if (state.met) ppl.unshift({ id: "maria", n: "Maria", c: "Ecstatic Dance Palermo · today", s: "mutual", sl: "Connected" });
+  const ppl = ctx.api.getState().people;
   $("pplCap").textContent = ppl.length + " people, all met in person. Tap anyone for their card.";
   ppl.forEach((p) => {
     const b = document.createElement("button");

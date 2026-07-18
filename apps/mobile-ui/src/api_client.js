@@ -11,6 +11,7 @@
 // Screens never touch fixtures directly — only through this client + the store.
 
 import { state, subscribe, notify } from "./store.js";
+import { createLiveClient } from "./api_client_live.js";
 
 /**
  * @typedef {import("./store.js").ActivityItem} ActivityItem
@@ -62,8 +63,10 @@ const OFFERS_SEED = [
   { id: "venue", t: "Garden venue (up to 40)", d: "Quiet garden with a wooden deck — mornings and sunsets.", owner: "Sofía", ownerId: "sofia", tier: "Friends", via: "Maria", needsWeb: true, state: "available" },
 ];
 
+// Tier definitions + reach estimates are presentational catalog data, shared
+// verbatim by both fixture and live clients (the live client imports them).
 /** @type {VisTier[]} */
-const VIS = [
+export const VIS = [
   { k: "pub", t: "Public", s: "Everyone — even without joining" },
   { k: "commons", t: "The Commons", s: "Anyone connected to us, any closeness" },
   { k: "friends", t: "Friends", s: "Friends or closer — the usual bar" },
@@ -71,11 +74,64 @@ const VIS = [
 ];
 
 /** @type {Record<string, Record<number, string>>} */
-const REACH = {
+export const REACH = {
   pub: {},
   commons: { 1: "about 6", 2: "about 23", 3: "about 87" },
   friends: { 1: "about 4", 2: "about 14", 3: "about 52" },
   close: { 1: "about 2", 2: "about 6", 3: "about 19" },
+};
+
+// -- Person / roster data (formerly inlined in web.js / host.js / meet.js). --
+// Screens render person data purely from getState(); the live client produces
+// the SAME shapes from trust_edges + received listings. Positioning (`deg`),
+// via-threading (`viaId`) and per-node context (`ctx`) travel with the data so
+// the ring/People/reach views stay screen-agnostic.
+
+/** Ring-1 = people you've met (trust edges). @type {any[]} */
+const RING1_SEED = [
+  { id: "lucia", n: "Lucía", lvl: "Close friend", deg: 210, offer: "speakers", ctx: "Biodanza — Casa Luna · May" },
+  { id: "rafa", n: "Rafa", lvl: "Friend", deg: 330, ctx: "Ecstatic Dance Palermo · June" },
+];
+/** Ring-2 = people/offers one hop out, always shown with their via-path. @type {any[]} */
+const RING2_SEED = [
+  { id: "bruno", n: "Bruno", via: "Lucía", viaId: "lucia", deg: 235, asym: true },
+];
+/** Maria joins ring-1 after the ceremony; her second ring appears with her. */
+const MARIA_RING1 = { id: "maria", n: "Maria", deg: 90, ctx: "Ecstatic Dance Palermo · today" };
+/** @type {any[]} */
+const MARIA_RING2 = [
+  { id: "sofia", n: "Sofía", via: "Maria", viaId: "maria", deg: 55 },
+  { id: "nico", n: "Nico", via: "Maria", viaId: "maria", deg: 125 },
+  { anon: true, offer: "a projector", via: "Maria", viaId: "maria", deg: 160 },
+];
+
+/** People list rows. @type {any[]} */
+const PEOPLE_SEED = [
+  { id: "lucia", n: "Lucía", c: "Biodanza — Casa Luna · May", s: "mutual", sl: "Connected" },
+  { id: "rafa", n: "Rafa", c: "Ecstatic Dance Palermo · June", s: "mutual", sl: "Connected" },
+  { id: "tomas", n: "Tomás", c: "Contact Improv Jam · June", s: "out", sl: "Pending" },
+];
+const MARIA_PERSON = { id: "maria", n: "Maria", c: "Ecstatic Dance Palermo · today", s: "mutual", sl: "Connected" };
+
+/** Names visible per tier (before Maria). @type {Record<string, string[]>} */
+const REACH_NAMES = { commons: ["Lucía", "Rafa", "Tomás", "Bruno"], friends: ["Lucía", "Rafa"], close: ["Lucía"] };
+
+/**
+ * The quiet introduction suggestion on Your Web ("Threads that could meet").
+ * Fixture-only demo data — live has no real suggestion engine yet, so the
+ * live client's bag carries an empty array (I1: nothing invented pre-feature).
+ * @type {any[]}
+ */
+const INTRO_SUGGESTIONS_SEED = [
+  { id: "rafa-lucia", aId: "rafa", aName: "Rafa", aNeed: "is looking for speakers for Sunday.", bId: "lucia", bName: "Lucía", bHave: "has a pair" },
+];
+
+/** The canned "person in front of you" for the fixture ceremony. */
+const FIXTURE_PENDING_MEET = {
+  card: { peer: "maria", display: "Maria" },
+  display: "Maria",
+  initial: "M",
+  ctxLabel: "☀ Ecstatic Dance Palermo · today",
 };
 
 /** @typedef {ReturnType<typeof createApiClient>} ApiClient */
@@ -87,6 +143,25 @@ export function createApiClient(opts = {}) {
   const mode = opts.mode || "fixture";
   const agentUrl = opts.agentUrl;
 
+  // Live mode: the same interface, fed by the persona's agent-daemon over
+  // REST + WS. Fixture mode reproduces the designer's demo exactly. The cast
+  // keeps the fixture client's precise type as the canonical ApiClient shape,
+  // so screens keep their inferred getState() typing regardless of mode.
+  if (mode === "live") {
+    return /** @type {ReturnType<typeof createFixtureClient>} */ (
+      createLiveClient(agentUrl || "http://localhost:4101")
+    );
+  }
+  return createFixtureClient(mode, agentUrl);
+}
+
+/**
+ * The fixture ApiClient — the designer's demo data + simulated timers behind
+ * the shared interface.
+ * @param {string} mode
+ * @param {string | undefined} agentUrl
+ */
+function createFixtureClient(mode, agentUrl) {
   // Fresh copies per client so tests stay isolated.
   const events = EVENTS_SEED.map((e) => ({ ...e }));
   const privateEvent = { ...PRIVATE_EVENT_SEED };
@@ -110,7 +185,32 @@ export function createApiClient(opts = {}) {
   }
 
   function getState() {
-    return { ...state, events, privateEvent, offers, threads, vis: VIS, reach: REACH };
+    const met = state.met;
+    const mariaLvl = state.mariaLevel || "Friend";
+    const ring1 = RING1_SEED.map((x) => ({ ...x }));
+    const ring2 = RING2_SEED.map((x) => ({ ...x }));
+    const people = PEOPLE_SEED.map((x) => ({ ...x }));
+    if (met) {
+      ring1.push({ ...MARIA_RING1, lvl: mariaLvl });
+      MARIA_RING2.forEach((x) => ring2.push({ ...x }));
+      people.unshift({ ...MARIA_PERSON });
+    }
+    /** @type {Record<string, string[]>} */
+    const reachNames = {
+      commons: [...REACH_NAMES.commons, ...(met ? ["Maria"] : [])],
+      friends: [...REACH_NAMES.friends, ...(met ? ["Maria"] : [])],
+      close: [...REACH_NAMES.close, ...(met && state.mariaLevel === "Close friend" ? ["Maria"] : [])],
+    };
+    const pendingMeet = state.pendingMeet || FIXTURE_PENDING_MEET;
+    const lucia = threads.lucia;
+    /** @type {any[]} */
+    const threadList = [{ id: "lucia", n: "Lucía", last: lucia[lucia.length - 1][1] }];
+    if (met) threadList.unshift({ id: "maria", n: "Maria", last: threads.maria[threads.maria.length - 1][1] });
+    return {
+      ...state, events, privateEvent, offers, threads, threadList, vis: VIS, reach: REACH,
+      people, rings: { ring1, ring2 }, reachNames, pendingMeet, myCard: null,
+      introSuggestions: INTRO_SUGGESTIONS_SEED,
+    };
   }
 
   /**
@@ -178,7 +278,7 @@ export function createApiClient(opts = {}) {
   /**
    * Complete a trust handshake (the ceremony). Creates the Maria edge; whether
    * it opens gated content depends on the offered level.
-   * @param {string} card
+   * @param {import("./store.js").MeetCard | string} card
    * @param {string} level
    */
   function addTrust(card, level) {
@@ -231,10 +331,45 @@ export function createApiClient(opts = {}) {
     });
   }
 
+  /**
+   * Add a second-brain note. Fixture mode has no store, so this is inert; the
+   * live client POSTs /api/notes. Kept on the interface so screens call the
+   * same method in both modes.
+   * @param {any} fields
+   * @returns {Promise<null>}
+   */
+  function addNote(fields) {
+    void fields;
+    return Promise.resolve(null);
+  }
+
+  /**
+   * Resolve a scanned/pasted meet card (live). Fixture keeps the canned
+   * ceremony, so this is a no-op that leaves the demo's Maria in place.
+   * @param {string} text
+   * @returns {boolean}
+   */
+  function resolveCard(text) {
+    void text;
+    return true;
+  }
+
+  /** Live-mode boot hook (fetch + WS). Fixture has nothing to fetch. */
+  function start() {}
+
+  /** Live-mode teardown (stop WS reconnect + close socket). Fixture has no WS. */
+  function stop() {}
+
+  /** Live-mode data refetch. Fixture data is already in memory. */
+  function refresh() { return Promise.resolve(); }
+
+  /** Live withdraws a listing on the daemon. Fixture has no persistent store. @param {string} id */
+  function withdrawListing(id) { void id; return Promise.resolve(); }
+
   return {
     mode, agentUrl,
-    getState, subscribe, offerById, seed,
-    publishListing, requestBorrow, loanAction,
-    sendDm, addTrust, setVisibilityDial, sendSteward,
+    getState, subscribe, offerById, seed, start, stop, refresh,
+    publishListing, requestBorrow, loanAction, withdrawListing,
+    sendDm, addTrust, setVisibilityDial, sendSteward, addNote, resolveCard,
   };
 }

@@ -9,6 +9,10 @@ import { applySkin } from "./skin.js";
 import { getProfile } from "@resource-web/app-profiles";
 
 const runtimeConfig = getRuntimeConfig();
-bootApp({ mode: "fixture", agentUrl: runtimeConfig.agentUrl });
+const appCtx = bootApp({ mode: runtimeConfig.mode, agentUrl: runtimeConfig.agentUrl });
 applySkin(getProfile(runtimeConfig.appId));
+// Live mode boots its REST/WS connection immediately; fixture's start() is a
+// no-op, so this is safe in both modes. (Onboarding also calls seed(), which
+// live aliases to start() — start() is idempotent.)
+appCtx.api.start();
 onb("welcome");

@@ -16,12 +16,16 @@ const STORAGE_KEYS = {
   agentUrl: "resource-web.runtime_config.agentUrl",
   appId: "resource-web.runtime_config.appId",
   personaKey: "resource-web.runtime_config.personaKey",
+  mode: "resource-web.runtime_config.mode",
 };
 
 const DEFAULTS = {
   agentUrl: "http://localhost:4101",
   appId: "ecstatic",
   personaKey: "anna",
+  // "fixture" keeps the designer's demo reachable by default; "live" wires the
+  // real agent-daemon. The alpha build opts in with `?mode=live`.
+  mode: "fixture",
 };
 
 // Some environments expose `window.localStorage` but throw (or return
@@ -63,6 +67,7 @@ function writeStorage(key, value) {
  * @property {string} agentUrl
  * @property {string} appId
  * @property {string} personaKey
+ * @property {"fixture" | "live"} mode
  */
 
 /**
@@ -83,14 +88,21 @@ export function getRuntimeConfig() {
   const queryAgent = params.get("agent") ?? undefined;
   const queryApp = params.get("app") ?? undefined;
   const queryPersona = params.get("persona") ?? undefined;
+  const queryModeRaw = params.get("mode") ?? undefined;
+  const queryMode = queryModeRaw === "live" || queryModeRaw === "fixture" ? queryModeRaw : undefined;
 
   if (queryAgent) writeStorage(STORAGE_KEYS.agentUrl, queryAgent);
   if (queryApp) writeStorage(STORAGE_KEYS.appId, queryApp);
   if (queryPersona) writeStorage(STORAGE_KEYS.personaKey, queryPersona);
+  if (queryMode) writeStorage(STORAGE_KEYS.mode, queryMode);
 
   const agentUrl = queryAgent ?? readStorage(STORAGE_KEYS.agentUrl) ?? DEFAULTS.agentUrl;
   const appId = queryApp ?? readStorage(STORAGE_KEYS.appId) ?? DEFAULTS.appId;
   const personaKey = queryPersona ?? readStorage(STORAGE_KEYS.personaKey) ?? DEFAULTS.personaKey;
+  const storedMode = readStorage(STORAGE_KEYS.mode);
+  const mode = /** @type {"fixture" | "live"} */ (
+    queryMode ?? (storedMode === "live" || storedMode === "fixture" ? storedMode : DEFAULTS.mode)
+  );
 
-  return { agentUrl, appId, personaKey };
+  return { agentUrl, appId, personaKey, mode };
 }

@@ -3,7 +3,6 @@
 // hostState is transient form state, local to this screen.
 
 import { $ } from "../dom.js";
-import { state } from "../store.js";
 import { ctx } from "../context.js";
 import { showCoach } from "../coach.js";
 
@@ -33,11 +32,7 @@ function updateReach() {
     r.innerHTML = "<b>Open doors.</b> Anyone in Buenos Aires can find this.";
     return;
   }
-  /** @type {Record<string, string[]>} */
-  const nameMap = { commons: ["Lucía", "Rafa", "Tomás", "Bruno"], friends: ["Lucía", "Rafa"], close: ["Lucía"] };
-  const names = nameMap[hostState.vis].slice();
-  if (state.met && hostState.vis !== "close") names.push("Maria");
-  if (state.met && hostState.vis === "close" && state.mariaLevel === "Close friend") names.push("Maria");
+  const names = (s.reachNames[hostState.vis] || []).slice();
   const v = s.vis.filter((x) => x.k === hostState.vis)[0];
   r.innerHTML =
     "<b>" + names.join(", ") + "</b> and " + s.reach[hostState.vis][hostState.steps] +
@@ -102,6 +97,8 @@ export function renderHost() {
     ctx.api.publishListing({
       t: hn.value || "Sunset Rooftop Dance",
       m: (hw.value || "Sat 18:30") + " · " + (hp.value || "Casa Verde"),
+      when: hw.value || "Sat 18:30",
+      where: hp.value || "Casa Verde",
       vis: hostState.vis,
       steps: hostState.steps,
     });
