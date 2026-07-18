@@ -1,4 +1,4 @@
-import type { AppProfile } from "./types";
+import type { AppProfile } from "./types.js";
 
 /** Light, warm skin for short-notice housing/couch-surfing sharing.
  * Bilingual German/English copy per brief — this community organizes in
@@ -51,4 +51,9 @@ export const housingProfile: AppProfile = {
     { label: "I need a place this weekend", stewardText: "I need a place to stay this weekend" },
     { label: "I have a spare room", stewardText: "I have a spare room free for the next while" },
   ],
+  mobile: {
+    discoverDefault: "offers",
+    offerChips: ["Room free", "Couch", "Short stay", "Longer stay"],
+    hostFabLabel: "＋ Offer housing",
+  },
 };

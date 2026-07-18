@@ -1,8 +1,9 @@
-import type { AppProfile } from "./types";
+import type { AppProfile } from "./types.js";
 
 /** Dark, dance-floor skin for the ecstatic-dance community. Matches the
  * synchrolabs walking-skeleton dark aesthetic (near-black bg, near-white
- * text, one warm accent). */
+ * text, one warm accent). No `mobile` field: this is mobile-ui's shipped
+ * default appearance, not a derived skin — see task-7 report. */
 export const ecstaticProfile: AppProfile = {
   id: "ecstatic",
   brandName: "Ecstatic World",

@@ -1,5 +1,5 @@
-import { getProfile } from "./profiles";
-import type { AppProfile } from "./profiles";
+import { getProfile } from "@resource-web/app-profiles";
+import type { AppProfile } from "@resource-web/app-profiles";
 
 /** localStorage keys the resolved runtime config is persisted under, so a
  * value delivered via URL query param on one load (e.g. a QR-code deep
