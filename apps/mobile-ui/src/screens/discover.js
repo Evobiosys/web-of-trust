@@ -23,7 +23,7 @@ export function renderList() {
     w.appendChild(pitch);
   }
   const list = s.events.slice();
-  if (s.unlocked) list.splice(2, 0, s.privateEvent);
+  if (s.unlocked && s.privateEvent) list.splice(2, 0, s.privateEvent);
   if (s.hosted) {
     const h = s.hosted;
     const pub = h.vis === "pub";

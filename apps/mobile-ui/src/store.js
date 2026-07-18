@@ -25,6 +25,8 @@
  * @property {string} m
  * @property {string} vis
  * @property {number} steps
+ * @property {string} [when]
+ * @property {string} [where]
  *
  * @typedef {Object} AppState
  * @property {string} name

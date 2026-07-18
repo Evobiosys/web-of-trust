@@ -3,6 +3,7 @@
 // then the celebration. addTrust creates the Maria edge; the level decides
 // whether the Moon Ceremony opens.
 
+import QRCode from "qrcode";
 import { $ } from "../dom.js";
 import { state } from "../store.js";
 import { AVA_GRADS } from "../avatars.js";
@@ -12,6 +13,58 @@ import { confetti } from "../confetti.js";
 import { showCoach } from "../coach.js";
 import { renderList } from "./discover.js";
 import { levelLabel } from "./web.js";
+
+/**
+ * Render a real QR of the compact card JSON into `#qrsvg`, plus a copy-code
+ * button beside it (the QR encodes the same JSON the paste-fallback accepts).
+ * @param {any} card
+ */
+function renderRealCard(card) {
+  const payload = JSON.stringify(card);
+  const holder = document.getElementById("qrsvg");
+  if (holder) {
+    QRCode.toString(payload, { type: "svg", margin: 1, width: 180 })
+      .then((svg) => { holder.innerHTML = svg; })
+      .catch(() => { holder.textContent = "QR unavailable — share your code below."; });
+  }
+  const copyBtn = document.getElementById("copyCode");
+  if (copyBtn) {
+    copyBtn.onclick = () => {
+      const nav = /** @type {any} */ (navigator);
+      if (nav && nav.clipboard && nav.clipboard.writeText) void nav.clipboard.writeText(payload);
+      showCoach("Code copied — paste it into their phone");
+    };
+  }
+}
+
+/** Best-effort camera scan via BarcodeDetector; resolves on the first QR. */
+function tryBarcodeScan() {
+  const B = /** @type {any} */ (window).BarcodeDetector;
+  const nav = /** @type {any} */ (navigator);
+  if (!B || !nav.mediaDevices || !nav.mediaDevices.getUserMedia) return;
+  const video = /** @type {HTMLVideoElement | null} */ (document.getElementById("scanVideo"));
+  if (!video) return;
+  const detector = new B({ formats: ["qr_code"] });
+  let stop = false;
+  nav.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }).then((/** @type {MediaStream} */ stream) => {
+    video.srcObject = stream;
+    void video.play();
+    const tick = async () => {
+      if (stop || state.screen !== "meet") { stream.getTracks().forEach((t) => t.stop()); return; }
+      try {
+        const codes = await detector.detect(video);
+        if (codes && codes.length && ctx.api.resolveCard(codes[0].rawValue)) {
+          stop = true;
+          stream.getTracks().forEach((t) => t.stop());
+          renderCeremony("confirm");
+          return;
+        }
+      } catch { /* keep trying */ }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }).catch(() => { /* no camera — the paste fallback carries the flow */ });
+}
 
 /** @param {HTMLCanvasElement} canvas */
 function fakeQR(canvas) {
@@ -44,8 +97,13 @@ export function renderCeremony(step) {
   el.setAttribute("data-anchor", step === "idle" ? "CER-1" : "CER-4");
   if (step === "idle") {
     const lv = state.offerLevel;
+    const myCard = ctx.api.getState().myCard;
+    const qrCard = myCard
+      ? '<div class="qr-card" data-anchor="CER-3"><div id="qrsvg" style="width:180px;height:180px;display:flex;align-items:center;justify-content:center">…</div></div>' +
+        '<button class="btn btn-ghost btn-sm" id="copyCode" style="margin-top:6px">Copy my code</button>'
+      : '<div class="qr-card" data-anchor="CER-3"><canvas id="qr" width="180" height="180"></canvas></div>';
     const chanVisual = state.chan === "qr"
-      ? '<div class="qr-card" data-anchor="CER-3"><canvas id="qr" width="180" height="180"></canvas></div>'
+      ? qrCard
       : '<div class="qr-card" data-anchor="CER-3" style="width:216px;height:216px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--violet-deep);font-weight:600;font-size:14px;text-align:center;padding:20px">' +
         "📳<br>Hold your phones together</div>";
     el.innerHTML =
@@ -77,7 +135,10 @@ export function renderCeremony(step) {
           "</div>"
         : "") +
       '<p class="offline-note">Works with no signal. The floor doesn’t need wifi.</p>';
-    if (state.chan === "qr") fakeQR(/** @type {HTMLCanvasElement} */ ($("qr")));
+    if (state.chan === "qr") {
+      if (myCard) renderRealCard(myCard);
+      else fakeQR(/** @type {HTMLCanvasElement} */ ($("qr")));
+    }
     el.querySelectorAll(".lvl-pill").forEach((pill) => {
       /** @type {HTMLElement} */ (pill).onclick = () => {
         state.offerLevel = pill.getAttribute("data-l") || "Contact";
@@ -102,6 +163,29 @@ export function renderCeremony(step) {
     });
     $("scanBtn").onclick = () => { renderCeremony("scan"); };
   } else if (step === "scan") {
+    const live = !!ctx.api.getState().myCard;
+    if (live) {
+      // Real scan: BarcodeDetector when available (iOS Safari has none), and
+      // ALWAYS a manual paste fallback for the compact card JSON.
+      el.innerHTML =
+        '<span class="eyebrow">Meet</span>' +
+        "<h2>Point at their code</h2>" +
+        '<div class="vf"><video id="scanVideo" playsinline muted style="width:100%;height:100%;object-fit:cover;border-radius:inherit"></video><div class="scanline"></div></div>' +
+        '<p class="sub" style="margin-top:10px">No camera? Paste the code they copied:</p>' +
+        '<textarea id="pasteCode" class="msg-input" rows="3" placeholder=\'{"peer_id":"…","display":"…"}\' style="width:100%;resize:vertical"></textarea>' +
+        '<div class="actions">' +
+        '<button class="btn btn-electric" id="useCode">Use their code</button>' +
+        '<button class="btn btn-ghost" id="cancelScan">Cancel</button></div>' +
+        '<p id="pasteErr" class="sub" style="color:#a3472f;display:none">That code didn’t look right — check and try again.</p>';
+      $("cancelScan").onclick = () => { renderCeremony("idle"); };
+      $("useCode").onclick = () => {
+        const ta = /** @type {HTMLTextAreaElement} */ ($("pasteCode"));
+        if (ctx.api.resolveCard(ta.value.trim())) renderCeremony("confirm");
+        else { const e = $("pasteErr"); if (e) e.style.display = ""; }
+      };
+      tryBarcodeScan();
+      return;
+    }
     el.innerHTML =
       '<span class="eyebrow">Meet</span>' +
       "<h2>Point at their code</h2>" +

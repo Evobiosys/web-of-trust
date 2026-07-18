@@ -54,9 +54,8 @@ export function renderChat() {
   const w = $("threadList");
   w.innerHTML = "";
   const s = ctx.api.getState();
-  const threads = s.threads;
-  const rows = [{ id: "lucia", n: "Lucía", last: threads.lucia[threads.lucia.length - 1][1] }];
-  if (s.met) rows.unshift({ id: "maria", n: "Maria", last: threads.maria[threads.maria.length - 1][1] });
+  /** @type {any[]} */
+  const rows = s.threadList;
   rows.forEach((t) => {
     const b = document.createElement("button");
     b.className = "prow";

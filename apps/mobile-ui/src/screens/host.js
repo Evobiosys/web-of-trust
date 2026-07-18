@@ -97,6 +97,8 @@ export function renderHost() {
     ctx.api.publishListing({
       t: hn.value || "Sunset Rooftop Dance",
       m: (hw.value || "Sat 18:30") + " · " + (hp.value || "Casa Verde"),
+      when: hw.value || "Sat 18:30",
+      where: hp.value || "Casa Verde",
       vis: hostState.vis,
       steps: hostState.steps,
     });

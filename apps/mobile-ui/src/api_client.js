@@ -63,8 +63,10 @@ const OFFERS_SEED = [
   { id: "venue", t: "Garden venue (up to 40)", d: "Quiet garden with a wooden deck — mornings and sunsets.", owner: "Sofía", ownerId: "sofia", tier: "Friends", via: "Maria", needsWeb: true, state: "available" },
 ];
 
+// Tier definitions + reach estimates are presentational catalog data, shared
+// verbatim by both fixture and live clients (the live client imports them).
 /** @type {VisTier[]} */
-const VIS = [
+export const VIS = [
   { k: "pub", t: "Public", s: "Everyone — even without joining" },
   { k: "commons", t: "The Commons", s: "Anyone connected to us, any closeness" },
   { k: "friends", t: "Friends", s: "Friends or closer — the usual bar" },
@@ -72,7 +74,7 @@ const VIS = [
 ];
 
 /** @type {Record<string, Record<number, string>>} */
-const REACH = {
+export const REACH = {
   pub: {},
   commons: { 1: "about 6", 2: "about 23", 3: "about 87" },
   friends: { 1: "about 4", 2: "about 14", 3: "about 52" },
@@ -190,8 +192,12 @@ function createFixtureClient(mode, agentUrl) {
       close: [...REACH_NAMES.close, ...(met && state.mariaLevel === "Close friend" ? ["Maria"] : [])],
     };
     const pendingMeet = state.pendingMeet || FIXTURE_PENDING_MEET;
+    const lucia = threads.lucia;
+    /** @type {any[]} */
+    const threadList = [{ id: "lucia", n: "Lucía", last: lucia[lucia.length - 1][1] }];
+    if (met) threadList.unshift({ id: "maria", n: "Maria", last: threads.maria[threads.maria.length - 1][1] });
     return {
-      ...state, events, privateEvent, offers, threads, vis: VIS, reach: REACH,
+      ...state, events, privateEvent, offers, threads, threadList, vis: VIS, reach: REACH,
       people, rings: { ring1, ring2 }, reachNames, pendingMeet, myCard: null,
     };
   }
@@ -314,10 +320,36 @@ function createFixtureClient(mode, agentUrl) {
     });
   }
 
+  /**
+   * Add a second-brain note. Fixture mode has no store, so this is inert; the
+   * live client POSTs /api/notes. Kept on the interface so screens call the
+   * same method in both modes.
+   * @param {any} fields
+   * @returns {Promise<null>}
+   */
+  function addNote(fields) {
+    void fields;
+    return Promise.resolve(null);
+  }
+
+  /**
+   * Resolve a scanned/pasted meet card (live). Fixture keeps the canned
+   * ceremony, so this is a no-op that leaves the demo's Maria in place.
+   * @param {string} text
+   * @returns {boolean}
+   */
+  function resolveCard(text) {
+    void text;
+    return true;
+  }
+
+  /** Live-mode boot hook (fetch + WS). Fixture has nothing to fetch. */
+  function start() {}
+
   return {
     mode, agentUrl,
-    getState, subscribe, offerById, seed,
+    getState, subscribe, offerById, seed, start,
     publishListing, requestBorrow, loanAction,
-    sendDm, addTrust, setVisibilityDial, sendSteward,
+    sendDm, addTrust, setVisibilityDial, sendSteward, addNote, resolveCard,
   };
 }
