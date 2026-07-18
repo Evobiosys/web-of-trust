@@ -55,6 +55,13 @@ export {
 export { RelayServer, type RelayServerOptions, type SubmitResult } from "./relay_server.js";
 export { RelayChannel, type RelayChannelOptions, type BackoffOpts } from "./relay_channel.js";
 export {
+  LadderChannel,
+  type LadderRung,
+  type LadderRungName,
+  type LadderOptions,
+  type LadderBudgets,
+} from "./ladder_channel.js";
+export {
   issueVrc,
   verifyVrc,
   type VerifiableRelationshipCredential,
