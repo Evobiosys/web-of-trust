@@ -50,5 +50,42 @@ describe("discover", () => {
       const bdg = /** @type {HTMLElement} */ (document.querySelector("[data-bdg]"));
       expect(Number(bdg.textContent)).toBeGreaterThanOrEqual(2);
     });
+
+    it("walks the loan lifecycle returned → completion check-in → complete (RES-4/RES-5)", () => {
+      const ctx = mount();
+      join();
+      ctx.show("discover");
+      el("segOff").click();
+      const card = /** @type {HTMLElement} */ (el("offersList").querySelector(".card"));
+      card.click();
+      /** @type {HTMLElement} */ (document.getElementById("reqBtn")).click();
+      vi.advanceTimersByTime(1600); // → lent + "Mark returned" activity
+
+      ctx.show("chat");
+      // Resolve Rafa's seed first so the only open item is the loan
+      const seedBtn = /** @type {HTMLElement} */ (
+        el("actList").querySelectorAll(".act-row")[1].querySelector(".act-btns .btn")
+      );
+      seedBtn.click();
+
+      // Mark returned → completion check-in appears (RES-5)
+      const returnBtn = /** @type {HTMLElement} */ (
+        el("actList").querySelector(".act-btns .btn-coral")
+      );
+      returnBtn.click();
+      expect(el("actList").textContent).toContain("Do you feel complete?");
+      expect(el("actList").textContent).toContain("Returned ✓");
+
+      // Complete → both sides complete, offer back to available, bell clears
+      const completeBtn = /** @type {HTMLElement} */ (
+        el("actList").querySelector(".act-btns .btn-electric")
+      );
+      completeBtn.click();
+      expect(el("actList").textContent).toContain("felt complete");
+      const speakers = ctx.api.getState().offers.find((o) => o.id === "speakers");
+      expect(speakers?.state).toBe("available");
+      const bdg = /** @type {HTMLElement} */ (document.querySelector("[data-bdg]"));
+      expect(bdg.textContent).toBe("0");
+    });
   });
 });
