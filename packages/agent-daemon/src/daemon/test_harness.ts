@@ -103,6 +103,7 @@ export interface Duo {
 
 const ANNA_PEER = "@anna-agent:wot.local";
 const BEN_PEER = "@ben-agent:wot.local";
+const TIMO_PEER = "@timo-agent:wot.local";
 
 export async function setupDuo(opts: DuoOptions = {}): Promise<Duo> {
   const clock = new FakeClock(opts.startIso ?? "2026-01-01T00:00:00.000Z");
@@ -154,4 +155,97 @@ export async function setupDuo(opts: DuoOptions = {}): Promise<Duo> {
   return { clock, scheduler, bus, anna, ben, annaStore, benStore, sent, roomMessages };
 }
 
-export const PEERS = { ANNA: ANNA_PEER, BEN: BEN_PEER };
+export const PEERS = { ANNA: ANNA_PEER, BEN: BEN_PEER, TIMO: TIMO_PEER };
+
+// ---------------------------------------------------------- three-daemon (relay) --
+
+/**
+ * Ben (asker) — Anna (holds a second_brain note) — Timo (real owner) — the
+ * three-persona wiring Task 1's relay lifecycle tests need. Deliberately NO
+ * trust edge between Ben and Timo: I8 says the noted owner may not know the
+ * original asker, and the relay daemon (Anna) never introduces them directly
+ * on the wire — only via the post-consent shared room.
+ */
+export interface TrioOptions {
+  startIso?: string;
+  statusDelayMs?: number;
+  defaultAskTtlMs?: number;
+  threshold?: number;
+}
+
+export interface Trio {
+  clock: FakeClock;
+  scheduler: FakeScheduler;
+  bus: InMemoryBus;
+  ben: Daemon;
+  anna: Daemon;
+  timo: Daemon;
+  benStore: SqliteStore;
+  annaStore: SqliteStore;
+  timoStore: SqliteStore;
+  sent: SentEnvelope[];
+  roomMessages: SentRoomMessage[];
+}
+
+export async function setupTrio(opts: TrioOptions = {}): Promise<Trio> {
+  const clock = new FakeClock(opts.startIso ?? "2026-01-01T00:00:00.000Z");
+  const scheduler = new FakeScheduler(clock);
+  const bus = new InMemoryBus();
+  const sent: SentEnvelope[] = [];
+  const roomMessages: SentRoomMessage[] = [];
+
+  const benStore = new SqliteStore(":memory:");
+  const annaStore = new SqliteStore(":memory:");
+  const timoStore = new SqliteStore(":memory:");
+
+  const matcherConfig = { embedModel: "fake-embed", chatModel: "fake-chat", threshold: opts.threshold ?? 0.6 };
+  const shared = {
+    statusDelayMs: opts.statusDelayMs ?? 30_000,
+    defaultAskTtlMs: opts.defaultAskTtlMs ?? 3_600_000,
+    matcher: matcherConfig,
+  };
+
+  const benConfig: DaemonConfig = { ...shared, personaName: "Ben", peerId: BEN_PEER, accent: "steady" };
+  const annaConfig: DaemonConfig = { ...shared, personaName: "Anna", peerId: ANNA_PEER, accent: "warm" };
+  const timoConfig: DaemonConfig = { ...shared, personaName: "Timo", peerId: TIMO_PEER, accent: "calm" };
+
+  const ben = new Daemon({
+    config: benConfig,
+    store: benStore,
+    transport: new RecordingTransport(new InMemoryTransport(bus), "Ben", sent, roomMessages),
+    scheduler,
+    clock,
+    embedClient: new FakeEmbedClient(),
+    chatClient: new FakeChatClient(),
+  });
+  const anna = new Daemon({
+    config: annaConfig,
+    store: annaStore,
+    transport: new RecordingTransport(new InMemoryTransport(bus), "Anna", sent, roomMessages),
+    scheduler,
+    clock,
+    embedClient: new FakeEmbedClient(),
+    chatClient: new FakeChatClient(),
+  });
+  const timo = new Daemon({
+    config: timoConfig,
+    store: timoStore,
+    transport: new RecordingTransport(new InMemoryTransport(bus), "Timo", sent, roomMessages),
+    scheduler,
+    clock,
+    embedClient: new FakeEmbedClient(),
+    chatClient: new FakeChatClient(),
+  });
+
+  await ben.init();
+  await anna.init();
+  await timo.init();
+
+  const oneYearOut = () => new Date(clock._currentMs() + 365 * 24 * 3600 * 1000).toISOString();
+  benStore.putTrustEdge({ peer: ANNA_PEER, display: "Anna", created_at: clock.nowIso(), expires_at: oneYearOut() });
+  annaStore.putTrustEdge({ peer: BEN_PEER, display: "Ben", created_at: clock.nowIso(), expires_at: oneYearOut() });
+  annaStore.putTrustEdge({ peer: TIMO_PEER, display: "Timo", created_at: clock.nowIso(), expires_at: oneYearOut() });
+  timoStore.putTrustEdge({ peer: ANNA_PEER, display: "Anna", created_at: clock.nowIso(), expires_at: oneYearOut() });
+
+  return { clock, scheduler, bus, ben, anna, timo, benStore, annaStore, timoStore, sent, roomMessages };
+}

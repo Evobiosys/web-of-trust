@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ItemSchema, serializeEnvelope, type Item } from "@resource-web/protocol";
-import { PEERS, setupDuo } from "./test_harness.js";
+import { ItemSchema, serializeEnvelope, type Item, type Provenance } from "@resource-web/protocol";
+import { PEERS, setupDuo, setupTrio } from "./test_harness.js";
 
 interface BenItemInput {
   id: string;
@@ -14,6 +14,37 @@ function benItem(input: BenItemInput): Item {
 }
 
 const SCREWDRIVER = benItem({ id: "screwdriver", labels: ["Bosch IXO cordless screwdriver", "Akkuschrauber"], description: "Small cordless screwdriver, barely used." });
+
+interface RelayItemInput {
+  id: string;
+  labels: string[];
+  description: string;
+  provenance: Provenance;
+  policy?: { mode?: "ask_each_time" | "auto_forward"; audience?: "private" | "trusted" | "wot_commons" };
+}
+
+function relayItem(input: RelayItemInput): Item {
+  return ItemSchema.parse({ tags: [], ...input, policy: input.policy ?? {} });
+}
+
+// Anna's second_brain note about Timo's ladder — the relay trigger (I8).
+function ladderNote(policy?: RelayItemInput["policy"]): Item {
+  return relayItem({
+    id: "timo-ladder-note",
+    labels: ["3m ladder", "Leiter"],
+    description: "Timo has a 3m aluminium ladder he lends out.",
+    provenance: { kind: "second_brain", owner: PEERS.TIMO, noted_at: "2026-01-01T00:00:00.000Z" },
+    policy,
+  });
+}
+
+// Timo's own real inventory item — matched directly once the relay REQUEST reaches him.
+const REAL_LADDER = relayItem({
+  id: "ladder",
+  labels: ["3m ladder", "Leiter"],
+  description: "3 meter aluminium ladder, good condition.",
+  provenance: { kind: "self" },
+});
 
 describe("Daemon lifecycle — happy path (ask_each_time, Yes branch)", () => {
   it("Anna asks, Ben matches + consents, room opens, both sides see it — while staying I2/I3-clean throughout", async () => {
@@ -210,5 +241,124 @@ describe("Daemon lifecycle — TTL resolution notifies WS clients (state_changed
 
     expect(count).toBeGreaterThan(countBeforeTtl); // TTL still fired a notifyChange, even with no state mutation
     expect(anna.getStateSnapshot().asks[0].state).toBe("no_one_this_time");
+  });
+});
+
+describe("Daemon lifecycle — relay two-hop consent chain (I8)", () => {
+  it("Ben asks, Anna relays Timo's second_brain note, both hops consent, Ben's room includes Timo and Anna — I2-blind throughout", async () => {
+    const { scheduler, ben, anna, timo, annaStore, timoStore } = await setupTrio({ statusDelayMs: 2000 });
+    annaStore.putItem(ladderNote());
+    timoStore.putItem(REAL_LADDER);
+
+    const benAsksJson = () => JSON.stringify(ben.getStateSnapshot().asks);
+    const benAuditJson = () => JSON.stringify(ben.getAudit());
+
+    await ben.sendAsk("Hat wer eine 3m Leiter?");
+
+    // Anna's matcher hit her second_brain note -> a relay consent card, requester shown = Ben.
+    const annaCard = anna.getStateSnapshot().consent_cards[0];
+    expect(annaCard).toBeDefined();
+    expect(annaCard.kind).toBe("relay");
+    expect(annaCard.requester.peer_id).toBe(PEERS.BEN);
+
+    // I2: Ben's own view never contains Anna's or Timo's identity pre-consent.
+    expect(benAsksJson()).not.toContain(PEERS.ANNA);
+    expect(benAsksJson()).not.toContain(PEERS.TIMO);
+    expect(benAuditJson()).not.toContain(PEERS.ANNA);
+    expect(benAuditJson()).not.toContain(PEERS.TIMO);
+
+    // Anna gives her relay consent before her own uniform delay fires — she
+    // must NOT open a room herself; nothing should reach Timo yet.
+    await anna.consent(annaCard.card_id);
+    expect(timo.getStateSnapshot().consent_cards).toHaveLength(0);
+
+    await scheduler.advance(2000); // Anna's uniform PENDING -> Ben, then her forwarded REQUEST -> Timo
+
+    expect(ben.getStateSnapshot().asks[0].state).toBe("waiting");
+
+    // Timo gets a DIRECT consent card; the requester HE sees is Anna, never Ben (I8).
+    const timoCard = timo.getStateSnapshot().consent_cards[0];
+    expect(timoCard).toBeDefined();
+    expect(timoCard.kind).toBe("direct");
+    expect(timoCard.requester.peer_id).toBe(PEERS.ANNA);
+
+    // Still I2-blind for Ben even with a live downstream leg in flight.
+    expect(benAsksJson()).not.toContain(PEERS.ANNA);
+    expect(benAsksJson()).not.toContain(PEERS.TIMO);
+    expect(benAuditJson()).not.toContain(PEERS.ANNA);
+    expect(benAuditJson()).not.toContain(PEERS.TIMO);
+
+    await timo.consent(timoCard.card_id);
+    await scheduler.advance(2000); // Timo's uniform PENDING -> Anna, then his CONSENT+INTRO -> Anna, which Anna relays into a 3-party room.
+
+    const benState = ben.getStateSnapshot();
+    expect(benState.asks[0].state).toBe("room_open");
+    const roomId = benState.asks[0].room_id;
+    expect(roomId).toBeDefined();
+    const room = benState.rooms.find((r) => r.room_id === roomId)!;
+    const peerIds = room.peers.map((p) => p.peer_id);
+    expect(peerIds).toContain(PEERS.BEN);
+    expect(peerIds).toContain(PEERS.ANNA);
+    expect(peerIds).toContain(PEERS.TIMO);
+  });
+
+  it("Timo declines: Ben ends no_one_this_time, and the terminal PASS Ben receives is byte-identical to a no-match PASS", async () => {
+    // Scenario A: genuine no-match (Anna has nothing at all).
+    const a = await setupTrio({ statusDelayMs: 2000 });
+    await a.ben.sendAsk("Hat wer eine 3m Leiter?");
+    await a.scheduler.advance(2000);
+    const passA = a.sent.find((s) => s.to === PEERS.BEN && s.env.type === "STATUS")!.env;
+
+    // Scenario B: relay chain, but Timo (the noted owner) declines.
+    const b = await setupTrio({ statusDelayMs: 2000, defaultAskTtlMs: 10_000 });
+    b.annaStore.putItem(ladderNote());
+    b.timoStore.putItem(REAL_LADDER);
+
+    await b.ben.sendAsk("Hat wer eine 3m Leiter?");
+    const annaCard = b.anna.getStateSnapshot().consent_cards[0];
+    await b.anna.consent(annaCard.card_id);
+    await b.scheduler.advance(2000); // Anna's PENDING -> Ben; her REQUEST -> Timo.
+
+    const timoCard = b.timo.getStateSnapshot().consent_cards[0];
+    await b.timo.decline(timoCard.card_id); // declines BEFORE his own uniform delay fires
+
+    await b.scheduler.advance(8000); // Timo's uniform PASS -> Anna; Anna forwards PASS -> Ben; Ben's own TTL elapses.
+
+    const benStatuses = b.sent.filter((s) => s.to === PEERS.BEN && s.env.type === "STATUS");
+    expect(benStatuses.length).toBeGreaterThanOrEqual(1);
+    const passB = benStatuses[benStatuses.length - 1].env;
+
+    const normalize = (env: typeof passA) =>
+      serializeEnvelope({ ...env, request_id: "00000000-0000-4000-8000-000000000000", ts: "2026-01-01T00:00:02.000Z" });
+    expect(normalize(passA)).toBe(normalize(passB));
+    expect(JSON.parse(normalize(passA)).body).toEqual({ state: "PASS" });
+
+    expect(a.ben.getStateSnapshot().asks[0].state).toBe("no_one_this_time");
+    expect(b.ben.getStateSnapshot().asks[0].state).toBe("no_one_this_time");
+  });
+
+  it("auto_forward on the second-brain item skips Anna's card but still requires Timo's consent", async () => {
+    const { scheduler, ben, anna, timo, annaStore, timoStore } = await setupTrio({ statusDelayMs: 2000 });
+    annaStore.putItem(ladderNote({ mode: "auto_forward" }));
+    timoStore.putItem(REAL_LADDER); // still ask_each_time (default) on Timo's own item
+
+    await ben.sendAsk("Hat wer eine 3m Leiter?");
+
+    // No human action needed from Anna: her card was born already consented.
+    const annaCard = anna.getStateSnapshot().consent_cards[0];
+    expect(annaCard.state).toBe("consented");
+
+    await scheduler.advance(2000); // Anna's PENDING -> Ben, then auto-forwarded REQUEST -> Timo.
+
+    expect(ben.getStateSnapshot().asks[0].state).toBe("waiting");
+    const timoCard = timo.getStateSnapshot().consent_cards[0];
+    expect(timoCard).toBeDefined();
+    expect(timoCard.kind).toBe("direct");
+    expect(timoCard.state).toBe("pending"); // Timo's own item still needs his explicit consent.
+
+    await timo.consent(timoCard.card_id);
+    await scheduler.advance(2000);
+
+    expect(ben.getStateSnapshot().asks[0].state).toBe("room_open");
   });
 });

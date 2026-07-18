@@ -24,7 +24,7 @@ import {
 import type { Clock, Scheduler } from "../clock.js";
 import { hasRoomMessaging, type RoomMessage } from "../transport/in_memory_transport.js";
 import type { Store } from "../store/store.js";
-import type { AskPeerRecord, AskRecord, IncomingKind, IncomingRecord } from "../store/types.js";
+import type { AskPeerRecord, AskRecord, IncomingKind, IncomingRecord, RelayLinkRecord } from "../store/types.js";
 import { matchRequestToItems, type MatcherConfig } from "../matcher/matcher.js";
 import type { ChatClient, EmbedClient } from "../matcher/clients.js";
 import { logAsker, logOwner } from "../audit/audit.js";
@@ -396,7 +396,7 @@ export class Daemon {
     logOwner(this.store, this.clock, card.request_id, "status_pending", "Sent PENDING at uniform delay.");
 
     if (card.state === "consented") {
-      await this.completeConsent(card.card_id);
+      await this.finalizeConsent(card.card_id);
     }
     this.notifyChange();
   }
@@ -410,10 +410,10 @@ export class Daemon {
     this.store.putIncoming(card);
     logOwner(this.store, this.clock, card.request_id, "consented", `Owner consented to share item ${card.matched_item_id}.` + (conditions ? ` Conditions: ${conditions}` : ""));
     if (card.status_dispatched) {
-      await this.completeConsent(cardId);
+      await this.finalizeConsent(cardId);
     }
     // else: dispatchOwnerStatus (already scheduled) will see state === "consented"
-    // once it fires, send PENDING, then call completeConsent itself.
+    // once it fires, send PENDING, then call finalizeConsent itself.
     this.notifyChange();
   }
 
@@ -458,6 +458,209 @@ export class Daemon {
     logOwner(this.store, this.clock, card.request_id, "room_created", `Room ${room_id} created; CONSENT + INTRO sent.`);
   }
 
+  /**
+   * The single fork point between a direct card's consent and a relay card's
+   * consent (I8): a direct card opens a room right here; a relay card instead
+   * forwards a fresh REQUEST to the noted owner and waits. Called from the
+   * exact two sites `completeConsent` used to be called from (consent()'s
+   * already-dispatched branch, and dispatchOwnerStatus's post-PENDING branch)
+   * — same mutual-exclusion guarantee those two call sites already provide,
+   * so a relay card's PENDING is always on the wire before anything relay-
+   * related happens, without repeating that gating logic here.
+   */
+  private async finalizeConsent(cardId: string): Promise<void> {
+    const card = this.store.getIncoming(cardId)!;
+    if (card.kind === "relay") {
+      await this.forwardRelay(cardId);
+    } else {
+      await this.completeConsent(cardId);
+    }
+  }
+
+  /**
+   * I8 relay hop 1->2: instead of opening a room with the requester, forward
+   * a fresh REQUEST (same protocol v0.1 envelope, no new type) to the noted
+   * owner, and remember the link so a later CONSENT/STATUS from them can be
+   * routed back here (see `handleEnvelope`'s relay-link lookup).
+   *
+   * Called from exactly the same two mutually-exclusive sites
+   * `completeConsent` always was (`consent()`'s already-dispatched branch,
+   * XOR `dispatchOwnerStatus`'s post-PENDING branch) via `finalizeConsent` —
+   * that mutual exclusion is what already guarantees this runs at most once
+   * per card, the same guarantee the direct-card path has always relied on
+   * without an extra idempotency check of its own.
+   */
+  private async forwardRelay(cardId: string): Promise<void> {
+    const card = this.store.getIncoming(cardId)!;
+    const item = this.store.getItem(card.matched_item_id!)!;
+    if (item.provenance.kind !== "second_brain") {
+      throw new Error(`forwardRelay: item ${item.id} has no second_brain provenance (kind=${item.provenance.kind})`);
+    }
+    const notedOwner = item.provenance.owner;
+    const downstreamRequestId = randomUUID();
+    const ts = this.clock.now();
+
+    const link: RelayLinkRecord = {
+      upstream_request_id: card.request_id,
+      upstream_requester: card.requester_peer,
+      downstream_request_id: downstreamRequestId,
+      noted_owner: notedOwner,
+      state: "awaiting_downstream",
+    };
+    this.store.putRelayLink(link);
+
+    logOwner(
+      this.store,
+      this.clock,
+      card.request_id,
+      "relay_forwarded",
+      `Forwarding to noted owner for item ${item.id} (I8); downstream request ${downstreamRequestId}.`
+    );
+
+    await this.transport.send(notedOwner, requestEnvelope(downstreamRequestId, ts, { text: card.text, ttl: this.cfg.defaultAskTtlMs }));
+  }
+
+  /**
+   * Downstream CONSENT arrived from the noted owner (Timo) for a relay link
+   * still awaiting resolution: forwards the decision upstream (I8 — every hop
+   * consents) and finalizes the chain. Simplification (documented in
+   * DECISIONS.md): Timo's own completeConsent already opened a 2-party room
+   * (him + this persona) and is about to send its own INTRO — neither
+   * InMemoryTransport nor the planned MatrixTransport can invite a third
+   * party into an existing room, so that room is discarded unused and this
+   * persona mints a fresh 3-party room instead. Finalizing here (on CONSENT)
+   * rather than waiting for Timo's matching INTRO is deliberate: this
+   * persona never reuses Timo's room id, so that INTRO carries nothing this
+   * flow needs — `relayHandleIntro` just no-ops once `state` is no longer
+   * "awaiting_downstream".
+   */
+  private async relayHandleConsent(relay: RelayLinkRecord, conditions: string | undefined): Promise<void> {
+    if (relay.state !== "awaiting_downstream") return;
+    relay.state = "resolved";
+    this.store.putRelayLink(relay);
+
+    const card = this.store.getIncomingByRequestAndPeer(relay.upstream_request_id, relay.upstream_requester)!;
+    card.internal_state = "consented";
+    this.store.putIncoming(card);
+
+    const item = this.store.getItem(card.matched_item_id!)!;
+    const notedOwnerDisplay = this.store.getTrustEdge(relay.noted_owner)?.display ?? relay.noted_owner;
+    const contextCard =
+      `${card.text} — matched: ${item.labels[0]}${conditions ? ` (conditions: ${conditions})` : ""}` +
+      ` — introduced by ${this.cfg.personaName}`;
+
+    const { room_id } = await this.transport.createSharedRoom([relay.upstream_requester, relay.noted_owner, this.cfg.peerId], {
+      request_id: relay.upstream_request_id,
+      context_card: contextCard,
+    });
+    this.store.putRoom({
+      room_id,
+      request_id: relay.upstream_request_id,
+      peers: [
+        { peer_id: relay.upstream_requester, display: card.requester_display },
+        { peer_id: relay.noted_owner, display: notedOwnerDisplay },
+        { peer_id: this.cfg.peerId, display: this.cfg.personaName },
+      ],
+      context: contextCard,
+      created_at: this.clock.now().toISOString(),
+    });
+
+    await this.transport.send(relay.upstream_requester, consentEnvelope(relay.upstream_request_id, this.clock.now(), conditions));
+    await this.transport.send(relay.upstream_requester, introEnvelope(relay.upstream_request_id, this.clock.now(), room_id));
+    await this.transport.send(relay.noted_owner, introEnvelope(relay.downstream_request_id, this.clock.now(), room_id));
+
+    logOwner(
+      this.store,
+      this.clock,
+      relay.upstream_request_id,
+      "relay_room_created",
+      `Room ${room_id} created via relay (I8); CONSENT + INTRO sent upstream, INTRO sent to noted owner.`
+    );
+  }
+
+  /**
+   * Downstream STATUS arrived for a relay link. PENDING is the noted owner's
+   * own uniform "still deciding" ping (I3, their side) — nothing to do, the
+   * upstream requester already has their own PENDING. PASS means the noted
+   * owner declined or had no match; forward the exact same PASS upstream
+   * (I3: the envelope has no field for "why", so this is byte-identical to
+   * any other PASS regardless of cause).
+   */
+  private async relayHandleStatus(relay: RelayLinkRecord, state: "PASS" | "PENDING"): Promise<void> {
+    if (state === "PENDING") return;
+    if (relay.state !== "awaiting_downstream") return;
+    relay.state = "failed";
+    this.store.putRelayLink(relay);
+
+    const card = this.store.getIncomingByRequestAndPeer(relay.upstream_request_id, relay.upstream_requester)!;
+    card.internal_state = transitionOwnerState("matched", { type: "CONSENT_DECISION", accepted: false });
+    this.store.putIncoming(card);
+
+    await this.transport.send(relay.upstream_requester, statusEnvelope(relay.upstream_request_id, this.clock.now(), "PASS"));
+    logOwner(
+      this.store,
+      this.clock,
+      relay.upstream_request_id,
+      "relay_downstream_passed",
+      "Noted owner declined or had no match (I3-indistinguishable); forwarded PASS upstream."
+    );
+  }
+
+  /** See `relayHandleConsent`'s doc comment — the 3-party room is minted on CONSENT, not INTRO. */
+  private relayHandleIntro(relay: RelayLinkRecord): void {
+    void relay;
+  }
+
+  /**
+   * I8: the noted owner (e.g. Timo) consented on a "direct" card and so has
+   * no `AskRecord` of their own — `askerHandleIntro` early-returns for them
+   * (no matching ask), which would otherwise silently drop the INTRO
+   * `relayHandleConsent` sends them for the final 3-party room, leaving them
+   * with only their own now-discarded 2-party room and no way to actually
+   * join the conversation. This is the owner-side counterpart: it looks up
+   * the (already-consented) card the INTRO's `request_id`/`from` matches and
+   * records the room locally instead.
+   *
+   * Their local `peers` list still only knows the two peers they've directly
+   * exchanged envelopes with (self + the relay hub) — this daemon has no
+   * channel to learn a THIRD party's identity from a frozen-body INTRO
+   * (`{room_id}` only) or from TransportAdapter (no room-membership query).
+   * Posting a real room-chat message (the codebase's own sanctioned
+   * additive extension over the frozen envelope set — see
+   * in_memory_transport.ts) closes that gap for whoever's listening:
+   * `onRoomMessage` learns an unlisted sender's identity the moment a
+   * message from them arrives, so the relay hub's other leg (the original
+   * requester) discovers this peer as soon as this announcement lands,
+   * without waiting on a human to type into the room first.
+   */
+  private async ownerHandleIntro(from: string, requestId: string, roomId: string): Promise<void> {
+    const card = this.store.getIncomingByRequestAndPeer(requestId, from);
+    if (!card || card.state !== "consented") return;
+
+    this.store.putRoom({
+      room_id: roomId,
+      request_id: requestId,
+      peers: [
+        { peer_id: this.cfg.peerId, display: this.cfg.personaName },
+        { peer_id: from, display: card.requester_display },
+      ],
+      context: card.text,
+      created_at: this.clock.now().toISOString(),
+    });
+    logOwner(this.store, this.clock, requestId, "relay_room_intro", `Learned final relay room ${roomId} via INTRO from ${from}.`);
+
+    if (hasRoomMessaging(this.transport)) {
+      const announce: RoomMessage = {
+        room_id: roomId,
+        from: this.cfg.peerId,
+        text: `${this.cfg.personaName} joined the conversation.`,
+        ts: this.clock.now().toISOString(),
+      };
+      this.store.addRoomMessage(announce);
+      await this.transport.sendRoomMessage(announce);
+    }
+  }
+
   private ownerHandleWithdrawn(from: string, requestId: string): void {
     const card = this.store.getIncomingByRequestAndPeer(requestId, from);
     if (!card) return;
@@ -481,9 +684,22 @@ export class Daemon {
     this.notifyChange();
   }
 
+  /**
+   * I8 (relay room discovery): a message from a sender not yet in this
+   * room's local `peers` list means a third party the wire-level lifecycle
+   * (REQUEST/STATUS/CONSENT/INTRO) never named to this persona directly has
+   * shown up — the relay hub's other leg (see `ownerHandleIntro`'s doc
+   * comment). Recording them here is the only in-scope way this daemon can
+   * discover that identity, given INTRO's frozen `{room_id}` body and
+   * TransportAdapter's lack of a room-membership query.
+   */
   private onRoomMessage(msg: RoomMessage): void {
     const room = this.store.getRoom(msg.room_id);
     if (!room) return;
+    if (!room.peers.some((p) => p.peer_id === msg.from)) {
+      room.peers = [...room.peers, { peer_id: msg.from, display: msg.from }];
+      this.store.putRoom(room);
+    }
     this.store.addRoomMessage(msg);
     this.notifyChange();
   }
@@ -507,20 +723,50 @@ export class Daemon {
 
   // -------------------------------------------------------------- routing --
 
+  /**
+   * I8: STATUS/CONSENT/INTRO addressed to a downstream relay request_id never
+   * reach the normal asker-side handlers (there is no AskRecord for a relay's
+   * downstream leg — this persona isn't "asking" in the sendAsk() sense, it's
+   * relaying) — they route to the relay handlers instead, keyed by the same
+   * request_id the noted owner replies with.
+   */
   private async handleEnvelope(from: string, env: Envelope): Promise<void> {
     switch (env.type) {
       case "REQUEST":
         await this.ownerHandleRequest(from, env);
         break;
-      case "STATUS":
-        this.askerHandleStatus(from, env.request_id, env.body.state);
+      case "STATUS": {
+        const relay = this.store.getRelayLinkByDownstream(env.request_id);
+        if (relay) {
+          await this.relayHandleStatus(relay, env.body.state);
+        } else {
+          this.askerHandleStatus(from, env.request_id, env.body.state);
+        }
         break;
-      case "CONSENT":
-        this.askerHandleConsent(from, env.request_id, env.body.conditions);
+      }
+      case "CONSENT": {
+        const relay = this.store.getRelayLinkByDownstream(env.request_id);
+        if (relay) {
+          await this.relayHandleConsent(relay, env.body.conditions);
+        } else {
+          this.askerHandleConsent(from, env.request_id, env.body.conditions);
+        }
         break;
-      case "INTRO":
-        this.askerHandleIntro(from, env.request_id, env.body.room_id);
+      }
+      case "INTRO": {
+        const relay = this.store.getRelayLinkByDownstream(env.request_id);
+        if (relay) {
+          this.relayHandleIntro(relay);
+        } else if (this.store.getAsk(env.request_id)) {
+          this.askerHandleIntro(from, env.request_id, env.body.room_id);
+        } else {
+          // Not this persona's own ask and not a relay link they're the hub
+          // for: this is the noted-owner side of a relay (I8) — see
+          // `ownerHandleIntro`'s doc comment.
+          await this.ownerHandleIntro(from, env.request_id, env.body.room_id);
+        }
         break;
+      }
       case "WITHDRAWN":
         this.ownerHandleWithdrawn(from, env.request_id);
         break;

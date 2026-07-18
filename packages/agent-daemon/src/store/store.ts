@@ -7,6 +7,7 @@ import type {
   AuditRecord,
   IncomingRecord,
   PendingCaptureRecord,
+  RelayLinkRecord,
   RoomMessageRecord,
   RoomRecord,
   StewardLogRecord,
@@ -37,6 +38,10 @@ export interface Store {
   getIncoming(cardId: string): IncomingRecord | undefined;
   getIncomingByRequestAndPeer(requestId: string, requesterPeer: string): IncomingRecord | undefined;
   getIncomings(): IncomingRecord[];
+
+  // relay links (I8 two-hop consent chain bookkeeping)
+  putRelayLink(link: RelayLinkRecord): void;
+  getRelayLinkByDownstream(downstreamRequestId: string): RelayLinkRecord | undefined;
 
   // rooms + messages
   putRoom(room: RoomRecord): void;

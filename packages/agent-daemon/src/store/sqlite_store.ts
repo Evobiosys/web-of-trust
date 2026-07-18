@@ -11,6 +11,7 @@ import type {
   AuditRecord,
   IncomingRecord,
   PendingCaptureRecord,
+  RelayLinkRecord,
   RoomMessageRecord,
   RoomRecord,
   StewardLogRecord,
@@ -71,6 +72,14 @@ CREATE TABLE IF NOT EXISTS incoming (
   status_dispatch_at TEXT NOT NULL,
   status_dispatched INTEGER NOT NULL,
   conditions TEXT
+);
+
+CREATE TABLE IF NOT EXISTS relay_links (
+  downstream_request_id TEXT PRIMARY KEY,
+  upstream_request_id TEXT NOT NULL,
+  upstream_requester TEXT NOT NULL,
+  noted_owner TEXT NOT NULL,
+  state TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS rooms (
@@ -214,6 +223,24 @@ function rowToIncoming(row: IncomingRow): IncomingRecord {
     status_dispatch_at: row.status_dispatch_at,
     status_dispatched: Boolean(row.status_dispatched),
     conditions: row.conditions ?? undefined,
+  };
+}
+
+interface RelayLinkRow {
+  downstream_request_id: string;
+  upstream_request_id: string;
+  upstream_requester: string;
+  noted_owner: string;
+  state: RelayLinkRecord["state"];
+}
+
+function rowToRelayLink(row: RelayLinkRow): RelayLinkRecord {
+  return {
+    downstream_request_id: row.downstream_request_id,
+    upstream_request_id: row.upstream_request_id,
+    upstream_requester: row.upstream_requester,
+    noted_owner: row.noted_owner,
+    state: row.state,
   };
 }
 
@@ -382,6 +409,21 @@ export class SqliteStore implements Store {
 
   getIncomings(): IncomingRecord[] {
     return this.db.all<IncomingRow>("SELECT * FROM incoming ORDER BY received_at ASC").map(rowToIncoming);
+  }
+
+  putRelayLink(link: RelayLinkRecord): void {
+    this.db.run(
+      `INSERT INTO relay_links (downstream_request_id, upstream_request_id, upstream_requester, noted_owner, state)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(downstream_request_id) DO UPDATE SET upstream_request_id=excluded.upstream_request_id,
+         upstream_requester=excluded.upstream_requester, noted_owner=excluded.noted_owner, state=excluded.state`,
+      [link.downstream_request_id, link.upstream_request_id, link.upstream_requester, link.noted_owner, link.state]
+    );
+  }
+
+  getRelayLinkByDownstream(downstreamRequestId: string): RelayLinkRecord | undefined {
+    const row = this.db.get<RelayLinkRow>("SELECT * FROM relay_links WHERE downstream_request_id = ?", [downstreamRequestId]);
+    return row ? rowToRelayLink(row) : undefined;
   }
 
   putRoom(room: RoomRecord): void {

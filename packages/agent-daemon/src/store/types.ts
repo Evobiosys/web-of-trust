@@ -77,6 +77,25 @@ export interface PendingCaptureRecord {
   created_at: string;
 }
 
+export type RelayLinkState = "awaiting_downstream" | "resolved" | "failed";
+
+/**
+ * I8 relay bookkeeping — links an upstream (asker-facing) consent card of
+ * `kind: "relay"` to the fresh downstream REQUEST sent to the noted owner.
+ * One row per relay hop; keyed by `downstream_request_id` since that's the
+ * id every subsequent STATUS/CONSENT/INTRO from the noted owner arrives
+ * tagged with (daemon.ts's `handleEnvelope` looks rows up that way to decide
+ * whether an incoming envelope belongs to a relay in flight rather than a
+ * normal direct ask). Never exposed over the REST API — internal only.
+ */
+export interface RelayLinkRecord {
+  upstream_request_id: string;
+  upstream_requester: string;
+  downstream_request_id: string;
+  noted_owner: string;
+  state: RelayLinkState;
+}
+
 /** Audit log entry, extended with the redaction hint the store/API layer needs for I2. */
 export interface AuditRecord extends DecisionLogEntry {
   /** When true, this entry's `detail`/`reason` must never surface a peer id or a
