@@ -9,6 +9,8 @@ import type { Store } from "./store.js";
 import type {
   AskRecord,
   AuditRecord,
+  ConnectDirection,
+  ConnectRecord,
   DmMessageRecord,
   IncomingRecord,
   ListingRecord,
@@ -85,6 +87,18 @@ CREATE TABLE IF NOT EXISTS relay_links (
   upstream_requester TEXT NOT NULL,
   noted_owner TEXT NOT NULL,
   state TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS connect_cards (
+  card_id TEXT PRIMARY KEY,
+  request_id TEXT NOT NULL,
+  direction TEXT NOT NULL,
+  peer TEXT NOT NULL,
+  display TEXT NOT NULL,
+  requested_level TEXT,
+  relay TEXT,
+  state TEXT NOT NULL,
+  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS rooms (
@@ -301,6 +315,32 @@ function rowToRelayLink(row: RelayLinkRow): RelayLinkRecord {
     upstream_requester: row.upstream_requester,
     noted_owner: row.noted_owner,
     state: row.state,
+  };
+}
+
+interface ConnectRow {
+  card_id: string;
+  request_id: string;
+  direction: ConnectRecord["direction"];
+  peer: string;
+  display: string;
+  requested_level: ConnectRecord["requested_level"] | null;
+  relay: string | null;
+  state: ConnectRecord["state"];
+  created_at: string;
+}
+
+function rowToConnect(row: ConnectRow): ConnectRecord {
+  return {
+    card_id: row.card_id,
+    request_id: row.request_id,
+    direction: row.direction,
+    peer: row.peer,
+    display: row.display,
+    requested_level: row.requested_level ?? undefined,
+    relay: row.relay ?? undefined,
+    state: row.state,
+    created_at: row.created_at,
   };
 }
 
@@ -586,6 +626,54 @@ export class SqliteStore implements Store {
   getRelayLinkByDownstream(downstreamRequestId: string): RelayLinkRecord | undefined {
     const row = this.db.get<RelayLinkRow>("SELECT * FROM relay_links WHERE downstream_request_id = ?", [downstreamRequestId]);
     return row ? rowToRelayLink(row) : undefined;
+  }
+
+  // ----------------------------------------- D18: connect cards --
+
+  putConnect(record: ConnectRecord): void {
+    this.db.run(
+      `INSERT INTO connect_cards (card_id, request_id, direction, peer, display, requested_level, relay, state, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(card_id) DO UPDATE SET request_id=excluded.request_id, direction=excluded.direction,
+         peer=excluded.peer, display=excluded.display, requested_level=excluded.requested_level,
+         relay=excluded.relay, state=excluded.state, created_at=excluded.created_at`,
+      [
+        record.card_id,
+        record.request_id,
+        record.direction,
+        record.peer,
+        record.display,
+        record.requested_level ?? null,
+        record.relay ?? null,
+        record.state,
+        record.created_at,
+      ]
+    );
+  }
+
+  getConnect(cardId: string): ConnectRecord | undefined {
+    const row = this.db.get<ConnectRow>("SELECT * FROM connect_cards WHERE card_id = ?", [cardId]);
+    return row ? rowToConnect(row) : undefined;
+  }
+
+  getConnects(): ConnectRecord[] {
+    return this.db.all<ConnectRow>("SELECT * FROM connect_cards ORDER BY created_at ASC").map(rowToConnect);
+  }
+
+  getConnectByPeer(peer: string, direction: ConnectDirection): ConnectRecord | undefined {
+    const row = this.db.get<ConnectRow>(
+      "SELECT * FROM connect_cards WHERE peer = ? AND direction = ? ORDER BY created_at DESC LIMIT 1",
+      [peer, direction]
+    );
+    return row ? rowToConnect(row) : undefined;
+  }
+
+  getConnectByRequest(requestId: string, direction: ConnectDirection): ConnectRecord | undefined {
+    const row = this.db.get<ConnectRow>(
+      "SELECT * FROM connect_cards WHERE request_id = ? AND direction = ? LIMIT 1",
+      [requestId, direction]
+    );
+    return row ? rowToConnect(row) : undefined;
   }
 
   putRoom(room: RoomRecord): void {

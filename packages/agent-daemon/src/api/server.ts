@@ -408,6 +408,49 @@ export function startServer(daemon: Daemon, port: number, extras: ServerExtras =
       return;
     }
 
+    // --------------------------- Task 4 (D18): inbound CONNECT consent --
+    // The origin OWNER's decision on a pending inbound connect card (a new
+    // self-sovereign peer that sent a CONNECT). Exact-path routes — they do
+    // NOT collide with Task 8's `POST /api/connect` above (that's the QR
+    // direct trust-add; these gate an inbound "let me in" request). Accept
+    // forms the edge + sends CONNECT_ACK; decline sends a gentle no. Both
+    // surface via the state_changed WS event (daemon.notifyChange), mirroring
+    // how resource consent cards surface — there is no dedicated per-card WS
+    // broadcast in this codebase (see DECISIONS D18).
+    if (method === "POST" && path === "/api/connect/accept") {
+      const body = (await readJsonBody(req)) as { card_id?: string; level?: string };
+      if (typeof body.card_id !== "string" || body.card_id.length === 0) {
+        badRequest(res, "card_id is required");
+        return;
+      }
+      if (body.level !== undefined && !TRUST_LEVELS.has(body.level as TrustLevel)) {
+        badRequest(res, `level must be one of ${[...TRUST_LEVELS].join(", ")}`);
+        return;
+      }
+      try {
+        await daemon.acceptConnect(body.card_id, body.level as TrustLevel | undefined);
+        sendJson(res, 200, { ok: true });
+      } catch (err) {
+        badRequest(res, (err as Error).message);
+      }
+      return;
+    }
+
+    if (method === "POST" && path === "/api/connect/decline") {
+      const body = (await readJsonBody(req)) as { card_id?: string };
+      if (typeof body.card_id !== "string" || body.card_id.length === 0) {
+        badRequest(res, "card_id is required");
+        return;
+      }
+      try {
+        await daemon.declineConnect(body.card_id);
+        sendJson(res, 200, { ok: true });
+      } catch (err) {
+        badRequest(res, (err as Error).message);
+      }
+      return;
+    }
+
     // ----------------------------------------------------- Task 5: notes --
 
     if (method === "POST" && path === "/api/notes") {

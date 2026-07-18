@@ -2,7 +2,16 @@
 // (via the protocol package's own validation, exercised through
 // serializeEnvelope) so a lifecycle bug producing a malformed envelope fails
 // loudly in tests rather than silently reaching the wire.
-import { EnvelopeSchema, type DmBody, type Envelope, type ListingBody, type LoanBody, type WithdrawnReason } from "@resource-web/protocol";
+import {
+  EnvelopeSchema,
+  type ConnectAckBody,
+  type ConnectBody,
+  type DmBody,
+  type Envelope,
+  type ListingBody,
+  type LoanBody,
+  type WithdrawnReason,
+} from "@resource-web/protocol";
 
 function validated(env: Envelope): Envelope {
   return EnvelopeSchema.parse(env);
@@ -49,4 +58,15 @@ export function loanEnvelope(ts: Date, body: LoanBody): Envelope {
 /** D14: DM has no natural correlation id, so request_id is a fresh per-message uuid. */
 export function dmEnvelope(requestId: string, ts: Date, body: DmBody): Envelope {
   return validated({ v: "0.1", type: "DM", request_id: requestId, ts: ts.toISOString(), body });
+}
+
+/** D18: a new peer's "let me in" request to an origin. `request_id` is a
+ * fresh uuid the requester mints and the origin echoes in its CONNECT_ACK. */
+export function connectEnvelope(requestId: string, ts: Date, body: ConnectBody): Envelope {
+  return validated({ v: "0.1", type: "CONNECT", request_id: requestId, ts: ts.toISOString(), body });
+}
+
+/** D18: the origin's reply — `request_id` echoes the CONNECT it answers. */
+export function connectAckEnvelope(requestId: string, ts: Date, body: ConnectAckBody): Envelope {
+  return validated({ v: "0.1", type: "CONNECT_ACK", request_id: requestId, ts: ts.toISOString(), body });
 }

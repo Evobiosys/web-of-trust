@@ -87,6 +87,13 @@ export interface DuoOptions {
   threshold?: number;
   annaChatClient?: ChatClient;
   benChatClient?: ChatClient;
+  /**
+   * D18: whether to seed the mutual Anna<->Ben trust edges. Defaults to
+   * `true` so every existing lifecycle test keeps its pre-connected pair
+   * unchanged; the consent-gated CONNECT tests pass `false` to start from a
+   * genuinely edge-less pair (a brand-new peer meeting an origin).
+   */
+  seedEdges?: boolean;
 }
 
 export interface Duo {
@@ -149,8 +156,10 @@ export async function setupDuo(opts: DuoOptions = {}): Promise<Duo> {
   await anna.init();
   await ben.init();
 
-  annaStore.putTrustEdge(TrustEdgeSchema.parse({ peer: BEN_PEER, display: "Ben", created_at: clock.nowIso(), expires_at: new Date(clock._currentMs() + 365 * 24 * 3600 * 1000).toISOString() }));
-  benStore.putTrustEdge(TrustEdgeSchema.parse({ peer: ANNA_PEER, display: "Anna", created_at: clock.nowIso(), expires_at: new Date(clock._currentMs() + 365 * 24 * 3600 * 1000).toISOString() }));
+  if (opts.seedEdges ?? true) {
+    annaStore.putTrustEdge(TrustEdgeSchema.parse({ peer: BEN_PEER, display: "Ben", created_at: clock.nowIso(), expires_at: new Date(clock._currentMs() + 365 * 24 * 3600 * 1000).toISOString() }));
+    benStore.putTrustEdge(TrustEdgeSchema.parse({ peer: ANNA_PEER, display: "Anna", created_at: clock.nowIso(), expires_at: new Date(clock._currentMs() + 365 * 24 * 3600 * 1000).toISOString() }));
+  }
 
   return { clock, scheduler, bus, anna, ben, annaStore, benStore, sent, roomMessages };
 }

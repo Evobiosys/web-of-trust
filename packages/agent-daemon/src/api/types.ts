@@ -23,6 +23,23 @@ export interface ConsentCardApiView {
   created_at: string;
 }
 
+/**
+ * D18: a consent-gated CONNECT handshake, owner/new-peer symmetric view.
+ * An "inbound" card is a pending "let me in" request the local user (origin
+ * owner) decides on — full requester context per I4. An "outbound" card is a
+ * CONNECT this persona sent and is awaiting an answer on. Neither carries an
+ * item (unlike ConsentCardApiView) — a connect is about the relationship, not
+ * a resource.
+ */
+export interface ConnectCardApiView {
+  card_id: string;
+  direction: "inbound" | "outbound";
+  peer: { peer_id: string; display: string };
+  requested_level?: "contact" | "friend" | "close";
+  state: "pending" | "accepted" | "declined";
+  created_at: string;
+}
+
 export interface RoomApiView {
   room_id: string;
   peers: Array<{ peer_id: string; display: string }>;
@@ -91,6 +108,7 @@ export interface StateSnapshot {
   trust_edges: TrustEdge[];
   asks: AskApiView[];
   consent_cards: ConsentCardApiView[];
+  connect_cards: ConnectCardApiView[];
   rooms: RoomApiView[];
   steward_log: StewardLogApiView[];
   listings_mine: ListingApiView[];

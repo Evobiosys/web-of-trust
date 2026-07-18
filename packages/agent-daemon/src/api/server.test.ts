@@ -648,4 +648,67 @@ describe("REST/WS server — Task 5 extended HTTP surface", () => {
     expect(res.status).toBe(202);
     expect(await res.json()).toEqual({ routed: "accepted" });
   });
+
+  // ------------------------------ Task 4 (D18/QR): inbound CONNECT consent --
+
+  it("POST /api/connect/accept rejects a missing card_id / invalid level / unknown card with 400", async () => {
+    const port = nextPort();
+    const { server } = await bootDaemon(port);
+    cleanup = () => server.close();
+
+    const post = (body: unknown) =>
+      fetch(`http://127.0.0.1:${port}/api/connect/accept`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+
+    expect((await post({})).status).toBe(400); // missing card_id
+    expect((await post({ card_id: "c1", level: "bff" })).status).toBe(400); // invalid level
+    expect((await post({ card_id: "does-not-exist" })).status).toBe(400); // unknown card → daemon throws → badRequest
+  });
+
+  it("POST /api/connect/decline rejects a missing card_id with 400", async () => {
+    const port = nextPort();
+    const { server } = await bootDaemon(port);
+    cleanup = () => server.close();
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/connect/decline`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/connect/accept drives the route→daemon→edge path: both sides gain an edge, card → accepted", async () => {
+    const bus = new InMemoryBus();
+    const portA = nextPort();
+    const portB = nextPort();
+    // Edge-less pair on one bus (NOT bootConnectedPair, which seeds edges).
+    const anna = await bootDaemon(portA, { personaName: "Anna", peerId: "@anna-agent:wot.local", bus });
+    const ben = await bootDaemon(portB, { personaName: "Ben", peerId: "@ben-agent:wot.local", bus });
+    cleanup = async () => {
+      await anna.server.close();
+      await ben.server.close();
+    };
+
+    // Anna (new peer, no edge) requests to connect; Ben's daemon surfaces a card.
+    await anna.daemon.sendConnect("@ben-agent:wot.local", { display: "Anna", level: "close" });
+
+    const stateBefore = (await (await fetch(`http://127.0.0.1:${portB}/api/state`)).json()) as {
+      connect_cards: Array<{ card_id: string; direction: string; state: string }>;
+    };
+    const card = stateBefore.connect_cards.find((c) => c.direction === "inbound" && c.state === "pending")!;
+    expect(card).toBeDefined();
+    expect(ben.store.getTrustEdge("@anna-agent:wot.local")).toBeUndefined();
+
+    const accept = await fetch(`http://127.0.0.1:${portB}/api/connect/accept`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ card_id: card.card_id }),
+    });
+    expect(accept.status).toBe(200);
+
+    // Ben's edge to Anna (clamped to friend from requested close), Anna's
+    // reciprocal edge to Ben (formed via the CONNECT_ACK over the bus).
+    const benEdge = ben.store.getTrustEdge("@anna-agent:wot.local");
+    expect(benEdge?.level).toBe("friend");
+    expect(anna.store.getTrustEdge("@ben-agent:wot.local")).toBeDefined();
+
+    const stateAfter = (await (await fetch(`http://127.0.0.1:${portB}/api/state`)).json()) as { connect_cards: Array<{ state: string }> };
+    expect(stateAfter.connect_cards[0].state).toBe("accepted");
+  });
 });
