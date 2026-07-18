@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A4%9D%3C/text%3E%3C/svg%3E" />
+  <title>Ecstatic World — Web of Trust Mockup</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+
+<div class="page-head">
+  <h1>Ecstatic World — the trust prototype, in your hand</h1>
+  <p>Clickable mobile mockup · v6. Implementers: turn on spec mode
+  (or open with <b>#spec</b>) and tap any badge to see its contract + doc reference.</p>
+  <button class="spec-toggle" id="specBtn" aria-pressed="false">Spec mode</button>
+</div>
+
+<div class="stage">
+<div class="phone" id="phone">
+
+  <!-- ============ ONBOARDING ============ -->
+  <div class="screen onb on" id="onb">
+    <div class="inner" id="onbInner"></div>
+  </div>
+
+  <!-- ============ DISCOVER ============ -->
+  <div class="screen" id="discover">
+    <div class="hdr"><h2>Discover</h2><span class="loc">Buenos Aires ▾</span></div>
+    <div class="scroll">
+      <div class="seg" data-anchor="DIS-1">
+        <button class="on" id="segGath">Gatherings</button>
+        <button id="segOff">Offers</button>
+      </div>
+      <div id="gathWrap">
+        <div class="seg">
+          <button class="on" id="segList">List</button>
+          <button id="segMap">Map</button>
+        </div>
+        <div class="chips">
+          <button class="chip on">This week</button>
+          <button class="chip">Ecstatic Dance</button>
+          <button class="chip">Biodanza</button>
+          <button class="chip">Contact Improv</button>
+          <button class="chip">Hangouts</button>
+        </div>
+        <div id="mapWrap" data-anchor="DIS-4"><canvas id="mapCanvas" width="356" height="300"></canvas></div>
+        <div id="listWrap"></div>
+        <p class="map-cap" id="listCap">Public events in your city. What your web opens, appears here too — quietly.</p>
+      </div>
+      <div id="offersWrap" style="display:none">
+        <div id="offersList"></div>
+        <p class="map-cap">What your web shares. Ask, borrow, bring it back — and both of you say whether it felt complete.</p>
+      </div>
+    </div>
+    <button class="fab" id="hostFab">＋ Host</button>
+  </div>
+
+  <!-- ============ CHAT (threads + activity) ============ -->
+  <div class="screen" id="chat">
+    <div class="hdr"><h2>Chat</h2><span class="loc">held between you</span></div>
+    <div class="scroll">
+      <div id="threadList"></div>
+      <div class="chat-head">Waiting on you</div>
+      <div id="actList" data-anchor="ACT-2"></div>
+    </div>
+  </div>
+
+  <!-- ============ HOST A GATHERING ============ -->
+  <div class="screen" id="host">
+    <div class="hdr"><h2>Host a gathering</h2></div>
+    <div class="scroll" id="hostForm"></div>
+  </div>
+
+  <!-- ============ YOUR WEB ============ -->
+  <div class="screen" id="web">
+    <div class="hdr"><h2>Your Web</h2><span class="loc" id="webCount"></span></div>
+    <div class="scroll">
+      <div class="seg" style="margin:2px 16px 6px">
+        <button class="on" id="segRings">Rings</button>
+        <button id="segPeople">People</button>
+      </div>
+      <div id="ringsView">
+        <div class="rings-wrap" id="rings" data-anchor="WEB-1"></div>
+        <p class="web-cap">People you have met, and the people they hold.<br>Tap anyone to see the path between you.</p>
+        <div id="intWrap"></div>
+      </div>
+      <div id="peopleView" style="display:none">
+        <div id="pplList" data-anchor="PPL-1" style="padding:8px 16px 0"></div>
+        <p class="map-cap" style="padding:6px 22px" id="pplCap"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CEREMONY ============ -->
+  <div class="screen cosmic" id="meet">
+    <div class="orb orb1"></div><div class="orb orb2"></div>
+    <div class="cer" id="cerInner"></div>
+  </div>
+
+  <!-- ============ CELEBRATION ============ -->
+  <div class="screen celebrate" id="celebrate">
+    <div class="inner" data-anchor="CER-5">
+      <canvas id="confetti"></canvas>
+      <h2>Woven.</h2>
+      <p id="celebText"></p>
+      <button class="btn btn-electric" id="seeOpened">See what opened</button>
+      <button class="btn btn-ghost" id="backFloor" style="color:#fff">Back to the floor</button>
+    </div>
+  </div>
+
+  <!-- ============ YOU ============ -->
+  <div class="screen" id="you">
+    <div class="hdr"><h2>You</h2></div>
+    <div class="scroll">
+      <div class="you-hero" data-anchor="YOU-1">
+        <div class="ava" id="youAva" style="width:84px;height:84px;font-size:32px;background:linear-gradient(135deg,var(--violet),var(--electric))">Y</div>
+        <h3 id="youName" style="font-size:22px">You</h3>
+        <span class="eyebrow">This identity lives on this phone</span>
+      </div>
+      <div class="verse" data-anchor="YOU-2">
+        <h3>Show me to people my people trust</h3>
+        <p>When this is on, someone your people connect with can see your name in their second ring. Off, and you simply don’t appear there.
+        <button class="btn btn-electric" id="dialBtn" style="padding:8px 18px; font-size:13px; margin-top:10px" aria-pressed="true">On</button></p>
+      </div>
+      <div class="verse" data-anchor="YOU-3" id="youOffers"></div>
+      <div class="verse" id="youBorrowed"></div>
+      <button class="verse" id="settingsBtn" data-anchor="YOU-4" style="width:100%; text-align:left; border:0; cursor:pointer; font-family:inherit; display:block">
+        <h3>Settings ›</h3>
+        <p style="font-size:13px; color:var(--ink-soft); margin-top:4px">Your keys · upgrades · the source</p>
+      </button>
+      <button class="plc-btn" data-anchor="PLC-3" data-plc="tags" style="margin-top:14px">＃ Blanket permissions by tag — held for a future circle</button>
+      <div class="sov">
+        <b>Yours, not ours.</b> Your people, your events, your web — stored here, carried by you, shown only when you choose. There is no account to close because there is no account.
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ SETTINGS ============ -->
+  <div class="screen" id="settings">
+    <div class="hdr"><h2>Settings</h2>
+      <span class="hdr-right"><button class="btn btn-ghost btn-sm" id="setBack">‹ Back</button></span>
+    </div>
+    <div class="scroll" style="padding:0 22px 120px">
+      <div class="verse">
+        <h3 id="keysTitle">Your keys</h3>
+        <p id="keysCopy">Made and held in this phone’s secure storage, unlocked by your face or PIN.</p>
+      </div>
+      <button class="plc-btn" data-plc="adv" style="margin-top:14px">🗝 Recovery verse &amp; server choice — held for a later pass</button>
+      <div class="verse" style="margin-top:14px">
+        <h3>Read the source</h3>
+        <p>Every line of this prototype is open — git.myceli.al · consensual/ecstatic-world.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ TABS ============ -->
+  <nav class="tabs" id="tabs" style="display:none">
+    <button class="tab on" data-go="discover">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.5-4.5"/></svg>
+      Discover</button>
+    <button class="tab" data-go="chat" data-anchor="ACT-1">
+      <svg viewBox="0 0 24 24"><path d="M4.5 7C4.5 5.3 5.8 4 7.5 4h9c1.7 0 3 1.3 3 3v6c0 1.7-1.3 3-3 3h-6.3L6 19.6V16h-.3c-.7-.5-1.2-1.3-1.2-2.2z"/></svg>
+      Chat<span class="bdg zero" data-bdg>0</span></button>
+    <button class="tab-meet" data-go="meet" aria-label="Meet someone">
+      <svg viewBox="0 0 24 24"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg>
+      <span>Meet</span>
+    </button>
+    <button class="tab" data-go="web">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><circle cx="12" cy="12" r="7" stroke-dasharray="2 3"/><circle cx="12" cy="12" r="10.5" stroke-dasharray="2 3"/></svg>
+      Web</button>
+    <button class="tab" data-go="you">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.8"/><path d="M5.5 20.5c.7-4 3.4-6.2 6.5-6.2s5.8 2.2 6.5 6.2"/></svg>
+      You</button>
+  </nav>
+
+  <!-- guest join bar -->
+  <div class="join-bar" id="joinBar">
+    <button class="btn btn-coral" id="joinBtn">Join the web of trust</button>
+  </div>
+
+  <!-- coach chip -->
+  <div class="coach" id="coach" style="display:none">
+    <span id="coachText">Demo: tap <b>Meet</b>, then “Scan theirs instead”</span>
+    <button id="coachX" aria-label="Dismiss">✕</button>
+  </div>
+
+  <!-- sheet -->
+  <div class="sheet-veil" id="veil"></div>
+  <div class="sheet" id="sheet"></div>
+</div>
+</div>
+
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
