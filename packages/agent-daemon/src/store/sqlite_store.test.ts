@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import type { Item, TrustEdge } from "@resource-web/protocol";
 import { ItemSchema, TrustEdgeSchema } from "@resource-web/protocol";
 import { SqliteStore } from "./sqlite_store.js";
-import type { AskRecord, AuditRecord, IncomingRecord } from "./types.js";
+import type { AskRecord, AuditRecord, DmMessageRecord, IncomingRecord, ListingRecord, LoanRecord, ReceivedListingRecord } from "./types.js";
 
 function makeItem(overrides: Partial<Item> = {}): Item {
   return ItemSchema.parse({
@@ -20,6 +20,7 @@ function makeEdge(overrides: Partial<TrustEdge> = {}): TrustEdge {
   return TrustEdgeSchema.parse({
     peer: overrides.peer ?? "@anna-agent:wot.local",
     display: overrides.display ?? "Anna",
+    level: overrides.level,
     created_at: overrides.created_at ?? "2026-01-01T00:00:00.000Z",
     expires_at: overrides.expires_at,
   });
@@ -145,5 +146,111 @@ describe("SqliteStore", () => {
     };
     store.addAudit(entry);
     expect(store.getAudit()).toEqual([entry]);
+  });
+
+  it("round-trips a TrustEdge including level", () => {
+    const edge = makeEdge({ level: "close" });
+    store.putTrustEdge(edge);
+    expect(store.getTrustEdge(edge.peer)?.level).toBe("close");
+  });
+
+  it("round-trips a ListingRecord (listings_mine) and upserts on conflict", () => {
+    const listing: ListingRecord = {
+      listing_id: "listing-1",
+      kind: "offer",
+      title: "Cordless drill",
+      description: "Bosch IXO, barely used.",
+      tier: "trusted",
+      steps: 2,
+      owner_display: "Ben",
+      state: "active",
+      created_at: "2026-01-01T00:00:00.000Z",
+    };
+    store.putListing(listing);
+    expect(store.getListing("listing-1")).toEqual(listing);
+    expect(store.getListings()).toEqual([listing]);
+
+    store.putListing({ ...listing, state: "withdrawn" });
+    expect(store.getListings()).toHaveLength(1);
+    expect(store.getListing("listing-1")?.state).toBe("withdrawn");
+  });
+
+  it("round-trips a ListingRecord's optional when/where fields", () => {
+    const listing: ListingRecord = {
+      listing_id: "listing-2",
+      kind: "gathering",
+      title: "Repair café",
+      description: "Bring broken stuff.",
+      when: "Saturday 3pm",
+      where_public: "Wien-Ottakring",
+      where_gated: "Herbeckstraße 12",
+      tier: "wot_commons",
+      steps: 1,
+      owner_display: "Ben",
+      state: "active",
+      created_at: "2026-01-01T00:00:00.000Z",
+    };
+    store.putListing(listing);
+    expect(store.getListing("listing-2")).toEqual(listing);
+  });
+
+  it("round-trips a ReceivedListingRecord including via chain and forwarded flag", () => {
+    const received: ReceivedListingRecord = {
+      listing_id: "listing-1",
+      kind: "offer",
+      title: "Cordless drill",
+      description: "Bosch IXO, barely used.",
+      tier: "trusted",
+      steps: 1,
+      via: ["@anna-agent:wot.local"],
+      owner_display: "Ben",
+      state: "active",
+      from_peer: "@anna-agent:wot.local",
+      received_at: "2026-01-01T00:00:01.000Z",
+      forwarded: false,
+    };
+    store.putReceivedListing(received);
+    expect(store.getReceivedListing("listing-1")).toEqual(received);
+    expect(store.getReceivedListings()).toEqual([received]);
+
+    store.putReceivedListing({ ...received, forwarded: true });
+    expect(store.getReceivedListings()).toHaveLength(1);
+    expect(store.getReceivedListing("listing-1")?.forwarded).toBe(true);
+  });
+
+  it("round-trips a LoanRecord including completion_detail (local-only field)", () => {
+    const loan: LoanRecord = {
+      loan_id: "loan-1",
+      listing_id: "listing-1",
+      role: "owner",
+      counterparty_peer: "@anna-agent:wot.local",
+      counterparty_display: "Anna",
+      state: "requested",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    };
+    store.putLoan(loan);
+    expect(store.getLoan("loan-1")).toEqual(loan);
+    expect(store.getLoans()).toEqual([loan]);
+
+    const updated: LoanRecord = { ...loan, state: "not_yet", completion_detail: "came back scratched", updated_at: "2026-01-02T00:00:00.000Z" };
+    store.putLoan(updated);
+    expect(store.getLoans()).toHaveLength(1);
+    expect(store.getLoan("loan-1")).toEqual(updated);
+  });
+
+  it("appends DM messages in order per peer and lists distinct thread peers", () => {
+    const anna = "@anna-agent:wot.local";
+    const timo = "@timo-agent:wot.local";
+    const m1: DmMessageRecord = { peer: anna, direction: "outgoing", text: "Hey!", ts: "2026-01-01T00:00:00.000Z" };
+    const m2: DmMessageRecord = { peer: anna, direction: "incoming", text: "Hi there", ts: "2026-01-01T00:00:01.000Z" };
+    const m3: DmMessageRecord = { peer: timo, direction: "outgoing", text: "Yo Timo", ts: "2026-01-01T00:00:02.000Z" };
+    store.addDmMessage(m1);
+    store.addDmMessage(m2);
+    store.addDmMessage(m3);
+
+    expect(store.getDmMessages(anna)).toEqual([m1, m2]);
+    expect(store.getDmMessages(timo)).toEqual([m3]);
+    expect(store.getDmPeers().sort()).toEqual([anna, timo].sort());
   });
 });

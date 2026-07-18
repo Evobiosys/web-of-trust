@@ -5,14 +5,27 @@
 //
 //   1. Audience gating -> `eligible`
 //      - private:      never eligible.
+//      - close:        (D14) eligible only with a valid, non-expired trust
+//                      edge at level "close" specifically — strictly
+//                      narrower than "trusted", never more permissive (I1
+//                      direction). No shipped Item fixture uses this value
+//                      yet; the guard exists so the audience enum's D14
+//                      extension (close/public, added for listing tiers)
+//                      can't silently fall through to the wot_commons
+//                      no-edge-required branch below for an Item.
 //      - trusted:      eligible only with a valid, non-expired trust edge.
 //      - wot_commons:  eligible without needing a trust edge at all ("discoverable
 //                      through me without per-request ping" — this describes the
 //                      *audience* check, i.e. no edge lookup is required to decide
 //                      eligibility; it is NOT a statement about consent-per-request,
 //                      which is `mode`'s job below).
-//      An expired SharePolicy, or (for "trusted") an expired edge, makes an
-//      item not eligible regardless of audience.
+//      - public:       (D14) at least as open as wot_commons — eligible
+//                      without a trust edge. Guest/unauthenticated exposure
+//                      itself is an API-layer concern (Task 5), out of scope
+//                      here; this package only guarantees "public" is never
+//                      *more* restrictive than wot_commons.
+//      An expired SharePolicy, or (for "trusted"/"close") an expired edge,
+//      makes an item not eligible regardless of audience.
 //
 //   2. Mode -> `needsConsent`
 //      - ask_each_time: true
@@ -64,6 +77,13 @@ export function evaluatePolicy(
     }
   }
 
-  // wot_commons falls through here: eligible without an edge check.
+  if (policy.audience === "close") {
+    const edgeValid = edge !== undefined && !isExpired(edge.expires_at, nowDate) && edge.level === "close";
+    if (!edgeValid) {
+      return { eligible: false, needsConsent, requires };
+    }
+  }
+
+  // wot_commons and public fall through here: eligible without an edge check.
   return { eligible: true, needsConsent, requires };
 }

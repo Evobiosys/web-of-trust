@@ -11,8 +11,18 @@
 //   PASS's cause (declined vs no-match), so it structurally cannot leak.
 // - CONSENT.body.conditions is `.optional()` (never `.nullable()`/`.default("")`)
 //   so an omitted value round-trips to `{}` on serialization, per D1.6.
+// - D14 (additive): LISTING/LOAN/DM reuse the same top-level envelope shape
+//   (v/type/request_id/ts/body) as every other v0.1 type — no restructuring.
+//   For LISTING and LOAN, the constructor (daemon/envelopes.ts) always sets
+//   the top-level `request_id` equal to the body's own `listing_id`/
+//   `loan_id` — the body still carries its own id (the brief's exact shape)
+//   so store lookups can key off the body field alone, while the envelope's
+//   `request_id` keeps every wire message uniformly correlatable the way
+//   REQUEST/STATUS/CONSENT/INTRO/WITHDRAWN already are. DM has no natural
+//   correlation id of its own (fire-and-forget chat), so its `request_id` is
+//   just a fresh per-message uuid.
 import { z } from "zod";
-import { IsoDateTimeSchema } from "./schemas.js";
+import { IsoDateTimeSchema, PeerIdSchema, SharePolicyAudienceSchema } from "./schemas.js";
 
 const ProtocolVersionSchema = z.literal("0.1");
 const RequestIdSchema = z.string().uuid();
@@ -49,6 +59,55 @@ const IntroBodySchema = z
 const WithdrawnBodySchema = z
   .object({
     reason: z.enum(["fulfilled", "expired", "cancelled"]),
+  })
+  .strict();
+
+/** D14: a resource offer or gathering, declared with an audience tier and a
+ * forwarding reach (`steps`). `via` accumulates each forwarder's peer id as
+ * the listing propagates (see daemon/listings.ts); the owner's own publish
+ * always starts with `via: []`. `state` doubles as the withdrawal signal —
+ * the owner re-broadcasts the same listing with `state: "withdrawn"` along
+ * the same tier-filtered route to propagate a takedown. */
+const ListingBodySchema = z
+  .object({
+    listing_id: z.string().min(1),
+    kind: z.enum(["offer", "gathering"]),
+    title: z.string().min(1),
+    description: z.string(),
+    when: z.string().optional(),
+    where_public: z.string().optional(),
+    where_gated: z.string().optional(),
+    tier: SharePolicyAudienceSchema,
+    steps: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    via: z.array(PeerIdSchema),
+    state: z.enum(["active", "withdrawn"]),
+    owner_display: z.string().min(1),
+  })
+  .strict();
+
+/** D14: a borrow-lifecycle message for one listing. `note` is free text the
+ * sender chooses to attach; the "not_yet" completion-detail privacy rule
+ * (mockup RES-5: stays local to the parties) is enforced by the daemon
+ * NEVER placing that detail into `note` on the wire — the schema itself
+ * can't structurally forbid it (same shape as CONSENT.conditions), so this
+ * is a daemon-layer discipline, documented at the call site
+ * (daemon/listings.ts's `checkInLoanCompletion`). */
+const LoanBodySchema = z
+  .object({
+    listing_id: z.string().min(1),
+    loan_id: z.string().min(1),
+    state: z.enum(["requested", "approved", "declined", "lent", "returned", "complete", "not_yet"]),
+    note: z.string().optional(),
+  })
+  .strict();
+
+/** D14: a direct-message chat line between two connected peers (any trust
+ * level) — deliberately minimal, mirrors RoomMessage's shape but travels as
+ * a proper v0.1 envelope instead of the transport-layer room-chat gap-fill,
+ * since a DM thread has no room to belong to. */
+const DmBodySchema = z
+  .object({
+    text: z.string().min(1),
   })
   .strict();
 
@@ -102,12 +161,45 @@ const WithdrawnEnvelopeSchema = z
   })
   .strict();
 
+const ListingEnvelopeSchema = z
+  .object({
+    v: ProtocolVersionSchema,
+    type: z.literal("LISTING"),
+    request_id: RequestIdSchema,
+    ts: IsoDateTimeSchema,
+    body: ListingBodySchema,
+  })
+  .strict();
+
+const LoanEnvelopeSchema = z
+  .object({
+    v: ProtocolVersionSchema,
+    type: z.literal("LOAN"),
+    request_id: RequestIdSchema,
+    ts: IsoDateTimeSchema,
+    body: LoanBodySchema,
+  })
+  .strict();
+
+const DmEnvelopeSchema = z
+  .object({
+    v: ProtocolVersionSchema,
+    type: z.literal("DM"),
+    request_id: RequestIdSchema,
+    ts: IsoDateTimeSchema,
+    body: DmBodySchema,
+  })
+  .strict();
+
 export const EnvelopeSchema = z.discriminatedUnion("type", [
   RequestEnvelopeSchema,
   StatusEnvelopeSchema,
   ConsentEnvelopeSchema,
   IntroEnvelopeSchema,
   WithdrawnEnvelopeSchema,
+  ListingEnvelopeSchema,
+  LoanEnvelopeSchema,
+  DmEnvelopeSchema,
 ]);
 export type Envelope = z.infer<typeof EnvelopeSchema>;
 
@@ -116,6 +208,9 @@ export type StatusBody = z.infer<typeof StatusBodySchema>;
 export type ConsentBody = z.infer<typeof ConsentBodySchema>;
 export type IntroBody = z.infer<typeof IntroBodySchema>;
 export type WithdrawnBody = z.infer<typeof WithdrawnBodySchema>;
+export type ListingBody = z.infer<typeof ListingBodySchema>;
+export type LoanBody = z.infer<typeof LoanBodySchema>;
+export type DmBody = z.infer<typeof DmBodySchema>;
 
 /**
  * Deterministic deep-key-sorted JSON stringify. Guarantees that two

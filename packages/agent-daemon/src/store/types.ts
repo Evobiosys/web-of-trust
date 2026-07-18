@@ -96,6 +96,88 @@ export interface RelayLinkRecord {
   state: RelayLinkState;
 }
 
+// ---------------------------------------------------------------- D14: listings, loans, DM threads --
+
+export type ListingKind = "offer" | "gathering";
+/** Same value space as protocol's SharePolicyAudienceSchema — a listing's tier reuses it (D14). */
+export type ListingTier = "private" | "close" | "trusted" | "wot_commons" | "public";
+export type ListingState = "active" | "withdrawn";
+
+/** A listing THIS persona owns and published — `listings_mine`. */
+export interface ListingRecord {
+  listing_id: string;
+  kind: ListingKind;
+  title: string;
+  description: string;
+  when?: string;
+  where_public?: string;
+  where_gated?: string;
+  tier: ListingTier;
+  steps: 1 | 2 | 3;
+  owner_display: string;
+  state: ListingState;
+  created_at: string;
+}
+
+/**
+ * A listing this persona received from someone else — directly from its
+ * owner (`via.length === 0`) or forwarded through one or more hops
+ * (`via` lists each forwarder's peer id so far). `from_peer` is whoever
+ * delivered THIS envelope to me (immediate sender, not necessarily the
+ * owner). `forwarded` guards daemon/listings.ts's forward step against
+ * re-running for a duplicate delivery of the same (listing_id, state) pair
+ * — without it, a cyclic trust graph could re-forward indefinitely.
+ */
+export interface ReceivedListingRecord {
+  listing_id: string;
+  kind: ListingKind;
+  title: string;
+  description: string;
+  when?: string;
+  where_public?: string;
+  where_gated?: string;
+  tier: ListingTier;
+  steps: number;
+  via: string[];
+  owner_display: string;
+  state: ListingState;
+  from_peer: string;
+  received_at: string;
+  forwarded: boolean;
+}
+
+export type LoanState = "requested" | "approved" | "declined" | "lent" | "returned" | "complete" | "not_yet";
+
+/**
+ * One loan, as seen from THIS persona's side (each party keeps their own
+ * row for the same `loan_id`). `role` says which side this persona plays.
+ * `completion_detail` is the "not_yet" explanation — I5/mockup RES-5: never
+ * sent over the wire, local-only regardless of role (see
+ * daemon/listings.ts's `checkInLoanCompletion`).
+ */
+export interface LoanRecord {
+  loan_id: string;
+  listing_id: string;
+  role: "owner" | "borrower";
+  counterparty_peer: string;
+  counterparty_display: string;
+  state: LoanState;
+  note?: string;
+  created_at: string;
+  updated_at: string;
+  completion_detail?: string;
+}
+
+export type DmDirection = "outgoing" | "incoming";
+
+/** One DM chat line. `peer` is always the OTHER party — the thread key. */
+export interface DmMessageRecord {
+  peer: string;
+  direction: DmDirection;
+  text: string;
+  ts: string;
+}
+
 /** Audit log entry, extended with the redaction hint the store/API layer needs for I2. */
 export interface AuditRecord extends DecisionLogEntry {
   /** When true, this entry's `detail`/`reason` must never surface a peer id or a

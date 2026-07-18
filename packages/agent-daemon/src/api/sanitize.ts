@@ -3,8 +3,21 @@
 // call site funnels through here so there is exactly one chokepoint to audit
 // for peer-id/per-peer-state leaks.
 import type { Store } from "../store/store.js";
-import type { AskRecord, AuditRecord } from "../store/types.js";
-import type { AskApiState, AskApiView, AuditApiEntry, ConsentCardApiView, RoomApiView, StateSnapshot, StewardLogApiView } from "./types.js";
+import type { AskRecord, AuditRecord, ListingRecord, LoanRecord, ReceivedListingRecord } from "../store/types.js";
+import type {
+  AskApiState,
+  AskApiView,
+  AuditApiEntry,
+  ConsentCardApiView,
+  DmMessageApiView,
+  ListingApiView,
+  LoanApiView,
+  ReceivedListingApiView,
+  RoomApiView,
+  StateSnapshot,
+  StewardLogApiView,
+  ThreadApiView,
+} from "./types.js";
 
 /**
  * Internal asker state machine (state-machine.ts AskerRequestState) -> API
@@ -99,7 +112,69 @@ export function buildStateSnapshot(persona: { name: string; peer_id: string; acc
     consent_cards,
     rooms,
     steward_log,
+    listings_mine: store.getListings().map(buildListingApiView),
+    listings_received: store.getReceivedListings().map(buildReceivedListingApiView),
+    loans: store.getLoans().map(buildLoanApiView),
+    threads: store.getDmPeers().map((peer) => buildThreadApiView(store, peer)),
   };
+}
+
+// ------------------------------------------------------------- D14 views --
+
+function buildListingApiView(listing: ListingRecord): ListingApiView {
+  return {
+    listing_id: listing.listing_id,
+    kind: listing.kind,
+    title: listing.title,
+    description: listing.description,
+    when: listing.when,
+    where_public: listing.where_public,
+    where_gated: listing.where_gated,
+    tier: listing.tier,
+    steps: listing.steps,
+    state: listing.state,
+    owner_display: listing.owner_display,
+    created_at: listing.created_at,
+  };
+}
+
+function buildReceivedListingApiView(listing: ReceivedListingRecord): ReceivedListingApiView {
+  return {
+    listing_id: listing.listing_id,
+    kind: listing.kind,
+    title: listing.title,
+    description: listing.description,
+    when: listing.when,
+    where_public: listing.where_public,
+    where_gated: listing.where_gated,
+    tier: listing.tier,
+    steps: listing.steps,
+    state: listing.state,
+    owner_display: listing.owner_display,
+    created_at: listing.received_at,
+    via: listing.via,
+    from_peer: listing.from_peer,
+    received_at: listing.received_at,
+  };
+}
+
+function buildLoanApiView(loan: LoanRecord): LoanApiView {
+  return {
+    loan_id: loan.loan_id,
+    listing_id: loan.listing_id,
+    role: loan.role,
+    counterparty: { peer_id: loan.counterparty_peer, display: loan.counterparty_display },
+    state: loan.state,
+    note: loan.note,
+    completion_detail: loan.completion_detail,
+    created_at: loan.created_at,
+    updated_at: loan.updated_at,
+  };
+}
+
+function buildThreadApiView(store: Store, peer: string): ThreadApiView {
+  const messages: DmMessageApiView[] = store.getDmMessages(peer).map((m) => ({ direction: m.direction, text: m.text, ts: m.ts }));
+  return { peer_id: peer, display: store.getTrustEdge(peer)?.display ?? peer, messages };
 }
 
 /**

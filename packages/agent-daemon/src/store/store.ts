@@ -5,8 +5,12 @@ import type { Item, TrustEdge } from "@resource-web/protocol";
 import type {
   AskRecord,
   AuditRecord,
+  DmMessageRecord,
   IncomingRecord,
+  ListingRecord,
+  LoanRecord,
   PendingCaptureRecord,
+  ReceivedListingRecord,
   RelayLinkRecord,
   RoomMessageRecord,
   RoomRecord,
@@ -62,6 +66,26 @@ export interface Store {
   // audit log (I6)
   addAudit(entry: AuditRecord): void;
   getAudit(): AuditRecord[];
+
+  // D14: listings I own ("listings_mine")
+  putListing(record: ListingRecord): void;
+  getListing(listingId: string): ListingRecord | undefined;
+  getListings(): ListingRecord[];
+
+  // D14: listings received from others, direct or forwarded ("listings_received")
+  putReceivedListing(record: ReceivedListingRecord): void;
+  getReceivedListing(listingId: string): ReceivedListingRecord | undefined;
+  getReceivedListings(): ReceivedListingRecord[];
+
+  // D14: loans (borrow lifecycle)
+  putLoan(record: LoanRecord): void;
+  getLoan(loanId: string): LoanRecord | undefined;
+  getLoans(): LoanRecord[];
+
+  // D14: DM threads
+  addDmMessage(msg: DmMessageRecord): void;
+  getDmMessages(peer: string): DmMessageRecord[];
+  getDmPeers(): string[];
 
   close(): void;
 }

@@ -61,6 +61,25 @@ describe("evaluatePolicy — audience gating", () => {
     const result = evaluatePolicy(item, baseRequest, undefined, NOW);
     expect(result.eligible).toBe(true);
   });
+
+  // D14: audience gained "close"/"public" (listing tiers, reused by SharePolicy).
+  // "close" must stay at least as strict as "trusted" (I1 direction) — a
+  // close-audience Item requires a valid edge at level "close" specifically,
+  // not just any trust edge.
+  it("close requires a valid edge at level 'close'", () => {
+    const item = makeItem({ policy: { audience: "close" } });
+    const friendEdge = makeEdge({ level: "friend", expires_at: "2027-01-01T00:00:00.000Z" });
+    expect(evaluatePolicy(item, baseRequest, friendEdge, NOW).eligible).toBe(false);
+    expect(evaluatePolicy(item, baseRequest, undefined, NOW).eligible).toBe(false);
+    const closeEdge = makeEdge({ level: "close", expires_at: "2027-01-01T00:00:00.000Z" });
+    expect(evaluatePolicy(item, baseRequest, closeEdge, NOW).eligible).toBe(true);
+  });
+
+  it("public is eligible without a trust edge (at least as open as wot_commons)", () => {
+    const item = makeItem({ policy: { audience: "public" } });
+    const result = evaluatePolicy(item, baseRequest, undefined, NOW);
+    expect(result.eligible).toBe(true);
+  });
 });
 
 describe("evaluatePolicy — mode drives needsConsent independently of audience", () => {
