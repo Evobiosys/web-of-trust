@@ -1,0 +1,163 @@
+// @vitest-environment node
+//
+// relay_client.test.ts — real round-trips against a live transport
+// RelayServer (mirrors transport's own relay_channel.test.ts discipline:
+// real listeners, poll-don't-assert-immediately). Run under the "node"
+// vitest environment (not this package's default jsdom) because the round
+// trip needs Node's real `fetch`/`http` stack talking to a real listening
+// RelayServer — jsdom's fetch/WebSocket shims are partial and not needed
+// here; the browser-vs-Node WebSocket API seam is exactly what `wsCtor`
+// exists to bridge (see relay_client.ts's file header).
+import { afterEach, describe, expect, it } from "vitest";
+import { WebSocket as WsWebSocket } from "ws";
+import { ed25519 } from "@noble/curves/ed25519.js";
+import { RelayServer } from "@resource-web/transport";
+import { generateIdentity } from "./identity.js";
+import { fromBase64url, toBase64url } from "./identity.js";
+import { packMessage, unpackMessage } from "./didcomm_crypto.js";
+import { createRelayClient, ENVELOPE_TYPE, type RelayClient } from "./relay_client.js";
+
+const servers: RelayServer[] = [];
+const clients: RelayClient[] = [];
+const rawSockets: WsWebSocket[] = [];
+
+afterEach(async () => {
+  for (const c of clients.splice(0)) c.stop();
+  for (const raw of rawSockets.splice(0)) {
+    if (raw.readyState === WsWebSocket.OPEN || raw.readyState === WsWebSocket.CONNECTING) raw.terminate();
+  }
+  await Promise.all(servers.splice(0).map((s) => s.close()));
+});
+
+async function bootRelay(): Promise<{ relay: RelayServer; endpoint: string }> {
+  const relay = new RelayServer();
+  servers.push(relay);
+  const { port } = await relay.listen(0, "127.0.0.1");
+  return { relay, endpoint: `http://127.0.0.1:${port}` };
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error("waitFor: timed out");
+    await new Promise((r) => setTimeout(r, 20));
+  }
+}
+
+describe("createRelayClient — send/onInbound round trip", () => {
+  it("A sends to B; B drains, decrypts, and sees A's DID via from-binding", async () => {
+    const anna = generateIdentity({ endpoint: "https://relay.invalid/anna" });
+    const ben = generateIdentity({ endpoint: "https://relay.invalid/ben" });
+    const { endpoint } = await bootRelay();
+
+    const clientA = createRelayClient({ identity: anna, relayUrl: endpoint, wsCtor: WsWebSocket });
+    clients.push(clientA);
+    const clientB = createRelayClient({ identity: ben, relayUrl: endpoint, wsCtor: WsWebSocket });
+    clients.push(clientB);
+
+    const received: { from: string; envelope: unknown }[] = [];
+    clientB.onInbound((from, envelope) => received.push({ from, envelope }));
+    await clientB.start();
+
+    const envelope = { kind: "REQUEST", text: "may I borrow the drill?" };
+    await clientA.send(ben.did, envelope);
+
+    await waitFor(() => received.length >= 1);
+    expect(received[0]!.from).toBe(anna.did);
+    expect(received[0]!.envelope).toEqual(envelope);
+  });
+
+  it("delivers a wire that was queued before the recipient's client ever started draining", async () => {
+    const anna = generateIdentity();
+    const ben = generateIdentity();
+    const { endpoint } = await bootRelay();
+
+    const clientA = createRelayClient({ identity: anna, relayUrl: endpoint, wsCtor: WsWebSocket });
+    clients.push(clientA);
+    await clientA.send(ben.did, { queued: true });
+
+    const received: { from: string; envelope: unknown }[] = [];
+    const clientB = createRelayClient({ identity: ben, relayUrl: endpoint, wsCtor: WsWebSocket });
+    clients.push(clientB);
+    clientB.onInbound((from, envelope) => received.push({ from, envelope }));
+    await clientB.start();
+
+    await waitFor(() => received.length >= 1);
+    expect(received[0]!.from).toBe(anna.did);
+    expect(received[0]!.envelope).toEqual({ queued: true });
+  });
+
+  it("send() throws when the relay rejects the wire (no route to the recipient)", async () => {
+    const anna = generateIdentity();
+    const stranger = generateIdentity();
+    const relay = new RelayServer({ isRoutable: (did) => did !== stranger.did });
+    servers.push(relay);
+    const { port } = await relay.listen(0, "127.0.0.1");
+    const endpoint = `http://127.0.0.1:${port}`;
+
+    const clientA = createRelayClient({ identity: anna, relayUrl: endpoint, wsCtor: WsWebSocket });
+    clients.push(clientA);
+
+    await expect(clientA.send(stranger.did, { hello: "world" })).rejects.toThrow(/rejected/);
+  });
+});
+
+describe("createRelayClient — drain auth", () => {
+  it("a drain attempt signed with the wrong key for the claimed DID is rejected by the server", async () => {
+    const ben = generateIdentity();
+    const mallory = generateIdentity();
+    const { endpoint } = await bootRelay();
+
+    const wsUrl = endpoint.replace(/^http/, "ws") + "/relay/drain";
+    const raw = new WsWebSocket(wsUrl);
+    rawSockets.push(raw);
+    const messages: { type: string; nonce?: string }[] = [];
+    let resolveChallenge!: (nonce: string) => void;
+    const challenge = new Promise<string>((resolve) => {
+      resolveChallenge = resolve;
+    });
+    raw.on("message", (data) => {
+      const msg = JSON.parse(data.toString()) as { type: string; nonce?: string };
+      messages.push(msg);
+      if (msg.type === "challenge" && msg.nonce) resolveChallenge(msg.nonce);
+    });
+    await new Promise<void>((resolve, reject) => {
+      raw.once("open", () => resolve());
+      raw.once("error", reject);
+    });
+
+    const nonce = await challenge;
+    // Impersonation attempt: claim Ben's DID but sign with Mallory's key.
+    const sig = ed25519.sign(fromBase64url(nonce), mallory.signingSecretKey);
+    raw.send(JSON.stringify({ type: "auth", did: ben.did, sig: toBase64url(sig) }));
+
+    await waitFor(() => messages.some((m) => m.type === "auth_failed"));
+    await waitFor(() => raw.readyState === WsWebSocket.CLOSED || raw.readyState === WsWebSocket.CLOSING);
+  });
+});
+
+describe("didcomm_crypto (browser port) — tamper detection", () => {
+  it("a tampered ciphertext byte fails to unpack", () => {
+    const anna = generateIdentity();
+    const ben = generateIdentity();
+    const wire = packMessage({
+      sender: anna,
+      recipientDid: ben.did,
+      message: {
+        id: "tamper-1",
+        type: ENVELOPE_TYPE,
+        from: anna.did,
+        to: [ben.did],
+        created_time: Date.now(),
+        body: { hello: "world" },
+      },
+    });
+
+    const parsed = JSON.parse(wire) as { ciphertext: string };
+    const lastChar = parsed.ciphertext.at(-1);
+    const flipped = lastChar === "A" ? "B" : "A";
+    const tampered = { ...parsed, ciphertext: parsed.ciphertext.slice(0, -1) + flipped };
+
+    expect(() => unpackMessage({ recipient: ben, wire: JSON.stringify(tampered) })).toThrow();
+  });
+});

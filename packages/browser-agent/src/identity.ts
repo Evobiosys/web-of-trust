@@ -63,10 +63,19 @@ function utf8ToBytes(s: string): Uint8Array {
 }
 
 /** Browser-safe base64url (RFC 4648 §5), no padding. Uses Web `btoa`. */
-function toBase64url(bytes: Uint8Array): string {
+export function toBase64url(bytes: Uint8Array): string {
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Inverse of {@link toBase64url}. Uses Web `atob`. */
+export function fromBase64url(s: string): Uint8Array {
+  const padded = s.replace(/-/g, "+").replace(/_/g, "/").padEnd(s.length + ((4 - (s.length % 4)) % 4), "=");
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 function encodeMultibaseKey(prefix: Uint8Array, pubkey: Uint8Array): string {
@@ -74,6 +83,16 @@ function encodeMultibaseKey(prefix: Uint8Array, pubkey: Uint8Array): string {
   bytes.set(prefix, 0);
   bytes.set(pubkey, prefix.length);
   return base58btc.encode(bytes); // includes the 'z' multibase prefix
+}
+
+function decodeMultibaseKey(mb: string, expectedPrefix: Uint8Array): Uint8Array {
+  const bytes = base58btc.decode(mb);
+  for (let i = 0; i < expectedPrefix.length; i++) {
+    if (bytes[i] !== expectedPrefix[i]) {
+      throw new Error("did:peer:2 key has an unexpected multicodec prefix");
+    }
+  }
+  return bytes.slice(expectedPrefix.length);
 }
 
 /** Abbreviated did:peer:2 service block; `t:"dm"` expands to DIDCommMessaging. */
@@ -93,6 +112,51 @@ function buildDidPeer2(signingPub: Uint8Array, keyAgreementPub: Uint8Array, endp
   const eElement = PURPOSE_KEY_AGREEMENT + encodeMultibaseKey(X25519_PUB_PREFIX, keyAgreementPub);
   const sElement = encodeServiceElement(endpoint);
   return `${DID_PEER_2_PREFIX}.${vElement}.${eElement}.${sElement}`;
+}
+
+export interface ResolvedDid {
+  did: string;
+  signingPublicKey: Uint8Array;
+  keyAgreementPublicKey: Uint8Array;
+  serviceEndpoint: string;
+}
+
+/**
+ * Local resolver: decodes the inline keys + service from a did:peer:2 string.
+ * No network, no Buffer — browser-safe counterpart to transport's
+ * did_identity.ts#resolveDidPeer (see this file's header REUSE DECISION). The
+ * V/E/S decode algorithm is byte-for-byte identical to that file's, so a DID
+ * minted by either `generateIdentity` here or `createIdentity` there resolves
+ * the same way. Throws on any non-did:peer:2 input or malformed element.
+ */
+export function resolveDidPeer(did: string): ResolvedDid {
+  if (!did.startsWith(DID_PEER_2_PREFIX + ".")) {
+    throw new Error(`not a did:peer:2 DID: ${did.slice(0, 32)}`);
+  }
+  const elements = did.slice(DID_PEER_2_PREFIX.length + 1).split(".");
+  let signingPublicKey: Uint8Array | undefined;
+  let keyAgreementPublicKey: Uint8Array | undefined;
+  let serviceEndpoint: string | undefined;
+
+  for (const el of elements) {
+    const code = el[0];
+    const value = el.slice(1);
+    if (code === PURPOSE_VERIFICATION) {
+      signingPublicKey = decodeMultibaseKey(value, ED25519_PUB_PREFIX);
+    } else if (code === PURPOSE_KEY_AGREEMENT) {
+      keyAgreementPublicKey = decodeMultibaseKey(value, X25519_PUB_PREFIX);
+    } else if (code === PURPOSE_SERVICE) {
+      const svc = JSON.parse(new TextDecoder().decode(fromBase64url(value))) as Partial<AbbreviatedService>;
+      if (typeof svc.s !== "string") throw new Error("did:peer:2 service block has no endpoint");
+      serviceEndpoint = svc.s;
+    }
+    // Unknown purpose codes are ignored (forward-compat), matching resolvers.
+  }
+
+  if (!signingPublicKey) throw new Error("did:peer:2 missing a verification (V) key");
+  if (!keyAgreementPublicKey) throw new Error("did:peer:2 missing a key-agreement (E) key");
+  if (!serviceEndpoint) throw new Error("did:peer:2 missing a service (S) endpoint");
+  return { did, signingPublicKey, keyAgreementPublicKey, serviceEndpoint };
 }
 
 /**
