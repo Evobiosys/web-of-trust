@@ -53,6 +53,7 @@ export {
   type QueuedWire,
 } from "./relay_queue_store.js";
 export { RelayServer, type RelayServerOptions, type SubmitResult } from "./relay_server.js";
+export { RelayChannel, type RelayChannelOptions, type BackoffOpts } from "./relay_channel.js";
 export {
   issueVrc,
   verifyVrc,
