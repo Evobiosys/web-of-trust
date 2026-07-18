@@ -340,8 +340,37 @@ export class Daemon {
       logOwner(this.store, this.clock, requestId, "no_eligible_items", "No item is policy-eligible for this requester.");
     }
 
+    // D16 / I8 defense-in-depth: a second_brain item is only relay-eligible
+    // if its noted owner is still a connected peer (live, unexpired trust
+    // edge) — mirrors the D14 "connected-only" guard already applied to
+    // sendDm/receiveDm/receiveLoan (listings.ts), which `forwardRelay`
+    // predates and never got. Without this, a noted owner with no reachable
+    // trust edge (a future local-only Contact, or an edge that has since
+    // expired) would reach `forwardRelay` and either throw mid-flight or
+    // misroute (docs/research/solo-graph-extension.md §5). Folding this into
+    // the SAME `matched === undefined` branch below — rather than a separate
+    // early return — is what makes the resulting PASS byte-identical to a
+    // genuine no-match on the wire (I3) by construction, not by careful
+    // copying; only the local audit action/message differs (I6).
+    let relaySkipDetail: string | undefined;
+    if (matched && matched.item.provenance.kind === "second_brain") {
+      const ownerId = matched.item.provenance.owner;
+      const ownerEdge = this.store.getTrustEdge(ownerId);
+      const ownerReachable = ownerEdge !== undefined && new Date(ownerEdge.expires_at).getTime() > receivedAt.getTime();
+      if (!ownerReachable) {
+        relaySkipDetail = `Matched item ${matched.item.id}'s noted owner ${ownerId} has no live trust edge; cannot relay (I8) — treating as no match.`;
+        matched = undefined;
+      }
+    }
+
     if (!matched) {
-      logOwner(this.store, this.clock, requestId, "no_match", "No eligible item matched this request; PASS scheduled at uniform delay.");
+      logOwner(
+        this.store,
+        this.clock,
+        requestId,
+        relaySkipDetail ? "relay_skipped_unreachable_owner" : "no_match",
+        relaySkipDetail ?? "No eligible item matched this request; PASS scheduled at uniform delay."
+      );
       this.scheduler.scheduleAt(dispatchAt, async () => {
         await this.transport.send(from, statusEnvelope(requestId, this.clock.now(), "PASS"));
         logOwner(this.store, this.clock, requestId, "status_pass", "Sent PASS (no eligible match).");

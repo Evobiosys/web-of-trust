@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ItemSchema, serializeEnvelope, type Envelope, type Item, type Provenance } from "@resource-web/protocol";
+import { ItemSchema, TrustEdgeSchema, serializeEnvelope, type Envelope, type Item, type Provenance } from "@resource-web/protocol";
 import { PEERS, setupDuo, setupTrio } from "./test_harness.js";
 
 interface BenItemInput {
@@ -45,6 +45,19 @@ const REAL_LADDER = relayItem({
   description: "3 meter aluminium ladder, good condition.",
   provenance: { kind: "self" },
 });
+
+// D16: a second_brain note whose noted owner is NOT a connected peer at all —
+// stands in for a future local-only Contact (docs/research/solo-graph-extension.md
+// §5), which has no PeerId a trust edge could ever be keyed on.
+const UNREACHABLE_OWNER = "local:jakob-contact-no-transport";
+function ladderNoteUnreachableOwner(): Item {
+  return relayItem({
+    id: "unreachable-ladder-note",
+    labels: ["3m ladder", "Leiter"],
+    description: "Someone offline has a 3m aluminium ladder he lends out.",
+    provenance: { kind: "second_brain", owner: UNREACHABLE_OWNER, noted_at: "2026-01-01T00:00:00.000Z" },
+  });
+}
 
 describe("Daemon lifecycle — happy path (ask_each_time, Yes branch)", () => {
   it("Anna asks, Ben matches + consents, room opens, both sides see it — while staying I2/I3-clean throughout", async () => {
@@ -387,5 +400,70 @@ describe("Daemon lifecycle — relay two-hop consent chain (I8)", () => {
     await scheduler.advance(2000);
 
     expect(ben.getStateSnapshot().asks[0].state).toBe("room_open");
+  });
+
+  it("D16: second_brain item whose noted owner has NO trust edge degrades to a plain no-match PASS — no consent card, no ping, wire-identical to a genuine no-match (I3)", async () => {
+    const normalize = (env: Envelope) =>
+      serializeEnvelope({ ...env, request_id: "00000000-0000-4000-8000-000000000000", ts: "2026-01-01T00:00:00.000Z" } as Envelope);
+
+    // Control: genuine no-match (Anna has nothing at all).
+    const control = await setupTrio({ statusDelayMs: 2000 });
+    await control.ben.sendAsk("Hat wer eine 3m Leiter?");
+    await control.scheduler.advance(2000);
+    const controlPass = control.sent.find((s) => s.to === PEERS.BEN && s.env.type === "STATUS")!.env;
+
+    // Subject: Anna's second_brain note matches, but its noted owner has no trust edge in Anna's store at all.
+    const { scheduler, ben, anna, annaStore, sent } = await setupTrio({ statusDelayMs: 2000 });
+    annaStore.putItem(ladderNoteUnreachableOwner());
+    expect(annaStore.getTrustEdge(UNREACHABLE_OWNER)).toBeUndefined();
+
+    await ben.sendAsk("Hat wer eine 3m Leiter?");
+
+    // No consent card is ever created — the middle hop's human is not pinged.
+    expect(anna.getStateSnapshot().consent_cards).toHaveLength(0);
+
+    await scheduler.advance(2000);
+
+    const subjectPass = sent.find((s) => s.to === PEERS.BEN && s.env.type === "STATUS")!.env;
+    expect(normalize(subjectPass)).toBe(normalize(controlPass));
+    expect(JSON.parse(normalize(subjectPass)).body).toEqual({ state: "PASS" });
+    // Ben's only trust edge is to Anna, so her PASS is the whole aggregate —
+    // resolves immediately, same as the genuine-no-match control above.
+    expect(ben.getStateSnapshot().asks[0].state).toBe("no_one_this_time");
+    expect(control.ben.getStateSnapshot().asks[0].state).toBe("no_one_this_time");
+
+    // Local-only audit trail (I6) names the skip and the owner — never sent on the wire.
+    const annaAudit = JSON.stringify(anna.getAudit());
+    expect(annaAudit).toContain("relay_skipped_unreachable_owner");
+    expect(annaAudit).toContain(UNREACHABLE_OWNER);
+  });
+
+  it("D16: second_brain item whose noted owner's trust edge has EXPIRED also degrades to no-match PASS", async () => {
+    const { scheduler, ben, anna, annaStore, sent, clock } = await setupTrio({ statusDelayMs: 2000 });
+    annaStore.putItem(ladderNote());
+    // Overwrite the edge setupTrio wired (Anna -> Timo, 1y in the future) with an already-expired one.
+    annaStore.putTrustEdge(
+      TrustEdgeSchema.parse({
+        peer: PEERS.TIMO,
+        display: "Timo",
+        created_at: "2020-01-01T00:00:00.000Z",
+        expires_at: "2020-01-02T00:00:00.000Z", // long before clock start (2026-01-01)
+      })
+    );
+    void clock;
+
+    await ben.sendAsk("Hat wer eine 3m Leiter?");
+
+    expect(anna.getStateSnapshot().consent_cards).toHaveLength(0);
+
+    await scheduler.advance(2000);
+
+    const status = sent.find((s) => s.to === PEERS.BEN && s.env.type === "STATUS")!.env;
+    expect(JSON.parse(serializeEnvelope(status)).body).toEqual({ state: "PASS" });
+    expect(ben.getStateSnapshot().asks[0].state).toBe("no_one_this_time");
+
+    const annaAudit = JSON.stringify(anna.getAudit());
+    expect(annaAudit).toContain("relay_skipped_unreachable_owner");
+    expect(annaAudit).toContain(PEERS.TIMO);
   });
 });
