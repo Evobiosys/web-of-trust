@@ -34,3 +34,10 @@ export {
   type DidCommTransportOptions,
 } from "./didcomm_transport.js";
 export { packMessage, unpackMessage, type JwmMessage } from "./didcomm_crypto.js";
+export {
+  issueVrc,
+  verifyVrc,
+  type VerifiableRelationshipCredential,
+  type VrcCredentialSubject,
+  type VrcVerifyResult,
+} from "./vrc.js";
