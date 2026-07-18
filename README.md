@@ -2,7 +2,7 @@
 
 A weekend-sprint prototype of **async, privacy-preserving resource sharing on a Web of Trust**.
 
-Every person keeps a private inventory of idle resources on their own device. A friend asks in natural language, any language ("Hat wer einen Akkuschrauber?"). Matching happens **on the owner's device** — the asker never learns who owns anything. Only the anonymous aggregate comes back: *"Yes — someone can help, we let them know."* The owner gets a consent ping and decides freely; **consent — and only consent — reveals identity** and opens a shared Matrix room where the two humans arrange the handover.
+Every person keeps a private inventory of idle resources on their own device. A friend asks in natural language, any language ("Hat wer einen Akkuschrauber?"). Matching happens **on the owner's device** — the asker never learns who owns anything. Only the anonymous aggregate comes back: *"Yes — someone can help, we let them know."* The owner gets a consent ping and decides freely; **consent — and only consent — reveals identity** and opens a shared room where the two humans arrange the handover. (v0.1 alpha carries these rooms over the peer-to-peer DIDComm transport; Matrix is a documented secondary path, not yet wired.)
 
 Why: idle resources stay idle because of information asymmetry and social friction ("why won't you lend it to me?"). This design closes the asymmetry while protocol-protecting the owner from the social friction of saying no — a declined request and "nobody has one" look **byte-identical** to the asker.
 
