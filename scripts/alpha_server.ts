@@ -222,7 +222,14 @@ export async function bootPersonas(personas: PersonaConfig[], opts: BootOptions)
       },
       // Every persona's card advertises the shared mediator's DID (Task 10) —
       // a peer resolves it via resolveDidPeer, exactly like any other DID.
-      cardExtra: getCardPayload(identity, persona.name, { relays: [mediatorIdentity.did] }),
+      // `relay_url` (Task 5) additionally exposes the mediator's HTTP base
+      // ORIGIN so a daemonless browser peer scanning this card's connect URL
+      // can point its RelayClient straight at it (browsers can't resolve a
+      // did:peer service block, and relays[] carries DIDs, not URLs). Derived
+      // from the same `mediatorEndpoint` the RelayChannel above targets — its
+      // origin, since relay_client (like RelayChannel) resolves the absolute
+      // `/relay/send` + `/relay/drain` paths off the URL's origin.
+      cardExtra: { ...getCardPayload(identity, persona.name, { relays: [mediatorIdentity.did] }), relay_url: new URL(mediatorEndpoint).origin },
       ...(isMediator ? { relayServer } : {}),
     });
 

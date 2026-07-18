@@ -142,8 +142,18 @@ export interface ServerExtras {
    * whatever `getCardPayload` produced — this type only needs to widen to
    * carry them through; the handler's existing `...(extras.cardExtra ?? {})`
    * spread already merges arbitrary extra fields, so no handler change.
+   *
+   * `relay_url` (QR-onboarding Task 5) is the HTTP base ORIGIN of the single
+   * trust-graph mediator this persona's `RelayChannel` targets (Task 10) — the
+   * value a browser peer scanning this card's connect URL uses as its
+   * `createRelayClient({ relayUrl })` base (it appends `/relay/send` +
+   * `/relay/drain`, exactly like `RelayChannel`). Unlike `relays[]` (mediator
+   * DIDs, not openable URLs), this is a URL a daemonless browser can POST to
+   * and drain. Only the boot layer (`scripts/alpha_server.ts`) knows the
+   * mediator's origin, so it supplies this via `cardExtra`; absent for
+   * mock/matrix and for a daemon booted without a mediator.
    */
-  cardExtra?: { did: string; endpoint: string; relays?: string[]; ice_servers?: string[] };
+  cardExtra?: { did: string; endpoint: string; relays?: string[]; ice_servers?: string[]; relay_url?: string };
   /**
    * Connection-record store (Task 8, core-transport-plan.md) — POST
    * /api/connect persists `{did, relays, ice_servers}` here so a later

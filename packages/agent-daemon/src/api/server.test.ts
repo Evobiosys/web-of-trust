@@ -26,6 +26,8 @@ interface BootOpts {
   bus?: InMemoryBus;
   /** When set, the persona hosts the trust-graph mediator: startServer mounts POST /relay/send → relayServer.submit (Task 10 / finding 2). */
   relayServer?: { submit(rawWire: string): { routed: "accepted" | "rejected"; reason?: string }; attachDrainWss(httpServer: unknown, path?: string): void };
+  /** DID card fields merged into GET /api/card (Task 11's getCardPayload output + Task 5's relay_url). */
+  cardExtra?: { did: string; endpoint: string; relays?: string[]; ice_servers?: string[]; relay_url?: string };
 }
 
 async function bootDaemon(port: number, opts: BootOpts = {}): Promise<{ daemon: Daemon; server: StartedServer; store: SqliteStore; transport: InMemoryTransport }> {
@@ -51,7 +53,10 @@ async function bootDaemon(port: number, opts: BootOpts = {}): Promise<{ daemon: 
     chatClient: new FakeChatClient(),
   });
   await daemon.init();
-  const server = await startServer(daemon, port, opts.relayServer ? { relayServer: opts.relayServer as never } : {});
+  const server = await startServer(daemon, port, {
+    ...(opts.relayServer ? { relayServer: opts.relayServer as never } : {}),
+    ...(opts.cardExtra ? { cardExtra: opts.cardExtra } : {}),
+  });
   return { daemon, server, store, transport };
 }
 
@@ -445,6 +450,26 @@ describe("REST/WS server — Task 5 extended HTTP surface", () => {
     expect(body.display).toBe("Anna");
     expect(body.level_offer_default).toBe("friend");
     expect(body.did).toBeUndefined();
+  });
+
+  it("GET /api/card surfaces relay_url (mediator origin) from cardExtra for a daemonless browser peer (Task 5)", async () => {
+    const port = nextPort();
+    const { server } = await bootDaemon(port, {
+      cardExtra: {
+        did: "did:peer:2.Ez6MkAnna",
+        endpoint: "http://127.0.0.1:4101/didcomm",
+        relays: ["did:peer:2.MediatorDid"],
+        relay_url: "http://127.0.0.1:4101",
+      },
+    });
+    cleanup = () => server.close();
+    const res = await fetch(`http://127.0.0.1:${port}/api/card`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    // relay_url is the mediator's HTTP base ORIGIN (no path) — a browser
+    // RelayClient appends /relay/send + /relay/drain itself.
+    expect(body.relay_url).toBe("http://127.0.0.1:4101");
+    expect(body.did).toBe("did:peer:2.Ez6MkAnna");
   });
 
   // ------------------------------------------------------------ threads/DM --

@@ -146,9 +146,13 @@ Connected peers only (any trust level) — `400` if there is no trust edge to `p
 
 ### Task 5 — meet card
 
-#### GET /api/card → `{ "peer_id": string, "display": string, "level_offer_default": "friend", "did"?: string, "endpoint"?: string }`
+#### GET /api/card → `{ "peer_id": string, "display": string, "level_offer_default": "friend", "did"?: string, "endpoint"?: string, "relay_url"?: string }`
 The "my QR card" payload. `level_offer_default` is a UI hint only (I9's conservative default), not
 persisted. `did`/`endpoint` are present only when `TRANSPORT=didcomm` (Task 11's `getCardPayload`).
+`relay_url` (Task 5) is the HTTP base **origin** of the trust-graph mediator (Task 10) this daemon's
+`RelayChannel` targets — a daemonless browser peer scanning this card's connect URL uses it as its
+`createRelayClient({ relayUrl })` base (appends `/relay/send` + `/relay/drain`). Present only when the
+boot layer wires a mediator (`scripts/alpha_server.ts`); absent for mock/matrix.
 
 ## WS `/ws`
 Server → client JSON events, each `{ "type": …, …payload }`:
