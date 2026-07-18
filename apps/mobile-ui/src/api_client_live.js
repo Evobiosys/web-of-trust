@@ -198,10 +198,12 @@ export function createLiveClient(agentUrl) {
     };
 
     // -- activity: loans awaiting me + pending consent cards ----------------
+    // Kept in the per-client bag (not the shared store singleton) so multiple
+    // live clients in one process — e.g. the two-daemon integration test — do
+    // not clobber each other's activity feed.
     const activity = buildActivity(loans, snap.consent_cards || [], mine, recv);
-    state.activity = activity;
 
-    return { events, offers, threads, threadList, people, rings: { ring1, ring2 }, reachNames };
+    return { events, offers, threads, threadList, people, rings: { ring1, ring2 }, reachNames, activity };
   }
 
   /** @param {any[]} loans @param {string} listingId */
@@ -359,6 +361,11 @@ export function createLiveClient(agentUrl) {
     return req("/api/borrow", { listing_id: listingId }).then(refresh);
   }
 
+  /** Withdraw one of my own listings — receivers flip it to withdrawn. @param {string} listingId */
+  function withdrawListing(listingId) {
+    return req("/api/listings/" + encodeURIComponent(listingId) + "/withdraw", {}).then(refresh);
+  }
+
   /** @param {string} loanId @param {string} uiState */
   function loanAction(loanId, uiState) {
     return req("/api/loans/" + encodeURIComponent(loanId), { state: LOAN_UI_TO_API[uiState] || uiState }).then(refresh);
@@ -465,8 +472,8 @@ export function createLiveClient(agentUrl) {
 
   return {
     mode, agentUrl: base,
-    getState, subscribe, offerById, seed, start,
-    publishListing, requestBorrow, loanAction,
+    getState, subscribe, offerById, seed, start, refresh,
+    publishListing, requestBorrow, loanAction, withdrawListing,
     sendDm, addTrust, setVisibilityDial, sendSteward, addNote, resolveCard,
   };
 }

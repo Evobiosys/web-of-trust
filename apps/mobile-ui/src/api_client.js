@@ -346,10 +346,16 @@ function createFixtureClient(mode, agentUrl) {
   /** Live-mode boot hook (fetch + WS). Fixture has nothing to fetch. */
   function start() {}
 
+  /** Live-mode data refetch. Fixture data is already in memory. */
+  function refresh() { return Promise.resolve(); }
+
+  /** Live withdraws a listing on the daemon. Fixture has no persistent store. @param {string} id */
+  function withdrawListing(id) { void id; return Promise.resolve(); }
+
   return {
     mode, agentUrl,
-    getState, subscribe, offerById, seed, start,
-    publishListing, requestBorrow, loanAction,
+    getState, subscribe, offerById, seed, start, refresh,
+    publishListing, requestBorrow, loanAction, withdrawListing,
     sendDm, addTrust, setVisibilityDial, sendSteward, addNote, resolveCard,
   };
 }
