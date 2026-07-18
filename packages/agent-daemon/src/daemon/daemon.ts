@@ -581,28 +581,38 @@ export class Daemon {
   /**
    * Downstream STATUS arrived for a relay link. PENDING is the noted owner's
    * own uniform "still deciding" ping (I3, their side) — nothing to do, the
-   * upstream requester already has their own PENDING. PASS means the noted
-   * owner declined or had no match; forward the exact same PASS upstream
-   * (I3: the envelope has no field for "why", so this is byte-identical to
-   * any other PASS regardless of cause).
+   * upstream requester already has their own PENDING.
+   *
+   * PASS means the noted owner declined or had no match. D15 (supersedes the
+   * Task 1 brief's literal "sends the uniform PASS upstream"): this hop
+   * resolves the relay link and its own consent card internally — card goes
+   * `inactive` ("could not help", I6-audited) — and sends NOTHING further
+   * upstream. Forwarding the PASS produced a `PENDING -> PASS` wire pattern
+   * that occurs ONLY on the relay path: a direct decline-after-dispatch is
+   * silence after PENDING (see `decline()`), so a forwarded PASS let an
+   * asker infer relaying happened — exactly what I8 forbids ("no hop reveals
+   * more than a direct request"). It was also functionally inert:
+   * `askerHandleStatus` early-returns once `internal_state` has already left
+   * "open", which the earlier PENDING guarantees. The asker's own ask now
+   * degrades via its own TTL, identically to a direct decline-after-PENDING.
    */
-  private async relayHandleStatus(relay: RelayLinkRecord, state: "PASS" | "PENDING"): Promise<void> {
+  private relayHandleStatus(relay: RelayLinkRecord, state: "PASS" | "PENDING"): void {
     if (state === "PENDING") return;
     if (relay.state !== "awaiting_downstream") return;
     relay.state = "failed";
     this.store.putRelayLink(relay);
 
     const card = this.store.getIncomingByRequestAndPeer(relay.upstream_request_id, relay.upstream_requester)!;
+    card.state = "inactive";
     card.internal_state = transitionOwnerState("matched", { type: "CONSENT_DECISION", accepted: false });
     this.store.putIncoming(card);
 
-    await this.transport.send(relay.upstream_requester, statusEnvelope(relay.upstream_request_id, this.clock.now(), "PASS"));
     logOwner(
       this.store,
       this.clock,
       relay.upstream_request_id,
       "relay_downstream_passed",
-      "Noted owner declined or had no match (I3-indistinguishable); forwarded PASS upstream."
+      "Noted owner declined or had no match; consent card marked inactive ('could not help') — nothing sent upstream, asker's own TTL degrades the ask (I8, D15)."
     );
   }
 
@@ -738,7 +748,7 @@ export class Daemon {
       case "STATUS": {
         const relay = this.store.getRelayLinkByDownstream(env.request_id);
         if (relay) {
-          await this.relayHandleStatus(relay, env.body.state);
+          this.relayHandleStatus(relay, env.body.state);
         } else {
           this.askerHandleStatus(from, env.request_id, env.body.state);
         }

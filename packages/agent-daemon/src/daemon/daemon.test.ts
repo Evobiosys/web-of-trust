@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ItemSchema, serializeEnvelope, type Item, type Provenance } from "@resource-web/protocol";
+import { ItemSchema, serializeEnvelope, type Envelope, type Item, type Provenance } from "@resource-web/protocol";
 import { PEERS, setupDuo, setupTrio } from "./test_harness.js";
 
 interface BenItemInput {
@@ -302,39 +302,66 @@ describe("Daemon lifecycle — relay two-hop consent chain (I8)", () => {
     expect(peerIds).toContain(PEERS.TIMO);
   });
 
-  it("Timo declines: Ben ends no_one_this_time, and the terminal PASS Ben receives is byte-identical to a no-match PASS", async () => {
-    // Scenario A: genuine no-match (Anna has nothing at all).
-    const a = await setupTrio({ statusDelayMs: 2000 });
-    await a.ben.sendAsk("Hat wer eine 3m Leiter?");
-    await a.scheduler.advance(2000);
-    const passA = a.sent.find((s) => s.to === PEERS.BEN && s.env.type === "STATUS")!.env;
+  it("I3 for relay: Timo declining vs Timo having no matching item produce byte-identical STATUS sequences at Ben, and D15 means neither reaches him as a wire message past Anna's own PENDING", async () => {
+    // Both scenarios hold topology constant: the middle hop (Anna) relays in
+    // both — her card consents, her own uniform PENDING reaches Ben, and her
+    // forwarded REQUEST reaches Timo. Only Timo's resolution differs:
+    // B1 = explicit decline, B2 = genuine no-match. Per I3 these two causes
+    // must be indistinguishable from Ben's side; per D15 neither cause may
+    // put anything beyond Anna's own PENDING on the wire to Ben at all — the
+    // full STATUS sequence he receives, not just its last element, must be
+    // identical, and the ask must degrade to no_one_this_time on Ben's own TTL.
+    const normalize = (env: Envelope) =>
+      serializeEnvelope({ ...env, request_id: "00000000-0000-4000-8000-000000000000", ts: "2026-01-01T00:00:00.000Z" } as Envelope);
 
-    // Scenario B: relay chain, but Timo (the noted owner) declines.
-    const b = await setupTrio({ statusDelayMs: 2000, defaultAskTtlMs: 10_000 });
-    b.annaStore.putItem(ladderNote());
-    b.timoStore.putItem(REAL_LADDER);
+    // B1: Timo (the noted owner) HAS the matching item but declines before his own uniform delay fires.
+    const b1 = await setupTrio({ statusDelayMs: 2000, defaultAskTtlMs: 6000 });
+    b1.annaStore.putItem(ladderNote());
+    b1.timoStore.putItem(REAL_LADDER);
 
-    await b.ben.sendAsk("Hat wer eine 3m Leiter?");
-    const annaCard = b.anna.getStateSnapshot().consent_cards[0];
-    await b.anna.consent(annaCard.card_id);
-    await b.scheduler.advance(2000); // Anna's PENDING -> Ben; her REQUEST -> Timo.
+    await b1.ben.sendAsk("Hat wer eine 3m Leiter?");
+    const b1AnnaCard = b1.anna.getStateSnapshot().consent_cards[0];
+    await b1.anna.consent(b1AnnaCard.card_id);
+    await b1.scheduler.advance(2000); // Anna's PENDING -> Ben; her forwarded REQUEST -> Timo.
+    expect(b1.ben.getStateSnapshot().asks[0].state).toBe("waiting"); // the relay reached Ben, same as B2 below
 
-    const timoCard = b.timo.getStateSnapshot().consent_cards[0];
-    await b.timo.decline(timoCard.card_id); // declines BEFORE his own uniform delay fires
+    const b1TimoCard = b1.timo.getStateSnapshot().consent_cards[0];
+    expect(b1TimoCard).toBeDefined();
+    await b1.timo.decline(b1TimoCard.card_id); // declines BEFORE his own uniform delay fires
 
-    await b.scheduler.advance(8000); // Timo's uniform PASS -> Anna; Anna forwards PASS -> Ben; Ben's own TTL elapses.
+    await b1.scheduler.advance(4000); // Timo's own uniform PASS -> Anna (resolved internally, D15); Ben's own ask TTL elapses.
 
-    const benStatuses = b.sent.filter((s) => s.to === PEERS.BEN && s.env.type === "STATUS");
-    expect(benStatuses.length).toBeGreaterThanOrEqual(1);
-    const passB = benStatuses[benStatuses.length - 1].env;
+    // B2: Timo has NO matching item — Anna's second_brain note still triggers the relay
+    // (same topology as B1), but Timo's own daemon resolves it as a genuine no-match.
+    const b2 = await setupTrio({ statusDelayMs: 2000, defaultAskTtlMs: 6000 });
+    b2.annaStore.putItem(ladderNote());
+    // b2.timoStore deliberately left empty: no eligible item for the forwarded REQUEST.
 
-    const normalize = (env: typeof passA) =>
-      serializeEnvelope({ ...env, request_id: "00000000-0000-4000-8000-000000000000", ts: "2026-01-01T00:00:02.000Z" });
-    expect(normalize(passA)).toBe(normalize(passB));
-    expect(JSON.parse(normalize(passA)).body).toEqual({ state: "PASS" });
+    await b2.ben.sendAsk("Hat wer eine 3m Leiter?");
+    const b2AnnaCard = b2.anna.getStateSnapshot().consent_cards[0];
+    await b2.anna.consent(b2AnnaCard.card_id);
+    await b2.scheduler.advance(2000); // Anna's PENDING -> Ben; her forwarded REQUEST -> Timo.
+    expect(b2.ben.getStateSnapshot().asks[0].state).toBe("waiting"); // the relay reached Ben, same as B1 above
 
-    expect(a.ben.getStateSnapshot().asks[0].state).toBe("no_one_this_time");
-    expect(b.ben.getStateSnapshot().asks[0].state).toBe("no_one_this_time");
+    expect(b2.timo.getStateSnapshot().consent_cards).toHaveLength(0); // genuine no-match: no card ever created
+
+    await b2.scheduler.advance(4000); // Timo's own uniform PASS (no-match branch) -> Anna (resolved internally, D15); Ben's own ask TTL elapses.
+
+    const b1BenStatuses = b1.sent.filter((s) => s.to === PEERS.BEN && s.env.type === "STATUS").map((s) => normalize(s.env));
+    const b2BenStatuses = b2.sent.filter((s) => s.to === PEERS.BEN && s.env.type === "STATUS").map((s) => normalize(s.env));
+
+    // Full-sequence, byte-identical equality — not just the last envelope.
+    expect(b1BenStatuses.length).toBe(b2BenStatuses.length);
+    expect(b1BenStatuses).toEqual(b2BenStatuses);
+
+    // D15: the noted owner's PASS never reaches Ben at all — his only STATUS
+    // is Anna's own uniform PENDING, then wire silence (equality above holds
+    // trivially once this is true, but assert the shape explicitly too).
+    expect(b1BenStatuses).toHaveLength(1);
+    expect(JSON.parse(b1BenStatuses[0]).body).toEqual({ state: "PENDING" });
+
+    expect(b1.ben.getStateSnapshot().asks[0].state).toBe("no_one_this_time");
+    expect(b2.ben.getStateSnapshot().asks[0].state).toBe("no_one_this_time");
   });
 
   it("auto_forward on the second-brain item skips Anna's card but still requires Timo's consent", async () => {
