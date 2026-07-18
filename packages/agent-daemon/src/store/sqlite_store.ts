@@ -491,6 +491,10 @@ export class SqliteStore implements Store {
     return row ? rowToTrustEdge(row) : undefined;
   }
 
+  removeTrustEdge(peer: string): void {
+    this.db.run("DELETE FROM trust_edges WHERE peer = ?", [peer]);
+  }
+
   putAsk(ask: AskRecord): void {
     this.db.run(
       `INSERT INTO asks (request_id, text, lang, area, created_at, ttl_ms, internal_state, queried_count, peers_json, room_id, withdrawn_reason)

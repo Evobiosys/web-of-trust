@@ -11,6 +11,7 @@ import {
   createIdentity,
   serializeIdentity,
   deserializeIdentity,
+  getCardPayload,
   issueVrc,
   type Identity,
   type VerifiableRelationshipCredential,
@@ -140,9 +141,16 @@ async function main(): Promise<void> {
               .map((edge) => issueVrc(identity, { peerDid: edge.peer, relationship: "trusted" }));
           }
         : undefined,
+    // Task 5: LAN exposure is opt-in via API_HOST — startServer reads
+    // process.env.API_HOST itself when `host` is omitted here, so main.ts
+    // doesn't need its own config plumbing for it.
+    // Task 11+5: /api/card's DID fields (did:peer:2 + inbound endpoint),
+    // present only when TRANSPORT=didcomm.
+    cardExtra: identity !== undefined ? getCardPayload(identity, cfg.personaName) : undefined,
   });
+  const boundHost = process.env.API_HOST ?? "127.0.0.1";
   // eslint-disable-next-line no-console
-  console.log(`[agent-daemon] ${cfg.personaName} listening on http://127.0.0.1:${server.port} (transport=${cfg.transport})`);
+  console.log(`[agent-daemon] ${cfg.personaName} listening on http://${boundHost}:${server.port} (transport=${cfg.transport})`);
 
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {

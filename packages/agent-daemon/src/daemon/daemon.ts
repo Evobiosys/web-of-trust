@@ -13,12 +13,16 @@
 import { randomUUID } from "node:crypto";
 import {
   evaluatePolicy,
+  ItemSchema,
   statusDispatchAt,
+  TrustEdgeSchema,
   transitionAskerState,
   transitionOwnerState,
   type Envelope,
   type Item,
   type TransportAdapter,
+  type TrustEdge,
+  type TrustLevel,
   type WithdrawnReason,
 } from "@resource-web/protocol";
 import type { Clock, Scheduler } from "../clock.js";
@@ -116,6 +120,18 @@ export class Daemon {
 
   getAudit(): AuditApiEntry[] {
     return buildAuditApiView(this.store.getAudit());
+  }
+
+  /**
+   * Task 5: exposes the store read-only-by-convention so server.ts can build
+   * additive views (guest listings, thread messages) through api/sanitize.ts
+   * without daemon.ts growing a thin passthrough method per view. Every
+   * caller outside this class still goes through sanitize.ts's chokepoint
+   * (I2) for anything asker-facing — this getter itself performs no
+   * filtering.
+   */
+  getStore(): Store {
+    return this.store;
   }
 
   private notifyChange(): void {
@@ -698,6 +714,64 @@ export class Daemon {
       this.store.putIncoming(card);
       logOwner(this.store, this.clock, requestId, "requester_withdrew", "Requester withdrew; consent card marked inactive.");
     }
+  }
+
+  // ---------------------------------------------------- Task 5: trust mgmt --
+
+  /**
+   * Add/update a trust edge (POST /api/trust). Upsert by `peer`: an existing
+   * edge's `created_at` (and thus its default +1y `expires_at`, I9) is
+   * preserved across a level change — this is a level/display update, not a
+   * fresh relationship. `store.putTrustEdge` is already an upsert.
+   */
+  async addTrust(input: { peer: string; display: string; level?: TrustLevel; vouched_by?: string }): Promise<TrustEdge> {
+    const existing = this.store.getTrustEdge(input.peer);
+    const edge = TrustEdgeSchema.parse({
+      peer: input.peer,
+      display: input.display,
+      level: input.level,
+      vouched_by: input.vouched_by ?? existing?.vouched_by,
+      created_at: existing?.created_at ?? this.clock.now().toISOString(),
+    });
+    this.store.putTrustEdge(edge);
+    this.notifyChange();
+    return edge;
+  }
+
+  /**
+   * Remove a trust edge (DELETE /api/trust) — I5's "downgrade/remove in *my
+   * own* trust graph" (D1.5); no notification to the removed peer, no
+   * appeals process.
+   */
+  removeTrust(peer: string): void {
+    this.store.removeTrustEdge(peer);
+    this.notifyChange();
+  }
+
+  // ------------------------------------------------------ Task 5: notes --
+
+  /**
+   * POST /api/notes — a second-brain item: "I know <owner> has this" without
+   * <owner> owning it themselves. Provenance is always `second_brain`. D1.6 /
+   * I8: the noted owner is NOT notified now — only pinged at first relay
+   * attempt (see listings.ts's `forwardRelay`, reached via the normal
+   * REQUEST/consent-card flow once someone asks and this item matches).
+   * Mirrors steward.ts's `handleConfirm` item-construction shape.
+   */
+  addNote(input: { labels: string[]; description: string; tags?: string[]; owner: string; location_area?: string; availability?: string }): Item {
+    const item = ItemSchema.parse({
+      id: randomUUID(),
+      labels: input.labels,
+      description: input.description,
+      tags: input.tags ?? [],
+      provenance: { kind: "second_brain", owner: input.owner, noted_at: this.clock.now().toISOString() },
+      policy: ItemSchema.shape.policy.parse({}),
+      location_area: input.location_area,
+      availability: input.availability,
+    });
+    this.store.putItem(item);
+    this.notifyChange();
+    return item;
   }
 
   // --------------------------------------------------------- D14: listings --
