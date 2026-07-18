@@ -17,22 +17,38 @@ Mechanism: unlinkability by protocol — uniform STATUS schedule (default 30 s, 
 
 ### Transport-metadata note — OpenVTC / DIDComm pillar (Task 11, D12)
 
-The primary transport is now the **peer-to-peer OpenVTC pillar**
-(`DidCommTransport`), which removes the *"Homeserver admin"* residual above:
-there is **no homeserver, no mediator, and no directory** — messages are
-sign-then-encrypted and POSTed **directly** to the recipient's own
-`http://host:port/didcomm` endpoint (resolved locally from their `did:peer:2`).
-No third party sees who talks to whom. The sender DID is **not** in the
-cleartext wire (it rides inside the ciphertext, authenticated), so even an
-observer of a single message body cannot attribute it. What **remains** a
-residual: a direct network observer still sees *that* two IP endpoints exchange
-traffic (no onion routing / mixnet in alpha), and the recipient's endpoint host
-is contacted directly. Payload confidentiality + sender-authenticity are
-cryptographic here (X25519 ECDH-ES + XChaCha20-Poly1305 + Ed25519); the
-**honesty caveat** is that this is DIDComm-v2-*shaped*, not RFC-interoperable,
-and VRC trust edges are **self-asserted pairwise** (no witness) — see
-`docs/TRANSPORT.md §10.5`. Matrix stays available as a fallback transport and
-carries the homeserver-metadata residual it always did.
+The primary transport is the **peer-to-peer OpenVTC pillar**
+(`DidCommTransport`). Messages are sign-then-encrypted and the wire is opaque:
+the payload is never in cleartext and the sender DID is **not** in the
+cleartext wire (it rides inside the authenticated ciphertext), so even an
+observer of a single message body cannot read it or attribute who sent it.
+Payload confidentiality + sender-authenticity are cryptographic here (X25519
+ECDH-ES + XChaCha20-Poly1305 + Ed25519).
+
+**Delivery involves a mediator (honest correction).** Earlier drafts of this
+note claimed there is *"no mediator"* and *"no third party sees who talks to
+whom"*. That is **no longer accurate** and has been removed. The alpha delivers
+over a **ladder**: it first tries a **trust-graph relay/mediator** (a
+store-and-forward node a trusted friend runs, so an *offline* recipient still
+receives mail — this is delivery rung 0), and falls back to a **direct POST**
+to the recipient's own `http://host:port/didcomm` endpoint (resolved locally
+from their `did:peer:2`) only if the relay rung fails.
+
+| Party | Learns |
+|---|---|
+| **Relay/mediator** (when the relay rung is used) | **Metadata only:** the recipient DID (the outer wire's cleartext routing header), the submitter's network address, and message timing. **Never the payload** (it never decrypts — reads only the outer `to`), and **never a `from`** on the outer wire, so it cannot attribute the sender. A single submit's ingress response is a uniform `accepted` and reveals no presence; a residual, expensive presence signal remains only at the queue-cap boundary (a full-queue rejection differs from `accepted`, costing an attacker ~1000 queued messages for one noisy bit) — **residual: metadata + a costly cap-boundary presence bit** |
+| **Direct POST** (fallback rung) | No third party — sender contacts the recipient's endpoint host directly — **residual: a network observer still sees two IPs exchange traffic** (no onion routing / mixnet in alpha) |
+
+The **honesty caveat** remains that this is DIDComm-v2-*shaped*, not
+RFC-interoperable, and VRC trust edges are **self-asserted pairwise** (no
+witness) — see `docs/TRANSPORT.md §10.5`. Matrix stays available as a fallback
+transport and carries the homeserver-metadata residual it always did.
+
+> **Not the same as the "semantic relay."** This transport-layer
+> relay/mediator only *forwards opaque wires* for delivery. It is a **different
+> thing** from the application-layer **second-brain "semantic relay"** (I8,
+> README, D1.5/D1.6 below) — a *consented two-hop of resource knowledge*
+> between people. Do not conflate the two.
 
 ### v0.1 alpha surfaces — listings, loans, DMs (who learns what)
 

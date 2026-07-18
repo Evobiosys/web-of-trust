@@ -56,6 +56,10 @@ export interface RelayQueueStore {
   ackDelivered(toDid: string, ids: string[]): void;
   /** Drop rows older than `now - MAX_HOLD_HORIZON_MS` (caller-driven, mirrors DedupStore.prune). */
   prune(now: number): void;
+  /** Current number of queued (unacked) rows for `toDid` — backs relay_server.ts's per-DID queue-depth cap. */
+  count(toDid: string): number;
+  /** Current total number of queued (unacked) rows across all DIDs — backs relay_server.ts's global queue cap. */
+  total(): number;
 }
 
 /**
@@ -93,6 +97,18 @@ export class InMemoryRelayQueueStore implements RelayQueueStore {
     for (const [id, row] of this.rows) {
       if (row.enqueuedAt < cutoff) this.rows.delete(id);
     }
+  }
+
+  count(toDid: string): number {
+    let n = 0;
+    for (const row of this.rows.values()) {
+      if (row.toDid === toDid) n += 1;
+    }
+    return n;
+  }
+
+  total(): number {
+    return this.rows.size;
   }
 }
 
@@ -142,6 +158,18 @@ export class SqliteRelayQueueStore implements RelayQueueStore {
   prune(now: number): void {
     const cutoff = now - MAX_HOLD_HORIZON_MS;
     this.db.prepare("DELETE FROM relay_queue WHERE enqueued_at < ?").run(cutoff);
+  }
+
+  count(toDid: string): number {
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM relay_queue WHERE to_did = ?")
+      .get(toDid) as { n: number | bigint };
+    return Number(row.n);
+  }
+
+  total(): number {
+    const row = this.db.prepare("SELECT COUNT(*) AS n FROM relay_queue").get() as { n: number | bigint };
+    return Number(row.n);
   }
 
   /** Not part of RelayQueueStore (optional) — closes the underlying connection; tests use this between restarts. */

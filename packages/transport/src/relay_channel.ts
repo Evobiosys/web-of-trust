@@ -12,8 +12,10 @@
 //   it is the DeliveryChannel contract's parameter) to a known relay's
 //   ingress endpoint (`POST {endpoint}/relay/send`, RelayServer's default
 //   ingress path). The relay's `submit()` responds SYNCHRONOUSLY with a
-//   SubmitResult ({routed: "live"|"queued"|"rejected"}) in the same HTTP
-//   response — that response IS "the relay's delivery-ack" for this
+//   SubmitResult ({routed: "accepted"|"rejected"} — deliberately collapsed so
+//   the response leaks neither recipient presence nor relay volume; see
+//   relay_server.ts finding 1) in the same HTTP response — that response IS
+//   "the relay's delivery-ack" for this
 //   protocol; there is no separate async ack a submitter waits on (the WS
 //   `ack` frame is recipient -> relay, for queue dequeue, an unrelated
 //   concept). `routed !== "rejected"` resolves; a 404/rejected response, a
@@ -245,9 +247,10 @@ export class RelayChannel implements DeliveryChannel {
 
   /**
    * POST the wire to a known relay's ingress; resolve as soon as one accepts
-   * it (routed "live" or "queued"), reject only once every configured
-   * endpoint has failed (rejected / timed out / unreachable) — see file
-   * header for why the synchronous ingress response IS the delivery-ack.
+   * it (routed "accepted" — the mediator no longer discloses live vs queued),
+   * reject only once every configured endpoint has failed (rejected / timed
+   * out / unreachable) — see file header for why the synchronous ingress
+   * response IS the delivery-ack.
    */
   async deliver(recipientDid: string, wire: string): Promise<void> {
     const errors: string[] = [];
@@ -265,16 +268,21 @@ export class RelayChannel implements DeliveryChannel {
     );
   }
 
-  private async submitOnce(endpoint: string, wire: string): Promise<"live" | "queued" | "rejected"> {
+  private async submitOnce(endpoint: string, wire: string): Promise<"accepted" | "rejected"> {
     const url = new URL(this.ingressPath, endpoint).toString();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.ackTimeoutMs);
     try {
       const res = await fetch(url, { method: "POST", body: wire, signal: controller.signal });
       const body = (await res.json().catch(() => ({}))) as { routed?: string };
+      // The mediator's success response is a single non-informative
+      // `{ routed: "accepted" }` (relay_server.ts finding 1) — it deliberately
+      // no longer distinguishes live vs queued, and deliver() only needs
+      // "did any endpoint accept it?". Any non-"rejected", non-error response
+      // counts as accepted (forward-compatible with the collapsed shape).
       if (res.status === 404 || body.routed === "rejected") return "rejected";
       if (!res.ok) throw new Error(`relay ingress ${url} responded ${res.status}`);
-      return body.routed === "live" ? "live" : "queued";
+      return "accepted";
     } finally {
       clearTimeout(timer);
     }
