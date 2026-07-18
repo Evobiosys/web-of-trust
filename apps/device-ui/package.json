@@ -16,6 +16,7 @@
     "mock:ben": "node mock/mock_server.mjs --persona=ben --port=4102 --scene=0"
   },
   "dependencies": {
+    "@resource-web/app-profiles": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

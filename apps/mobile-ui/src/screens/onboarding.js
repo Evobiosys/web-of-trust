@@ -8,6 +8,7 @@ import { ctx } from "../context.js";
 import { openSheet } from "../sheet.js";
 import { showCoach } from "../coach.js";
 import { applyKeysCopy } from "./settings.js";
+import { onboardingHeading } from "../skin.js";
 
 const VERSE = ["fern", "tambor", "luz", "raíz", "brisa", "canto", "selva", "ámbar", "puente", "cielo", "miel", "danza"];
 /** @type {Record<string, string>} */
@@ -20,7 +21,7 @@ export function onb(step) {
   if (step === "welcome") {
     el.innerHTML =
       '<svg class="foot-svg" viewBox="0 0 48 48"><path d="M20 38c-3 0-5-2.4-5-5.5 0-4.5 3-7.5 3-12C18 14 21 9 26 9s8 5.5 8 11c0 6-3.5 9-6.5 12.5C25.5 35 23 38 20 38z"/><circle cx="16" cy="15" r="1.6"/><circle cx="20" cy="12" r="1.6"/><circle cx="25" cy="10.5" r="1.4"/></svg>' +
-      "<h2>Step onto the floor</h2>" +
+      "<h2>" + onboardingHeading() + "</h2>" +
       "<p>Your identity is created here, on your phone. No account. No one to ask permission.</p>" +
       '<div class="signup-grid" data-anchor="ONB-2">' +
       '<button class="signup-card" id="suQuick2"><b>Quick start</b><small>Keys made and kept in this phone’s secure storage, unlocked by your face or PIN. Nothing to write down.</small></button>' +

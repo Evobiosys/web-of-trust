@@ -1,4 +1,4 @@
-import type { AppProfile } from "./types";
+import type { AppProfile } from "./types.js";
 
 /** Neutral, professional skin for colleagues/acquaintances sharing
  * skills, space and equipment. Hides both `notes` (too informal for this
@@ -51,4 +51,8 @@ export const businessProfile: AppProfile = {
       stewardText: "I have spare equipment (monitor/projector/etc.) to lend",
     },
   ],
+  mobile: {
+    defaultMeetLevel: "Contact",
+    celebrateWord: "Connected.",
+  },
 };

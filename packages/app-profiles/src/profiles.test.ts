@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ALL_PROFILES, getProfile } from "./index";
+import { ALL_PROFILES, getProfile } from "./index.js";
 
 const REQUIRED_IDS = ["ecstatic", "housing", "family", "business"] as const;
 const VALID_ICONS = ["sparkles", "home", "users", "user", "hand-heart"];
@@ -93,5 +93,28 @@ describe("profiles", () => {
     const p = getProfile("business");
     expect(p.defaultPolicy).toEqual({ audience: "trusted", mode: "ask_each_time" });
     expect([...p.hidden].sort()).toEqual(["audit", "notes"]);
+  });
+
+  // --- task-7: optional `mobile` skin field (additive; device-ui ignores it) ---
+
+  it("ecstatic has no `mobile` overrides — mobile-ui's shipped default IS this skin", () => {
+    expect(getProfile("ecstatic").mobile).toBeUndefined();
+  });
+
+  it("housing: mobile skin defaults Discover to Offers with housing chips and FAB label", () => {
+    const m = getProfile("housing").mobile;
+    expect(m?.discoverDefault).toBe("offers");
+    expect(m?.offerChips).toEqual(["Room free", "Couch", "Short stay", "Longer stay"]);
+    expect(m?.hostFabLabel).toBe("＋ Offer housing");
+  });
+
+  it("family: mobile skin defaults the Meet ceremony to Close friend", () => {
+    expect(getProfile("family").mobile?.defaultMeetLevel).toBe("Close friend");
+  });
+
+  it("business: mobile skin defaults to Contact and sobers the celebration copy", () => {
+    const m = getProfile("business").mobile;
+    expect(m?.defaultMeetLevel).toBe("Contact");
+    expect(m?.celebrateWord).toBe("Connected.");
   });
 });

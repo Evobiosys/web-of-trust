@@ -1,4 +1,4 @@
-import type { AppProfile } from "./types";
+import type { AppProfile } from "./types.js";
 
 /** Warm, close-trust skin for a family/household circle. Default policy
  * mode is `auto_forward` — this circle is close enough that per-request
@@ -46,4 +46,7 @@ export const familyProfile: AppProfile = {
     { label: "I'm cooking extra", stewardText: "I'm cooking extra tonight and happy to share a plate" },
     { label: "I have tools to lend", stewardText: "I have household tools I can lend" },
   ],
+  mobile: {
+    defaultMeetLevel: "Close friend",
+  },
 };

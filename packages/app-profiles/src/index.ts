@@ -1,10 +1,10 @@
-import { businessProfile } from "./business";
-import { ecstaticProfile } from "./ecstatic";
-import { familyProfile } from "./family";
-import { housingProfile } from "./housing";
-import type { AppProfile } from "./types";
+import { businessProfile } from "./business.js";
+import { ecstaticProfile } from "./ecstatic.js";
+import { familyProfile } from "./family.js";
+import { housingProfile } from "./housing.js";
+import type { AppProfile } from "./types.js";
 
-export type { AppProfile, SuggestionGroup } from "./types";
+export type { AppProfile, MobileSkin, SuggestionGroup } from "./types.js";
 
 /** All shipped app profiles, ecstatic first (it is also the fallback). */
 export const ALL_PROFILES: AppProfile[] = [ecstaticProfile, housingProfile, familyProfile, businessProfile];
