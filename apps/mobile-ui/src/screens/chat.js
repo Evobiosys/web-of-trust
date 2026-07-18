@@ -102,19 +102,28 @@ export function openThread(id, name) {
     '<div class="grab"></div><h3>' + name + "</h3>" +
       '<div class="meta">End-to-end between the two of you — carried by your own thread.</div>' +
       '<div class="thread-bubs" id="threadBubs">' + bubs + "</div>" +
-      '<input class="msg-input" id="dmInput" placeholder="Message ' + name + '…" aria-label="Message ' + name + '">'
+      '<div style="display:flex; gap:8px; align-items:center">' +
+        '<input class="msg-input" id="dmInput" style="flex:1; margin-top:0" placeholder="Message ' + name + '…" ' +
+        'aria-label="Message ' + name + '" enterkeyhint="send" autocapitalize="sentences">' +
+        '<button class="btn btn-electric btn-sm" id="dmSend" type="button" aria-label="Send">Send</button>' +
+      "</div>"
   );
   const input = /** @type {HTMLInputElement} */ ($("dmInput"));
-  input.onkeydown = (e) => {
-    if (e.key !== "Enter") return;
+  // Send on the button tap (reliable on mobile — on-screen keyboards don't
+  // always fire an Enter keydown) OR the Enter key on a physical keyboard.
+  const send = () => {
     const text = input.value.trim();
     if (!text) return;
     ctx.api.sendDm(id, text);
     input.value = "";
+    input.focus();
     const bubsEl = $("threadBubs");
     const b = document.createElement("div");
     b.className = "bub me";
     b.textContent = text;
     bubsEl.appendChild(b);
+    bubsEl.scrollTop = bubsEl.scrollHeight;
   };
+  $("dmSend").onclick = send;
+  input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); send(); } };
 }
