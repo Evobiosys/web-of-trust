@@ -57,6 +57,27 @@ export type SubmitResult =
   | { routed: "queued"; toDid: string; queueId: string }
   | { routed: "rejected"; reason: string };
 
+/**
+ * How long an opened drain socket has to complete a valid `auth` before the
+ * server closes it. DoS hardening: without this, a client that opens the WS
+ * and receives the nonce challenge but never authenticates would hold the
+ * connection, its ConnState, and the issued nonce open forever, letting an
+ * attacker exhaust server memory/file descriptors with idle sockets.
+ */
+const AUTH_DEADLINE_MS = 5_000;
+
+/**
+ * Hard cap on a single ingress HTTP request body (raw wire bytes). DoS
+ * hardening: `submit`/`handleIngressRequest` runs before any auth check (by
+ * design — ingress is unauthenticated store-and-forward, see file header),
+ * so an unbounded body would let anyone stream arbitrary amounts of data
+ * into this process's memory before a single validity check runs. 128 KiB
+ * comfortably exceeds any real didcomm_crypto.ts EncryptedWire (Ed25519 keys,
+ * a nonce, and ciphertext for chat-sized payloads are all a few KB at most)
+ * while still bounding worst-case memory per request.
+ */
+const MAX_WIRE_BYTES = 128 * 1024;
+
 export interface RelayServerOptions {
   /** Persistence for undelivered wires. Defaults to an in-memory store (lost on restart — pass a SqliteRelayQueueStore for production use). */
   queueStore?: RelayQueueStore;
@@ -64,6 +85,10 @@ export interface RelayServerOptions {
   isRoutable?: (toDid: string) => boolean;
   /** ws ping interval for detecting a dead authenticated drain connection. */
   heartbeatIntervalMs?: number;
+  /** How long an opened drain socket has to complete a valid `auth` before it is closed. Defaults to AUTH_DEADLINE_MS. */
+  authDeadlineMs?: number;
+  /** Max accepted ingress HTTP body size in bytes. Defaults to MAX_WIRE_BYTES. */
+  maxWireBytes?: number;
 }
 
 /** Per-WebSocket connection state. Never exported — internal bookkeeping only. */
@@ -76,6 +101,8 @@ interface ConnState {
   sentPending: Set<string>;
   isAlive: boolean;
   heartbeatTimer?: ReturnType<typeof setInterval>;
+  /** Closes this socket if a valid `auth` hasn't completed by the deadline. Cleared on successful auth and on disconnect. */
+  authDeadlineTimer?: ReturnType<typeof setTimeout>;
 }
 
 /** Shape validated at the JSON layer only; body fields are never trusted before their specific check. */
@@ -90,6 +117,8 @@ export class RelayServer {
   private readonly queueStore: RelayQueueStore;
   private readonly isRoutableCheck: (toDid: string) => boolean;
   private readonly heartbeatIntervalMs: number;
+  private readonly authDeadlineMs: number;
+  private readonly maxWireBytes: number;
 
   /** DID -> its single active authenticated drain socket (a fresh auth for the same DID replaces the prior one). */
   private readonly liveDrains = new Map<string, WebSocket>();
@@ -102,6 +131,8 @@ export class RelayServer {
     this.queueStore = opts.queueStore ?? new InMemoryRelayQueueStore();
     this.isRoutableCheck = opts.isRoutable ?? (() => true);
     this.heartbeatIntervalMs = opts.heartbeatIntervalMs ?? 30_000;
+    this.authDeadlineMs = opts.authDeadlineMs ?? AUTH_DEADLINE_MS;
+    this.maxWireBytes = opts.maxWireBytes ?? MAX_WIRE_BYTES;
   }
 
   // ---- 6a: ingress -------------------------------------------------------
@@ -177,6 +208,16 @@ export class RelayServer {
     this.connState.set(ws, state);
     ws.send(JSON.stringify({ type: "challenge", nonce }));
 
+    // DoS hardening: a socket that opens, gets its challenge, and never
+    // completes a valid `auth` must not hold the connection (and its
+    // ConnState + nonce) open indefinitely. Cleared on successful auth
+    // (handleAuth) and on disconnect (handleClose) — never double-fires.
+    const authDeadlineTimer = setTimeout(() => {
+      if (!state.authenticated) ws.terminate();
+    }, this.authDeadlineMs);
+    authDeadlineTimer.unref?.();
+    state.authDeadlineTimer = authDeadlineTimer;
+
     ws.on("message", (data) => {
       let msg: ClientMessage;
       try {
@@ -230,6 +271,10 @@ export class RelayServer {
     const did = msg.did as string;
     state.authenticated = true;
     state.did = did;
+    if (state.authDeadlineTimer) {
+      clearTimeout(state.authDeadlineTimer);
+      state.authDeadlineTimer = undefined;
+    }
     // One active drain per DID: a fresh, successfully-authenticated connection
     // for the same DID displaces the previous one rather than leaving two
     // sockets racing to drain (and double-deliver) the same queue.
@@ -267,6 +312,7 @@ export class RelayServer {
 
   private handleClose(ws: WebSocket, state: ConnState): void {
     if (state.heartbeatTimer) clearInterval(state.heartbeatTimer);
+    if (state.authDeadlineTimer) clearTimeout(state.authDeadlineTimer);
     if (state.authenticated && state.did && this.liveDrains.get(state.did) === ws) {
       this.liveDrains.delete(state.did);
     }
@@ -316,7 +362,26 @@ export class RelayServer {
       return;
     }
     const chunks: Buffer[] = [];
-    for await (const chunk of req) chunks.push(chunk as Buffer);
+    let received = 0;
+    for await (const chunk of req) {
+      const buf = chunk as Buffer;
+      received += buf.length;
+      if (received > this.maxWireBytes) {
+        // DoS hardening: an unauthenticated submitter must not be able to
+        // force unbounded buffering. Reject immediately — before anything is
+        // parsed or enqueued — once the cap is exceeded. `Connection: close`
+        // (rather than destroying the socket mid-read) lets the 413 response
+        // flush cleanly, then drops the connection instead of trying to
+        // resynchronize on whatever body bytes are still in flight.
+        if (!res.headersSent) {
+          res.writeHead(413, { "content-type": "application/json", connection: "close" });
+          res.end(JSON.stringify({ error: `request body exceeds ${this.maxWireBytes} bytes` }));
+        }
+        req.destroy();
+        return;
+      }
+      chunks.push(buf);
+    }
     const rawWire = Buffer.concat(chunks).toString("utf8");
 
     const result = this.submit(rawWire);

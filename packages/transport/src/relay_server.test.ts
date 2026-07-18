@@ -260,6 +260,44 @@ describe("RelayServer — Task 6b: authenticated drain (spoof rejection)", () =>
   });
 });
 
+describe("RelayServer — DoS hardening: auth deadline + max wire size", () => {
+  it("a drain socket that never completes auth within the deadline is closed by the server", async () => {
+    const { port } = await bootRelay({ authDeadlineMs: 40 });
+
+    // Open the socket and receive the challenge, but never send `auth`.
+    const drain = openDrain(port);
+    await waitForOpen(drain.ws);
+    await drain.challenge;
+    expect(drain.ws.readyState).toBe(WebSocket.OPEN);
+
+    // The auth-deadline timer (not the heartbeat) must reap this idle,
+    // never-authenticated socket.
+    await waitFor(() => drain.ws.readyState === WebSocket.CLOSED, 2000);
+    expect(drain.messages.some((m) => m.type === "auth_ok")).toBe(false);
+  });
+
+  it("a body exceeding MAX_WIRE_BYTES is rejected (413) and nothing is enqueued", async () => {
+    const ben = createIdentity("http://ben.example/didcomm");
+    const { relay, port } = await bootRelay({ maxWireBytes: 1024 });
+
+    const oversized = JSON.stringify({ to: ben.did, ciphertext: "x".repeat(2000) });
+    expect(Buffer.byteLength(oversized, "utf8")).toBeGreaterThan(1024);
+
+    const res = await fetch(`http://127.0.0.1:${port}/relay/send`, { method: "POST", body: oversized });
+    expect(res.status).toBe(413);
+
+    // Nothing was enqueued: an authenticated drain for `ben` sees no wire.
+    const drain = openDrain(port);
+    await waitForOpen(drain.ws);
+    await authenticate(drain, ben);
+    await waitFor(() => drain.messages.some((m) => m.type === "auth_ok"));
+    await new Promise((r) => setTimeout(r, 150));
+    expect(drain.messages.some((m) => m.type === "wire")).toBe(false);
+
+    void relay;
+  });
+});
+
 describe("RelayServer — Task 6c: forward-on-connect, ack, and liveness", () => {
   it("acking a delivered wire removes it from the queue; a second drain (reconnect) does not redeliver it", async () => {
     const anna = createIdentity("http://anna.example/didcomm");
