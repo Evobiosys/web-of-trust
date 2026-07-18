@@ -1,10 +1,27 @@
 // @ts-check
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { resolve, dirname } from "node:path";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mount } from "../test/harness.js";
-import { state } from "../store.js";
+import { resetState, state } from "../store.js";
+import { bootApp } from "../app.js";
+import { buildConnectUrl } from "./connect_url.js";
 
 /** @param {string} id */
 const el = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
+
+const here = dirname(fileURLToPath(import.meta.url));
+const indexHtml = readFileSync(resolve(here, "../../index.html"), "utf8");
+const bodyMatch = indexHtml.match(/<body>([\s\S]*)<\/body>/);
+const BODY = (bodyMatch ? bodyMatch[1] : "").replace(/<script[\s\S]*?<\/script>/g, "");
+
+class NoopWebSocket {
+  constructor() { this.onmessage = null; this.onclose = null; this.onerror = null; }
+  close() {}
+}
+
+async function settle() { for (let i = 0; i < 6; i++) await Promise.resolve(); }
 
 describe("meet ceremony", () => {
   beforeEach(() => { vi.useFakeTimers(); });
@@ -67,5 +84,70 @@ describe("meet ceremony", () => {
     expect(state.met).toBe(true);
     expect(state.unlocked).toBe(false);
     expect(el("celebText").textContent).toContain("contacts");
+  });
+});
+
+describe("meet ceremony — origin's connect-URL QR (Task 2, no camera)", () => {
+  const card = {
+    peer_id: "did:peer:2.Ez6MkAnna",
+    display: "Anna",
+    level_offer_default: "friend",
+    did: "did:peer:2.Ez6MkAnna",
+    endpoint: "http://192.168.1.42:4101/didcomm",
+  };
+
+  beforeEach(() => {
+    resetState();
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      const path = String(url).replace(/^https?:\/\/[^/]+/, "");
+      const payload = path === "/api/card"
+        ? card
+        : { persona: { name: "Anna" }, trust_edges: [], listings_mine: [], listings_received: [], loans: [], threads: [], consent_cards: [], steward_log: [] };
+      return { ok: true, status: 200, text: async () => JSON.stringify(payload) };
+    }));
+    vi.stubGlobal("WebSocket", NoopWebSocket);
+    document.body.innerHTML = BODY;
+  });
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it("shows a 'Show my connect code' disclosure whose link matches buildConnectUrl — no persona param, no camera element added", async () => {
+    const ctx = bootApp({ mode: "live", agentUrl: "http://localhost:4101" });
+    ctx.api.start();
+    await settle();
+
+    ctx.show("meet");
+    await settle();
+
+    const details = el("connectDetails");
+    expect(details).toBeTruthy();
+    expect(el("cerInner").textContent).toContain("Show my connect code");
+    expect(el("cerInner").textContent).toContain(
+      "Let someone new in — they point their camera here and become their own node in your web."
+    );
+
+    const expected = buildConnectUrl(window.location.origin, card, "ecstatic");
+    expect(expected).not.toBeNull();
+    expect(el("connectLinkText").textContent).toBe(expected);
+    expect(String(expected)).not.toContain("persona=");
+
+    // the QR itself is an SVG string (qrcode's toString renderer), not a
+    // camera/video element — no getUserMedia/BarcodeDetector anywhere here.
+    await settle();
+    expect(el("connectQrHolder").querySelector("svg")).toBeTruthy();
+    expect(el("cerInner").querySelector("video")).toBeFalsy();
+  });
+
+  it("Copy link button copies the exact connect URL", async () => {
+    const writeText = vi.fn();
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    const ctx = bootApp({ mode: "live", agentUrl: "http://localhost:4101" });
+    ctx.api.start();
+    await settle();
+    ctx.show("meet");
+    await settle();
+
+    el("copyConnectBtn").click();
+    const expected = buildConnectUrl(window.location.origin, card, "ecstatic");
+    expect(writeText).toHaveBeenCalledWith(expected);
   });
 });

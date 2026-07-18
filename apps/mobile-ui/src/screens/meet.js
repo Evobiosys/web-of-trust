@@ -13,6 +13,8 @@ import { confetti } from "../confetti.js";
 import { showCoach } from "../coach.js";
 import { renderList } from "./discover.js";
 import { levelLabel } from "./web.js";
+import { getRuntimeConfig } from "../runtime_config.js";
+import { buildConnectUrl } from "./connect_url.js";
 
 /**
  * Render a real QR of the compact card JSON into `#qrsvg`, plus a copy-code
@@ -33,6 +35,45 @@ function renderRealCard(card) {
       const nav = /** @type {any} */ (navigator);
       if (nav && nav.clipboard && nav.clipboard.writeText) void nav.clipboard.writeText(payload);
       showCoach("Code copied — paste it into their phone");
+    };
+  }
+}
+
+/**
+ * Task 2 (QR-onboarding): the "bring a fresh device in" affordance. Distinct
+ * from `renderRealCard` above (that one is the in-person, phone-to-phone
+ * card-exchange QR for people who ALREADY have a persona). This one encodes
+ * a plain URL — `<origin>/?connect=<did>&relay=<endpoint>&app=<appId>`, no
+ * `persona` param — so a brand-new device's native camera app can open it
+ * in the browser and land on onboarding. No getUserMedia/BarcodeDetector:
+ * the alpha runs over plain HTTP on a LAN IP, where in-app camera scanning
+ * needs a secure context the alpha doesn't have.
+ * Rendered via `QRCode.toString(..., {type:"svg"})` (a string, not a live
+ * `<canvas>`) — the same choice `renderRealCard` above already made, because
+ * jsdom's canvas has no real 2D context in this test setup (see `fakeQR`'s
+ * guarded `getContext`) and this repo has no optional `canvas` devDependency
+ * to back one. SVG-via-string needs neither.
+ *
+ * Only called by `renderCeremony` when `buildConnectUrl` already produced a
+ * URL (a card with no `did` skips the whole disclosure — see `myConnectUrl`
+ * above — rather than showing a hollow "not available" panel).
+ * @param {string} url - the connect URL from `buildConnectUrl`
+ */
+function renderConnectPanel(url) {
+  const holder = document.getElementById("connectQrHolder");
+  const linkEl = document.getElementById("connectLinkText");
+  const copyBtn = document.getElementById("copyConnectBtn");
+  if (!holder || !linkEl) return;
+  QRCode.toString(url, { type: "svg", margin: 1, width: 180 })
+    .then((svg) => { holder.innerHTML = svg; })
+    .catch(() => { holder.textContent = "QR unavailable — share the link below."; });
+  linkEl.textContent = url;
+  if (copyBtn) {
+    /** @type {HTMLButtonElement} */ (copyBtn).style.display = "";
+    copyBtn.onclick = () => {
+      const nav = /** @type {any} */ (navigator);
+      if (nav && nav.clipboard && nav.clipboard.writeText) void nav.clipboard.writeText(url);
+      showCoach("Link copied — send it however you like");
     };
   }
 }
@@ -114,6 +155,10 @@ export function renderCeremony(step) {
   if (step === "idle") {
     const lv = state.offerLevel;
     const myCard = ctx.api.getState().myCard;
+    // Task 2 (QR-onboarding): only a card with a `did` can build a connect
+    // URL (I1 — never invent a fake one for mock/matrix transport), so the
+    // whole disclosure is absent rather than shown hollow when it can't.
+    const myConnectUrl = myCard ? buildConnectUrl(window.location.origin, myCard, getRuntimeConfig().appId) : null;
     const qrCard = myCard
       ? '<div class="qr-card" data-anchor="CER-3"><div id="qrsvg" style="width:180px;height:180px;display:flex;align-items:center;justify-content:center">…</div></div>' +
         '<button class="btn btn-ghost btn-sm" id="copyCode" style="margin-top:6px">Copy my code</button>'
@@ -150,11 +195,26 @@ export function renderCeremony(step) {
           '<p style="font-size:11px;color:#A78CC9;margin:4px 2px 0">Skippable — everything here can be adjusted per person, later.</p>' +
           "</div>"
         : "") +
-      '<p class="offline-note">Works with no signal. The floor doesn’t need wifi.</p>';
+      '<p class="offline-note">Works with no signal. The floor doesn’t need wifi.</p>' +
+      // Task 2 (QR-onboarding): a SEPARATE affordance from the person-to-person
+      // card exchange above — this one is for bringing a brand-new device (no
+      // persona yet) into the web. Kept behind a <details> disclosure so it
+      // never competes with "Scan theirs instead" in the default view.
+      (myConnectUrl
+        ? '<details class="connect-details" id="connectDetails" data-anchor="CER-5" style="margin-top:16px">' +
+          '<summary class="adv-link" style="cursor:pointer">Show my connect code</summary>' +
+          '<div style="margin-top:10px">' +
+          '<p class="sub">Let someone new in — they point their camera here and become their own node in your web.</p>' +
+          '<div class="qr-card" style="width:180px;height:180px;display:flex;align-items:center;justify-content:center" id="connectQrHolder">…</div>' +
+          '<p class="sub" id="connectLinkText" style="margin-top:8px;word-break:break-all;user-select:all"></p>' +
+          '<button class="btn btn-ghost btn-sm" id="copyConnectBtn" style="margin-top:6px">Copy link</button>' +
+          "</div></details>"
+        : "");
     if (state.chan === "qr") {
       if (myCard) renderRealCard(myCard);
       else fakeQR(/** @type {HTMLCanvasElement} */ ($("qr")));
     }
+    if (myConnectUrl) renderConnectPanel(myConnectUrl);
     el.querySelectorAll(".lvl-pill").forEach((pill) => {
       /** @type {HTMLElement} */ (pill).onclick = () => {
         state.offerLevel = pill.getAttribute("data-l") || "Contact";
