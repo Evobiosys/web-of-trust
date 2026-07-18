@@ -46,7 +46,18 @@
  * @property {boolean} [justUnlocked]
  * @property {boolean} [justHosted]
  * @property {string} [introDone]
+ * @property {PendingMeet} [pendingMeet]
  * @property {ActivityItem[]} activity
+ *
+ * @typedef {Object} MeetCard
+ * @property {string} peer
+ * @property {string} display
+ *
+ * @typedef {Object} PendingMeet
+ * @property {MeetCard} card
+ * @property {string} display
+ * @property {string} initial
+ * @property {string} ctxLabel
  */
 
 /** @returns {AppState} */

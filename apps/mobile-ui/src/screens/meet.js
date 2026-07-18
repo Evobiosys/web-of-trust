@@ -110,11 +110,12 @@ export function renderCeremony(step) {
     $("cancelScan").onclick = () => { renderCeremony("idle"); };
     setTimeout(() => { if (state.screen === "meet") renderCeremony("confirm"); }, reduced ? 400 : 1700);
   } else if (step === "confirm") {
+    const pm = ctx.api.getState().pendingMeet;
     el.innerHTML =
       '<span class="eyebrow">Found someone</span>' +
-      '<div class="big-ava" style="background:' + AVA_GRADS.maria + '">M</div>' +
-      "<h2>Maria</h2>" +
-      '<div class="ctx-chip">☀ Ecstatic Dance Palermo · today</div>' +
+      '<div class="big-ava" style="background:' + (AVA_GRADS[pm.card.peer] || AVA_GRADS.maria) + '">' + pm.initial + "</div>" +
+      "<h2>" + pm.display + "</h2>" +
+      '<div class="ctx-chip">' + pm.ctxLabel + "</div>" +
       '<p class="sub">Is this the person in front of you?</p>' +
       '<div class="lvl-row">' +
       '<button class="lvl-pill" data-l="Contact">Contact</button>' +
@@ -123,7 +124,7 @@ export function renderCeremony(step) {
       "</div>" +
       '<p class="sub" style="margin-top:10px;font-size:11.5px">Contact = cards only, the easy default. You can grow it later.</p>' +
       '<div class="actions">' +
-      '<button class="btn btn-coral" id="confirmBtn" disabled>Yes — this is Maria</button>' +
+      '<button class="btn btn-coral" id="confirmBtn" disabled>Yes — this is ' + pm.display + "</button>" +
       '<button class="btn btn-ghost" id="cancel2">Cancel</button>' +
       "</div>";
     const pills = el.querySelectorAll(".lvl-pill");
@@ -141,6 +142,7 @@ export function renderCeremony(step) {
     $("cancel2").onclick = () => { renderCeremony("idle"); };
     $("confirmBtn").onclick = () => { renderCeremony("weaving"); };
   } else if (step === "weaving") {
+    const pm = ctx.api.getState().pendingMeet;
     el.innerHTML =
       '<span class="eyebrow">One moment</span>' +
       "<h2>Weaving…</h2>" +
@@ -150,14 +152,14 @@ export function renderCeremony(step) {
       '<path d="M5 30 C 60 5, 90 55, 115 30 S 190 5, 225 30" fill="none" stroke="url(#wv)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="300" stroke-dashoffset="300">' +
       (reduced ? "" : '<animate attributeName="stroke-dashoffset" from="300" to="0" dur="1.1s" fill="freeze"/>') +
       "</path></svg>" +
-      '<p class="sub">Maria is confirming you on her phone.</p>';
+      '<p class="sub">' + pm.display + " is confirming you on her phone.</p>";
     setTimeout(() => {
-      ctx.api.addTrust("maria", state.mariaLevel || "Friend");
+      void Promise.resolve(ctx.api.addTrust(pm.card, state.mariaLevel || "Friend"));
       const opens = state.unlocked;
       renderList();
       $("celebText").textContent = opens
-        ? "You and Maria now hold each other’s thread — " + levelLabel().toLowerCase() + "s, at Ecstatic Dance Palermo. Her circle’s Moon Ceremony just opened to you."
-        : "You and Maria now hold each other’s cards — contacts, met at Ecstatic Dance Palermo. Deeper rooms open as you grow closer.";
+        ? "You and " + pm.display + " now hold each other’s thread — " + levelLabel().toLowerCase() + "s, at Ecstatic Dance Palermo. Her circle’s Moon Ceremony just opened to you."
+        : "You and " + pm.display + " now hold each other’s cards — contacts, met at Ecstatic Dance Palermo. Deeper rooms open as you grow closer.";
       $("seeOpened").style.display = opens ? "" : "none";
       ctx.show("celebrate");
       confetti();

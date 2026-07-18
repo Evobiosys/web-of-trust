@@ -25,19 +25,11 @@ export function renderRings() {
   const wrap = $("rings");
   wrap.innerHTML = "";
   const C = 176, R1 = 78, R2 = 142;
+  const rings = ctx.api.getState().rings;
   /** @type {any[]} */
-  const ring1 = [
-    { id: "lucia", n: "Lucía", lvl: "Close friend", deg: 210, offer: "speakers" },
-    { id: "rafa", n: "Rafa", lvl: "Friend", deg: 330 },
-  ];
+  const ring1 = rings.ring1;
   /** @type {any[]} */
-  const ring2 = [{ id: "bruno", n: "Bruno", via: "Lucía", deg: 235, asym: true }];
-  if (state.met) {
-    ring1.push({ id: "maria", n: "Maria", lvl: levelLabel(), deg: 90 });
-    ring2.push({ id: "sofia", n: "Sofía", via: "Maria", deg: 55 });
-    ring2.push({ id: "nico", n: "Nico", via: "Maria", deg: 125 });
-    ring2.push({ anon: true, offer: "a projector", via: "Maria", deg: 160 });
-  }
+  const ring2 = rings.ring2;
   $("webCount").textContent = ring1.length + " connected · " + ring2.length + " beyond";
 
   const svg = document.createElementNS(NS, "svg");
@@ -70,8 +62,8 @@ export function renderRings() {
     const key = n.id || "g" + idx;
     n.key = key;
     pos[key] = polar(C, C, R2, n.deg);
-    const viaId = n.via === "Maria" ? "maria" : "lucia";
-    if (pos[viaId]) thread(pos[viaId][0], pos[viaId][1], pos[key][0], pos[key][1]);
+    const viaId = n.viaId;
+    if (viaId && pos[viaId]) thread(pos[viaId][0], pos[viaId][1], pos[key][0], pos[key][1]);
   });
   wrap.appendChild(svg);
 
@@ -157,8 +149,7 @@ export function renderIntros() {
 function personSheet(n, ring) {
   let html = '<div class="grab"></div><div data-anchor="WEB-2"><h3>' + n.n + "</h3></div>";
   if (ring === 1) {
-    const ctxLine = n.id === "maria" ? "Ecstatic Dance Palermo · today" :
-      n.id === "lucia" ? "Biodanza — Casa Luna · May" : "Ecstatic Dance Palermo · June";
+    const ctxLine = n.ctx || "Ecstatic Dance Palermo · June";
     html +=
       '<div class="meta">' + (n.lvl || levelLabel()) + " · met at " + ctxLine + "</div>" +
       '<div class="path">You ⟷ <b>' + n.n + '</b><br><span style="color:var(--ink-soft)">Connected in person, confirmed both ways — you hold each other’s thread.</span></div>' +
@@ -190,12 +181,7 @@ export function renderPeople() {
   const w = $("pplList");
   w.innerHTML = "";
   /** @type {any[]} */
-  const ppl = [
-    { id: "lucia", n: "Lucía", c: "Biodanza — Casa Luna · May", s: "mutual", sl: "Connected" },
-    { id: "rafa", n: "Rafa", c: "Ecstatic Dance Palermo · June", s: "mutual", sl: "Connected" },
-    { id: "tomas", n: "Tomás", c: "Contact Improv Jam · June", s: "out", sl: "Pending" },
-  ];
-  if (state.met) ppl.unshift({ id: "maria", n: "Maria", c: "Ecstatic Dance Palermo · today", s: "mutual", sl: "Connected" });
+  const ppl = ctx.api.getState().people;
   $("pplCap").textContent = ppl.length + " people, all met in person. Tap anyone for their card.";
   ppl.forEach((p) => {
     const b = document.createElement("button");
