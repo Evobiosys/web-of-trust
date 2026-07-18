@@ -36,7 +36,7 @@ from their `did:peer:2`) only if the relay rung fails.
 
 | Party | Learns |
 |---|---|
-| **Relay/mediator** (when the relay rung is used) | **Metadata only:** the recipient DID (the outer wire's cleartext routing header), the submitter's network address, and message timing. **Never the payload** (it never decrypts — reads only the outer `to`), and **never a `from`** on the outer wire, so it cannot attribute the sender. It also cannot tell a submitter whether a recipient is online (the ingress response is a uniform `accepted`) — **residual: metadata** |
+| **Relay/mediator** (when the relay rung is used) | **Metadata only:** the recipient DID (the outer wire's cleartext routing header), the submitter's network address, and message timing. **Never the payload** (it never decrypts — reads only the outer `to`), and **never a `from`** on the outer wire, so it cannot attribute the sender. A single submit's ingress response is a uniform `accepted` and reveals no presence; a residual, expensive presence signal remains only at the queue-cap boundary (a full-queue rejection differs from `accepted`, costing an attacker ~1000 queued messages for one noisy bit) — **residual: metadata + a costly cap-boundary presence bit** |
 | **Direct POST** (fallback rung) | No third party — sender contacts the recipient's endpoint host directly — **residual: a network observer still sees two IPs exchange traffic** (no onion routing / mixnet in alpha) |
 
 The **honesty caveat** remains that this is DIDComm-v2-*shaped*, not
