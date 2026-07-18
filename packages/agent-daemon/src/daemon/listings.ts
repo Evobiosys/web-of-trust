@@ -97,8 +97,12 @@ export function levelSatisfiesTier(level: TrustLevel, tier: ListingTier): boolea
   }
 }
 
+function isEdgeCurrent(edge: TrustEdge, now: Date): boolean {
+  return new Date(edge.expires_at).getTime() > now.getTime();
+}
+
 function eligibleEdgesForTier(edges: TrustEdge[], tier: ListingTier, now: Date): TrustEdge[] {
-  return edges.filter((e) => new Date(e.expires_at).getTime() > now.getTime() && levelSatisfiesTier(e.level, tier));
+  return edges.filter((e) => isEdgeCurrent(e, now) && levelSatisfiesTier(e.level, tier));
 }
 
 function nextSteps(steps: 1 | 2 | 3): 1 | 2 {
@@ -170,6 +174,17 @@ export async function receiveListing(deps: ListingsDeps, from: string, body: Lis
 
   const existing = deps.store.getReceivedListing(body.listing_id);
   const stateChanged = !existing || existing.state !== body.state;
+
+  // Provenance (via/from_peer) prefers whichever copy has the SHORTER `via`
+  // chain — a direct delivery (via=[]) always wins over a forwarded
+  // duplicate, regardless of arrival order and regardless of whether this
+  // delivery also changes `state` (Finding 1: in an all-to-all mesh, a
+  // forwarded duplicate that arrives after the owner's direct copy must not
+  // demote provenance and break `requestBorrow`'s direct-only guard).
+  const preferExisting = existing !== undefined && existing.via.length <= body.via.length;
+  const via = preferExisting ? existing.via : body.via;
+  const fromPeer = preferExisting ? existing.from_peer : from;
+
   const record: ReceivedListingRecord = {
     listing_id: body.listing_id,
     kind: body.kind,
@@ -180,10 +195,10 @@ export async function receiveListing(deps: ListingsDeps, from: string, body: Lis
     where_gated: body.where_gated,
     tier: body.tier,
     steps: body.steps,
-    via: body.via,
+    via,
     owner_display: body.owner_display,
     state: body.state,
-    from_peer: from,
+    from_peer: fromPeer,
     received_at: deps.clock.now().toISOString(),
     forwarded: stateChanged ? false : (existing?.forwarded ?? false),
   };
@@ -196,6 +211,7 @@ export async function receiveListing(deps: ListingsDeps, from: string, body: Lis
     body.tier !== "close" && // close-tier: inner room, never forwarded, regardless of steps
     body.steps > 1 &&
     senderEdge !== undefined &&
+    isEdgeCurrent(senderEdge, deps.clock.now()) && // Finding 2: expired sender edge -> no forward, same predicate eligibleEdgesForTier uses for targets
     levelSatisfiesTier(senderEdge.level, body.tier);
 
   if (canForward) {
@@ -336,7 +352,16 @@ export async function checkInLoanCompletion(
   return updated;
 }
 
+/** Connected-only, defense in depth (Finding 3, mirrors `receiveDm`): a
+ * stranger with no trust edge could otherwise inject a LOAN envelope and
+ * have a loan row silently created/updated on this persona's side. Unlike
+ * `receiveDm`'s silent drop, this is audit-logged — it's a rejected mutation
+ * attempt against loan state, not just an unsolicited message. */
 export function receiveLoan(deps: ListingsDeps, from: string, body: LoanBody): void {
+  if (!deps.store.getTrustEdge(from)) {
+    logOwner(deps.store, deps.clock, body.loan_id, "loan_dropped_untrusted", `Dropped LOAN envelope from ${from} — no trust edge (connected-only, defense in depth).`);
+    return;
+  }
   const existing = deps.store.getLoan(body.loan_id);
   const nowIso = deps.clock.now().toISOString();
   if (!existing) {
