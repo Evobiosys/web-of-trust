@@ -24,7 +24,7 @@ export interface ConsentCardApiView {
 }
 
 /**
- * D-QR4: a consent-gated CONNECT handshake, owner/new-peer symmetric view.
+ * D18: a consent-gated CONNECT handshake, owner/new-peer symmetric view.
  * An "inbound" card is a pending "let me in" request the local user (origin
  * owner) decides on — full requester context per I4. An "outbound" card is a
  * CONNECT this persona sent and is awaiting an answer on. Neither carries an

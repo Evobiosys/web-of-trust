@@ -408,7 +408,7 @@ export function startServer(daemon: Daemon, port: number, extras: ServerExtras =
       return;
     }
 
-    // --------------------------- Task 4 (D-QR4): inbound CONNECT consent --
+    // --------------------------- Task 4 (D18): inbound CONNECT consent --
     // The origin OWNER's decision on a pending inbound connect card (a new
     // self-sovereign peer that sent a CONNECT). Exact-path routes — they do
     // NOT collide with Task 8's `POST /api/connect` above (that's the QR
@@ -416,7 +416,7 @@ export function startServer(daemon: Daemon, port: number, extras: ServerExtras =
     // forms the edge + sends CONNECT_ACK; decline sends a gentle no. Both
     // surface via the state_changed WS event (daemon.notifyChange), mirroring
     // how resource consent cards surface — there is no dedicated per-card WS
-    // broadcast in this codebase (see DECISIONS D-QR4).
+    // broadcast in this codebase (see DECISIONS D18).
     if (method === "POST" && path === "/api/connect/accept") {
       const body = (await readJsonBody(req)) as { card_id?: string; level?: string };
       if (typeof body.card_id !== "string" || body.card_id.length === 0) {

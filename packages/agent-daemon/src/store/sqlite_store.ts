@@ -628,7 +628,7 @@ export class SqliteStore implements Store {
     return row ? rowToRelayLink(row) : undefined;
   }
 
-  // ----------------------------------------- D-QR4: connect cards --
+  // ----------------------------------------- D18: connect cards --
 
   putConnect(record: ConnectRecord): void {
     this.db.run(

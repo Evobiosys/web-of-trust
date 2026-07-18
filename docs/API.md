@@ -28,7 +28,7 @@ Base URL: `http://localhost:<AGENT_PORT>` (anna 4101, ben 4102, timo 4103). WS a
     "state": "pending" | "consented" | "declined" | "inactive",   // inactive after WITHDRAWN
     "created_at": iso
   } ],
-  "connect_cards": [ {                     // D-QR4: consent-gated CONNECT handshakes (both directions)
+  "connect_cards": [ {                     // D18: consent-gated CONNECT handshakes (both directions)
     "card_id": "…",
     "direction": "inbound" | "outbound",   // inbound = a new peer wants in (owner decides); outbound = a CONNECT I sent
     "peer": { "peer_id": "…", "display": "Anna" },   // the counterparty (I4 owner-side; the origin I chose new-peer-side)
@@ -72,7 +72,7 @@ I9); posting again for an existing peer updates `display`/`level`/`vouched_by` *
 Removes the edge from *this persona's own* trust graph only (D1 §5: individual-scale exclusion, no
 notification to the removed peer, no appeals process). `400` if `peer` is missing.
 
-### Task 4 (D-QR4) — consent-gated inbound CONNECT (origin-node onboarding)
+### Task 4 (D18) — consent-gated inbound CONNECT (origin-node onboarding)
 
 A brand-new self-sovereign peer (a browser that generated its own DID, holding **no** prior trust edge)
 sends a `CONNECT` envelope to an origin it scanned — the ONE inbound envelope the daemon accepts from an
@@ -154,7 +154,7 @@ persisted. `did`/`endpoint` are present only when `TRANSPORT=didcomm` (Task 11's
 Server → client JSON events, each `{ "type": …, …payload }`:
 `state_changed` (no payload — client refetches /api/state) · `steward_reply { text }` · `consent_card { card_id }` · `ask_update { request_id, state }` · `room_message { room_id, from, text, ts }` ·
 `listing { listing_id }` · `loan { loan_id }` · `dm { peer_id }`.
-`state_changed` is the only event the UI strictly needs; the rest are hints. (D-QR4 connect cards
+`state_changed` is the only event the UI strictly needs; the rest are hints. (D18 connect cards
 surface via `state_changed` + `connect_cards[]` — the same way resource consent cards do; the
 `consent_card` hint is declared but not currently broadcast for any card kind.)
 

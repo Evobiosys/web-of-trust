@@ -88,7 +88,7 @@ export interface DuoOptions {
   annaChatClient?: ChatClient;
   benChatClient?: ChatClient;
   /**
-   * D-QR4: whether to seed the mutual Anna<->Ben trust edges. Defaults to
+   * D18: whether to seed the mutual Anna<->Ben trust edges. Defaults to
    * `true` so every existing lifecycle test keeps its pre-connected pair
    * unchanged; the consent-gated CONNECT tests pass `false` to start from a
    * genuinely edge-less pair (a brand-new peer meeting an origin).

@@ -50,7 +50,7 @@ export interface Store {
   putRelayLink(link: RelayLinkRecord): void;
   getRelayLinkByDownstream(downstreamRequestId: string): RelayLinkRecord | undefined;
 
-  // connect cards (D-QR4 consent-gated inbound CONNECT handshake)
+  // connect cards (D18 consent-gated inbound CONNECT handshake)
   putConnect(record: ConnectRecord): void;
   getConnect(cardId: string): ConnectRecord | undefined;
   getConnects(): ConnectRecord[];

@@ -777,7 +777,7 @@ export class Daemon {
     this.notifyChange();
   }
 
-  // -------------------------------------- Task 4 (D-QR4): inbound CONNECT --
+  // -------------------------------------- Task 4 (D18): inbound CONNECT --
 
   /**
    * I9 conservative default: a CONNECT body may WISH for a trust level, but the

@@ -96,13 +96,13 @@ export interface RelayLinkRecord {
   state: RelayLinkState;
 }
 
-// ---------------------------------------------------------------- D-QR4: consent-gated inbound CONNECT --
+// ---------------------------------------------------------------- D18: consent-gated inbound CONNECT --
 
 export type ConnectDirection = "inbound" | "outbound";
 export type ConnectCardState = "pending" | "accepted" | "declined";
 
 /**
- * D-QR4 (Task 4): one side of a consent-gated CONNECT handshake between a
+ * D18 (Task 4): one side of a consent-gated CONNECT handshake between a
  * brand-new self-sovereign peer and an origin it scanned. Kept in its own
  * table (NOT the `incoming` consent-card table) because a connect card has no
  * matched item — the `IncomingRecord`/`ConsentCardApiView` path requires one

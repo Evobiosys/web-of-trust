@@ -60,13 +60,13 @@ export function dmEnvelope(requestId: string, ts: Date, body: DmBody): Envelope 
   return validated({ v: "0.1", type: "DM", request_id: requestId, ts: ts.toISOString(), body });
 }
 
-/** D-QR4: a new peer's "let me in" request to an origin. `request_id` is a
+/** D18: a new peer's "let me in" request to an origin. `request_id` is a
  * fresh uuid the requester mints and the origin echoes in its CONNECT_ACK. */
 export function connectEnvelope(requestId: string, ts: Date, body: ConnectBody): Envelope {
   return validated({ v: "0.1", type: "CONNECT", request_id: requestId, ts: ts.toISOString(), body });
 }
 
-/** D-QR4: the origin's reply — `request_id` echoes the CONNECT it answers. */
+/** D18: the origin's reply — `request_id` echoes the CONNECT it answers. */
 export function connectAckEnvelope(requestId: string, ts: Date, body: ConnectAckBody): Envelope {
   return validated({ v: "0.1", type: "CONNECT_ACK", request_id: requestId, ts: ts.toISOString(), body });
 }

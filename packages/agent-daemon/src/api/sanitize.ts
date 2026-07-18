@@ -96,7 +96,7 @@ export function buildStateSnapshot(persona: { name: string; peer_id: string; acc
     };
   });
 
-  // D-QR4: connect handshakes. Both directions are the persona's OWN
+  // D18: connect handshakes. Both directions are the persona's OWN
   // relationship data — the owner legitimately sees the requester (I4), and a
   // new peer legitimately knows the origin it chose to connect to. No I2
   // asker-blindness concern applies (this is not the resource-request flow).

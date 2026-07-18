@@ -1,4 +1,4 @@
-// Task 4 (D-QR4): consent-gated inbound CONNECT — origin-node onboarding.
+// Task 4 (D18): consent-gated inbound CONNECT — origin-node onboarding.
 // A brand-new self-sovereign peer (Anna, no prior edge) sends CONNECT to an
 // origin (Ben). Ben surfaces a consent card and decides; only on the owner's
 // explicit accept does either side gain a trust edge. Uses the two-daemon
