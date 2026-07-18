@@ -269,3 +269,107 @@ verifier client, specifically to avoid adding an unnecessary second login
 per run. If re-running the suite in a tight loop, expect occasional
 `M_LIMIT_EXCEEDED` and just wait out the backoff — this is homeserver-side
 throttling, orthogonal to whether the transport code itself is correct.
+
+## 10. OpenVTC pillar — DIDComm-shaped transport (Task 11, D12)
+
+`DidCommTransport` is a third `TransportAdapter` implementation (a sibling to
+`MatrixTransport`/`MockTransport`, **not** a replacement — Matrix stays
+drop-in and untouched). It is the project's primary communication pillar:
+peer-to-peer, no homeserver, no mediator, no directory. Files:
+`did_identity.ts`, `didcomm_crypto.ts`, `didcomm_transport.ts`, `vrc.ts`.
+
+### 10.1 Identity — did:peer:2 (`did_identity.ts`)
+
+`createIdentity(endpoint)` mints a `did:peer:2` encoding, inline, exactly three
+elements in a fixed (deterministic) order:
+
+- `.V<multibase>` — an **Ed25519** verification key (authentication / signatures)
+- `.E<multibase>` — an **X25519** key-agreement key (ECDH encryption)
+- `.S<base64url>` — a DIDCommMessaging service block `{"t":"dm","s":"<endpoint>","a":["didcomm/v2"]}`
+
+`<multibase>` is base58btc-multibase over the multicodec-prefixed raw public
+key (`0xed01` for Ed25519, `0xec01` for X25519) — the same `z6Mk…`/`z6LS…`
+form `did:key` uses. `resolveDidPeer(did)` is a **pure, local** decode (no
+network, no ledger). The service endpoint is this daemon's own
+`http://<host>:<agentPort>/didcomm`.
+
+### 10.2 Message security (`didcomm_crypto.ts`)
+
+Sign-then-encrypt, so authorship is confidential:
+
+1. Serialize the JWM-shaped message to exact bytes; **Ed25519-sign** those bytes.
+2. Wrap `{ payload, sig, from: senderDid }` — the signature and the sender DID
+   live **inside** what gets encrypted.
+3. **X25519 ECDH-ES**: fresh ephemeral sender key × recipient static key-
+   agreement key → shared secret → **HKDF-SHA256** (info binds alg + recipient
+   DID + ephemeral pubkey) → 32-byte key.
+4. **XChaCha20-Poly1305** AEAD with a fresh random 24-byte nonce (never reused),
+   transmitted alongside the ciphertext.
+
+On receipt: decrypt → resolve the sender DID's Ed25519 key → verify the
+signature over the **exact transmitted bytes** → assert the signed message's
+`from` equals that DID (**from-binding**). Any failure = drop + audit-log,
+never a partial. Replay protection: a small in-memory window keyed on the
+**signed** message id + `created_time` (reject duplicates, too-old, or
+future-dated). The outer wire deliberately does **not** contain the sender DID.
+
+### 10.3 Rooms
+
+DIDComm has no native rooms. `createSharedRoom` mints a `uuid` and fans a
+`ROOM_CREATE` control message to every member (so each peer's transport learns
+membership); room chat then fans out member-to-member as encrypted
+`room-message` JWMs. This mirrors agent-daemon's `RoomMessagingTransport`
+extension **structurally** (duck-typed via `hasRoomMessaging`), so no
+`agent-daemon` import is introduced.
+
+### 10.4 VRCs (`vrc.ts`)
+
+Each side can issue an Ed25519-signed, W3C-VC-shaped `RelationshipCredential`
+about a peer DID. `verifyVrc` recovers the issuer key from its `did:peer:2` and
+checks the signature over the canonical, proof-stripped credential, binding
+`proof.verificationMethod` to the issuer.
+
+**Issuance timing (alpha):** VRCs are issued **on demand at export time** from
+the daemon's **current, non-expired** trust edges — they are **not** persisted,
+and there is no issue-and-store step on trust-edge creation. (Storing on
+creation would mean writing through `daemon.ts`/`store`, owned by other tasks;
+issuing at export keeps this task's daemon footprint additive.) Served at
+`GET /api/trust/export?format=vrc`.
+
+### 10.5 HONEST LABELING (I7) — how this deviates from the RFCs
+
+This is **DIDComm v2-SHAPED, not certified-interoperable**, and the VRCs are
+**self-asserted pairwise**. It will **not** interoperate with a conformant
+DIDComm agent or a conformant W3C-VC processor. Precise deviations:
+
+- **Not JWE/JWM on the wire.** We use a bespoke compact JSON envelope
+  (`{typ,alg,epk,nonce,ciphertext,to}`) and `alg:"ECDH-ES+XC20P"`, not the
+  RFC's JWE JSON serialization, protected headers, or the DIDComm
+  `application/didcomm-encrypted+json` media type. `type` values are
+  `https://didcomm.org/resource-web/2.0/*` app URIs, not registered protocols.
+- **did:peer:2 is shaped, not certified.** Element/purpose codes and multicodec
+  key encoding are implemented and the encode↔decode round-trip is exact, but
+  interop with other did:peer implementations is untested/unclaimed. Unknown
+  purpose codes are ignored (forward-compat), and only the `V`/`E`/`S` set is emitted.
+- **VRC proof is `Ed25519Signature2020`-shaped, not Data-Integrity.** We
+  canonicalize by deterministic key-sorted JSON, **not** JSON-LD URDNA2015, and
+  there is no `@context` dereferencing, no revocation/status list, no witness.
+  A `verifyVrc → valid:true` means "this issuer really signed this", **not** "a
+  witness attests the relationship". Keyring-wallet / OpenVTC witnessing is future work.
+  VRCs are **issued on demand at export time** from current non-expired trust
+  edges and **not persisted** — there is no issue-and-store on edge creation
+  (see §10.4).
+- **Replay window + secret storage are alpha-grade.** The dedup cache is
+  in-memory and per-instance; identity secret keys are persisted as **plaintext**
+  base64 JSON at `DID_IDENTITY_PATH` (file mode `0600`). A production build must
+  move secrets into an OS keystore / encrypted wallet and persist the replay
+  window. Key-material bytes are never logged.
+
+### 10.6 Daemon wiring
+
+`TRANSPORT=didcomm` (config: `DID_IDENTITY_PATH`, `DIDCOMM_HOST`) loads/creates
+the identity, uses the **DID as the peer id** (a DID is a valid `PeerId`; no
+schema change), and mounts — additively, without touching `daemon.ts` —
+`POST /didcomm` (inbound) and `GET /api/trust/export?format=vrc` on the API
+server. The meet-card payload (`getCardPayload(identity, display)`) gains
+`did` + `endpoint`; wiring that into `/api/card` (Task 5) happens at integration.

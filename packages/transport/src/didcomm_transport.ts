@@ -1,0 +1,287 @@
+// DidCommTransport — a DIDComm-v2-SHAPED TransportAdapter over plain HTTP.
+//
+// The OpenVTC pillar's peer-to-peer transport. Every message is sign-then-
+// encrypted (see didcomm_crypto.ts) and POSTed directly to the recipient's
+// service endpoint (resolved from their did:peer:2 — no homeserver, no
+// mediator, no directory). This is the metadata-privacy win over Matrix: there
+// is no third party that sees who talks to whom (PRIVACY.md).
+//
+// HONEST LABELING (I7): "DIDComm v2-shaped, not certified-interoperable yet".
+// We reuse DIDComm's concepts (DIDs, JWM-shaped messages, ECDH-ES + AEAD,
+// sign-then-encrypt) but NOT its exact JWE/JWM serialization, so this will not
+// interoperate with a conformant DIDComm agent. docs/TRANSPORT.md lists the
+// deviations precisely.
+//
+// Rooms: DIDComm has no native rooms, so `createSharedRoom` mints a uuid and
+// fans a ROOM_CREATE control message to every member (so each peer's transport
+// learns the membership); room chat then fans out member-to-member. This
+// mirrors agent-daemon's RoomMessagingTransport extension structurally (it is
+// duck-typed via `hasRoomMessaging`), so no agent-daemon import is needed.
+import { parseEnvelope, serializeEnvelope } from "@resource-web/protocol";
+import type { Envelope, PeerId, RoomContext, TransportAdapter, TransportConfig } from "@resource-web/protocol";
+import { v4 as uuidv4 } from "uuid";
+import type { Identity } from "./did_identity.js";
+import { resolveDidPeer } from "./did_identity.js";
+import { packMessage, unpackMessage, type JwmMessage } from "./didcomm_crypto.js";
+
+// JWM `type` discriminators (DIDComm-shaped app-protocol URIs).
+export const ENVELOPE_TYPE = "https://didcomm.org/resource-web/2.0/envelope";
+export const ROOM_MESSAGE_TYPE = "https://didcomm.org/resource-web/2.0/room-message";
+export const ROOM_CREATE_TYPE = "https://didcomm.org/resource-web/2.0/room-create";
+
+/** Structurally compatible with agent-daemon's RoomMessage (duck-typed; no cross-package import). */
+export interface RoomMessage {
+  room_id: string;
+  from: PeerId;
+  text: string;
+  ts: string;
+}
+
+type EnvelopeListener = (from: PeerId, env: Envelope) => void;
+type RoomMessageListener = (msg: RoomMessage) => void;
+
+/** Injectable transport for tests; defaults to global fetch. Throws on non-2xx. */
+export type HttpPost = (url: string, body: string) => Promise<void>;
+
+const defaultHttpPost: HttpPost = async (url, body) => {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+  });
+  if (!res.ok) {
+    throw new Error(`DidCommTransport: POST ${url} failed with ${res.status}`);
+  }
+  // Drain the body so the socket can be reused/closed.
+  await res.text().catch(() => undefined);
+};
+
+// Replay-protection window: messages older than this (or duplicate ids within
+// it) are rejected. Small, in-memory, per-instance — sufficient for alpha; a
+// production build would persist this and widen clock-skew handling.
+const REPLAY_WINDOW_MS = 5 * 60_000;
+const FUTURE_SKEW_MS = 60_000;
+
+export interface DidCommTransportOptions {
+  httpPost?: HttpPost;
+}
+
+export class DidCommTransport implements TransportAdapter {
+  private readonly listeners: EnvelopeListener[] = [];
+  private readonly roomListeners: RoomMessageListener[] = [];
+  private readonly rooms = new Map<string, PeerId[]>();
+  private readonly seen = new Map<string, number>(); // message id -> created_time
+  private readonly httpPost: HttpPost;
+  private self: PeerId | undefined;
+
+  constructor(private readonly identity: Identity, opts: DidCommTransportOptions = {}) {
+    this.httpPost = opts.httpPost ?? defaultHttpPost;
+  }
+
+  async init(cfg: TransportConfig): Promise<void> {
+    // The daemon addresses peers by DID; self MUST be this identity's DID.
+    if (cfg.self && cfg.self !== this.identity.did) {
+      throw new Error(
+        `DidCommTransport.init: cfg.self (${cfg.self}) does not match the loaded identity DID. ` +
+          "Set PEER_ID to the identity DID (main.ts does this for TRANSPORT=didcomm)."
+      );
+    }
+    this.self = this.identity.did;
+  }
+
+  private requireSelf(): PeerId {
+    if (!this.self) throw new Error("DidCommTransport used before init()");
+    return this.self;
+  }
+
+  private async deliver(recipientDid: string, message: JwmMessage): Promise<void> {
+    const endpoint = resolveDidPeer(recipientDid).serviceEndpoint;
+    const wire = packMessage({ sender: this.identity, recipientDid, message });
+    await this.httpPost(endpoint, wire);
+  }
+
+  private buildMessage(type: string, to: string, body: unknown): JwmMessage {
+    return {
+      id: uuidv4(),
+      type,
+      from: this.identity.did,
+      to: [to],
+      created_time: Date.now(),
+      body,
+    };
+  }
+
+  async send(peer: PeerId, env: Envelope): Promise<void> {
+    this.requireSelf();
+    // Validate/normalize through the protocol serializer, then carry the
+    // parsed object as the JWM body (re-validated on the far side).
+    const normalized = JSON.parse(serializeEnvelope(env)) as unknown;
+    await this.deliver(peer, this.buildMessage(ENVELOPE_TYPE, peer, normalized));
+  }
+
+  onEnvelope(cb: EnvelopeListener): void {
+    this.listeners.push(cb);
+  }
+
+  async createSharedRoom(peers: PeerId[], _context: RoomContext): Promise<{ room_id: string }> {
+    void _context;
+    const self = this.requireSelf();
+    const room_id = uuidv4();
+    const members = [...peers];
+    this.rooms.set(room_id, members);
+    // Fan a ROOM_CREATE control message so every other member's transport
+    // learns the membership and can itself fan out room chat later.
+    await Promise.all(
+      members
+        .filter((m) => m !== self)
+        .map((m) => this.deliver(m, this.buildMessage(ROOM_CREATE_TYPE, m, { room_id, members })))
+    );
+    return { room_id };
+  }
+
+  // ---- RoomMessagingTransport (duck-typed extension; see hasRoomMessaging) --
+
+  async sendRoomMessage(msg: RoomMessage): Promise<void> {
+    const self = this.requireSelf();
+    const members = this.rooms.get(msg.room_id) ?? [];
+    await Promise.all(
+      members
+        .filter((m) => m !== self && m !== msg.from)
+        .map((m) => this.deliver(m, this.buildMessage(ROOM_MESSAGE_TYPE, m, msg)))
+    );
+  }
+
+  onRoomMessage(cb: RoomMessageListener): void {
+    this.roomListeners.push(cb);
+  }
+
+  // ---- inbound ----------------------------------------------------------
+
+  /**
+   * Decrypt + verify one inbound wire message and dispatch it. Mounted by the
+   * daemon at `POST /didcomm`. Never throws the daemon's cascade back to the
+   * HTTP caller: on success it fires listeners and returns; on any crypto /
+   * validation / replay failure it logs (audit wiring is another task) and
+   * throws so the HTTP layer can answer 4xx. Returns without awaiting the
+   * daemon's downstream processing.
+   */
+  async receiveInbound(rawBody: string): Promise<void> {
+    let from: string;
+    let message: JwmMessage;
+    try {
+      ({ from, message } = unpackMessage({ recipient: this.identity, wire: rawBody }));
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`[didcomm] rejected inbound message: ${(err as Error).message}`);
+      throw err;
+    }
+
+    // Replay protection — keyed on the SIGNED message id, so only
+    // authenticated messages can populate the cache.
+    const now = Date.now();
+    this.pruneSeen(now);
+    if (typeof message.created_time !== "number" || message.created_time < now - REPLAY_WINDOW_MS) {
+      const reason = "message too old / missing created_time (replay window)";
+      // eslint-disable-next-line no-console
+      console.error(`[didcomm] rejected inbound from ${from}: ${reason} (id=${message.id})`);
+      throw new Error(`[didcomm] ${reason}`);
+    }
+    if (message.created_time > now + FUTURE_SKEW_MS) {
+      // eslint-disable-next-line no-console
+      console.error(`[didcomm] rejected inbound from ${from}: created_time in the future (id=${message.id})`);
+      throw new Error("[didcomm] created_time in the future");
+    }
+    if (this.seen.has(message.id)) {
+      // eslint-disable-next-line no-console
+      console.error(`[didcomm] rejected duplicate inbound from ${from} (id=${message.id})`);
+      throw new Error("[didcomm] duplicate message id (replay)");
+    }
+    this.seen.set(message.id, message.created_time);
+
+    this.dispatch(from, message);
+  }
+
+  private dispatch(from: string, message: JwmMessage): void {
+    switch (message.type) {
+      case ENVELOPE_TYPE: {
+        let env: Envelope;
+        try {
+          env = parseEnvelope(JSON.stringify(message.body));
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error(`[didcomm] dropped unparseable envelope from ${from}: ${(err as Error).message}`);
+          return;
+        }
+        for (const l of this.listeners) l(from, env);
+        return;
+      }
+      case ROOM_MESSAGE_TYPE: {
+        const msg = message.body as RoomMessage;
+        if (!msg || typeof msg.room_id !== "string" || typeof msg.text !== "string" || typeof msg.from !== "string") {
+          // eslint-disable-next-line no-console
+          console.error(`[didcomm] dropped malformed room message from ${from}`);
+          return;
+        }
+        // I6: `msg.from` is an attacker-controlled body field — the only
+        // trustworthy sender identity is the cryptographically authenticated
+        // `from` from receiveInbound(). A mismatch is evidence of tampering
+        // (e.g. a consented room member forging attribution to someone else),
+        // so we reject rather than silently trust or silently relabel it.
+        if (msg.from !== from) {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[didcomm] rejected room message: body.from (${msg.from}) does not match authenticated sender (${from})`
+          );
+          return;
+        }
+        for (const l of this.roomListeners) l(msg);
+        return;
+      }
+      case ROOM_CREATE_TYPE: {
+        const body = message.body as { room_id?: string; members?: PeerId[] };
+        if (typeof body.room_id !== "string" || !Array.isArray(body.members)) {
+          // eslint-disable-next-line no-console
+          console.error(`[didcomm] dropped malformed ROOM_CREATE from ${from}`);
+          return;
+        }
+        // The authenticated sender must claim membership in the room it is
+        // announcing — otherwise anyone could mint/redefine rooms they have
+        // no part in.
+        if (!body.members.includes(from)) {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[didcomm] rejected ROOM_CREATE for room ${body.room_id}: authenticated sender ${from} is not in the member list`
+          );
+          return;
+        }
+        const existing = this.rooms.get(body.room_id);
+        if (existing) {
+          // Known room: only an existing member may redefine membership, and
+          // only if the new list still includes this device — otherwise a
+          // member who merely knows the room_id could partition/hijack it.
+          const senderIsExistingMember = existing.includes(from);
+          const selfStillMember = this.self !== undefined && body.members.includes(this.self);
+          if (!senderIsExistingMember || !selfStillMember) {
+            // eslint-disable-next-line no-console
+            console.error(
+              `[didcomm] rejected ROOM_CREATE for known room ${body.room_id} from ${from}: not an existing member, or new member list would drop the local DID`
+            );
+            return;
+          }
+        }
+        this.rooms.set(body.room_id, body.members);
+        return;
+      }
+      default:
+        // Unknown app type — ignore silently (forward-compat), like MatrixTransport.
+        return;
+    }
+  }
+
+  private pruneSeen(now: number): void {
+    const cutoff = now - REPLAY_WINDOW_MS;
+    for (const [id, t] of this.seen) {
+      if (t < cutoff) this.seen.delete(id);
+    }
+  }
+}
