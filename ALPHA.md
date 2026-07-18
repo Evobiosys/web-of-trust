@@ -83,6 +83,23 @@ boot.
 
 ## Troubleshooting
 
+- **Phones can't connect / ERR_EMPTY_RESPONSE** — `pnpm alpha` now runs a
+  firewall/reachability preflight right before printing join URLs
+  (`scripts/alpha_preflight.sh`): it curls the host's own LAN IP and warns
+  (⚠️, non-fatal — URLs print regardless) if that path is blocked while
+  `127.0.0.1` still works. That signature means the macOS Application
+  Firewall (or LuLu) is resetting incoming connections to node on the LAN
+  interface even though the server is genuinely up. The preflight prints the
+  exact remediation commands (with your real node path substituted) when it
+  fires — `sudo socketfilterfw --unblockapp "<node path>"`, turning off
+  stealth mode, the GUI path (System Settings → Network → Firewall →
+  Options…), or disabling the Firewall for the demo. It also flags LuLu if
+  running, since LuLu can reset this same host-side self-test even when
+  phones connect fine — if a phone already loads the app despite the
+  warning, treat it as a LuLu false positive on the host, not a real block.
+  Run `scripts/alpha_preflight.sh <HOST_IP> <PORT>` standalone to re-check
+  without restarting the whole stack. Note the block is keyed to the exact
+  node binary path including version, so a `brew upgrade node` re-blocks it.
 - **macOS asks "Do you want the application node to accept incoming network
   connections?"** — click **Allow**. This is normal the first time each
   agent-daemon binds a listening socket; if you click Deny, that persona's

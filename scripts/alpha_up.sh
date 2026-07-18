@@ -172,6 +172,13 @@ else
 fi
 echo "--------"
 
+# Firewall/reachability preflight: catches the macOS Application Firewall (or
+# LuLu) silently blocking incoming connections to node's LAN-bound socket —
+# servers look "up" here but a phone gets ERR_EMPTY_RESPONSE / connection
+# reset. Non-fatal by construction (see scripts/alpha_preflight.sh) — warns
+# and we still print join URLs below either way.
+bash "$ROOT_DIR/scripts/alpha_preflight.sh" "$HOST_IP" "$MOBILE_PORT" || true
+
 echo "join URLs (same WiFi required):"
 echo "--------"
 jq -c '.[]' "$PERSONAS_FILE" | while read -r row; do
