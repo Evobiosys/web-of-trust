@@ -35,3 +35,12 @@ matrix-bot-sdk's `@matrix-org/matrix-sdk-crypto-nodejs` has no published binary 
 
 ### D9 — UI investment capped (Jakob, mid-sprint)
 Jakob already has a UI for something else; this sprint's UI stays minimal — good enough for the §2 snapshot gallery only. No further UI polish loops; in-flight error-handling fix is the last UI change. Long-term, the daemon's REST/WS API (docs/API.md) is the reusable surface for whatever UI Jakob adopts.
+
+### D10 — App profiles are client-side skins; daemon defaults stay conservative (I9)
+Task 3 introduced `AppProfile` (ecstatic/housing/family/business): copy, theme, suggestion chips, quick-adds, hidden panes, and a `defaultPolicy` *indicator*. The profile's defaultPolicy is presentation only — the daemon keeps I9 server-side defaults (`ask_each_time`, `audience: trusted`, +1y expiry) regardless of skin. Per-item policy editing driven by profile defaults: FUTURE.md.
+
+### D11 — UX version of truth = Zach's mobile mockup (v6 file, named v7 by Jakob)
+`reference/zach-mockup-v7.html` (from /Users/personal/Desktop/index.html, 2026-07-18) supersedes the synchrolabs reference as the UI spec; ported as `apps/mobile-ui` (vanilla JS, fixture→live ApiClient). The `consensual/ecstatic-world` branch `zach/mockup` is auth-inaccessible from this machine (private org repo, no non-interactive credentials); if it diverges from the Desktop file, re-sync when Jakob provides access. Mockup hard rules adopted as binding: private=invisible (never locked), no scores/ratings (matches Anton's skepticism of attestation-reputation, Tana 2026-07-17), no automated-system wording, asymmetry always labeled.
+
+### D12 — Priority order (Jakob, 2026-07-18 night): Zach UX > chats > agents > Matrix; OpenVTC before Matrix
+OpenVTC pillar gets built now (DID identities, DIDComm v2 transport behind the frozen TransportAdapter seam, trust edges as signed VRC-shaped credentials). MatrixTransport (already implemented, M2-T) stays in-tree as the secondary path — bridge-to-WhatsApp vision (message-first, no-install onboarding via bridged group chats with a private agent; Tana 2026-07-17 "message-then-dashboard") lands after OpenVTC. Agent-daemon input stays modeled as message events so a Matrix/WhatsApp bot surface needs no daemon changes.
