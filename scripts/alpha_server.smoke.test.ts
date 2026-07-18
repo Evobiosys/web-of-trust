@@ -14,9 +14,8 @@
 //   2. Anna publishes a trusted-tier listing -> it appears in Ben's
 //      GET /api/listings `received` array (all-to-all "friend" trust is
 //      seeded by bootPersonas, which satisfies the "trusted" tier).
-//   3. Ben borrows it -> Anna's state shows the loan (owner side) — both
-//      `loans` and `/api/audit` are checked, since the task brief allows
-//      either "loan or activity" as evidence.
+//   3. Ben borrows it -> Anna's state shows the loan (owner side) — the
+//      `loans` array is asserted as the evidence.
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
