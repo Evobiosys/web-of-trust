@@ -12,7 +12,7 @@ import { show } from "./nav.js";
 import { openSheet, closeSheet, initSheet } from "./sheet.js";
 import { initSpec } from "./spec_mode.js";
 import { initCoach } from "./coach.js";
-import { updateBell, renderActivity, openThread } from "./screens/chat.js";
+import { updateBell, renderActivity, renderChat, refreshOpenThread, openThread } from "./screens/chat.js";
 import { renderOffers, initDiscover } from "./screens/discover.js";
 import { renderYou, initYou } from "./screens/you.js";
 import { initMeet } from "./screens/meet.js";
@@ -33,9 +33,12 @@ export function bootApp(opts = {}) {
   // Targeted refresh: bell always; the active data screen re-renders.
   function refresh() {
     updateBell();
-    if (state.screen === "chat") renderActivity();
+    if (state.screen === "chat") renderChat();
     else if (state.screen === "discover") renderOffers();
     else if (state.screen === "you") renderYou();
+    // An open DM sheet re-renders regardless of the screen beneath it, so a
+    // message arriving while you read the thread shows up live.
+    refreshOpenThread();
   }
   ctx.refresh = refresh;
   subscribe(refresh);

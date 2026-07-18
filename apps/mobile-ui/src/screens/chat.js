@@ -7,6 +7,25 @@ import { AVA_GRADS } from "../avatars.js";
 import { ctx } from "../context.js";
 import { openSheet } from "../sheet.js";
 
+/** The DM thread currently open in the sheet, so a live update (WS → refresh)
+ * can re-render its bubbles in place. Null when no thread sheet is open. */
+let openThreadId = /** @type {string | null} */ (null);
+
+/**
+ * Re-render the OPEN DM thread's bubbles from current state, so a message that
+ * arrives while you're reading the thread shows up live. No-op if no thread
+ * sheet is open (the `#threadBubs` element is absent once the sheet closes).
+ */
+export function refreshOpenThread() {
+  const bubsEl = document.getElementById("threadBubs");
+  if (!bubsEl || !openThreadId) return;
+  const s = ctx.api.getState();
+  bubsEl.innerHTML = (s.threads[openThreadId] || [])
+    .map((m) => '<div class="bub ' + m[0] + '">' + m[1] + "</div>")
+    .join("");
+  bubsEl.scrollTop = bubsEl.scrollHeight;
+}
+
 /** Update every bell badge from the count of activity items awaiting me. */
 export function updateBell() {
   const s = ctx.api.getState();
@@ -74,6 +93,7 @@ export function renderChat() {
  * @param {string} name
  */
 export function openThread(id, name) {
+  openThreadId = id;
   const s = ctx.api.getState();
   const bubs = (s.threads[id] || [])
     .map((m) => '<div class="bub ' + m[0] + '">' + m[1] + "</div>")
