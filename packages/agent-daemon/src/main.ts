@@ -3,9 +3,19 @@
 // (docs/API.md's table), wires the transport factory (TRANSPORT=mock|matrix
 // — the ONLY place @resource-web/transport may be imported, per the brief),
 // loads trusted_peers.json + optional fixtures, and starts the REST/WS server.
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { TrustEdgeSchema, ItemSchema, type TransportAdapter } from "@resource-web/protocol";
-import { loadConfig } from "./config.js";
+import {
+  DidCommTransport,
+  createIdentity,
+  serializeIdentity,
+  deserializeIdentity,
+  issueVrc,
+  type Identity,
+  type VerifiableRelationshipCredential,
+} from "@resource-web/transport";
+import { loadConfig, type EnvConfig } from "./config.js";
 import { SqliteStore } from "./store/sqlite_store.js";
 import { SystemClock, RealScheduler } from "./clock.js";
 import { InMemoryBus, InMemoryTransport } from "./transport/in_memory_transport.js";
@@ -23,15 +33,46 @@ import { startServer } from "./api/server.js";
  * a real class yet. Rather than guess at its shape, this throws a clear,
  * actionable error; integration happens at merge (see docs/DAEMON.md).
  */
-function createTransport(transport: "mock" | "matrix"): TransportAdapter {
-  if (transport === "mock") {
-    return new InMemoryTransport(new InMemoryBus());
+/**
+ * Loads the did:peer:2 identity from `path`, minting + persisting a fresh one
+ * if the file does not exist. Alpha: secret keys are stored as plaintext JSON
+ * (documented in docs/TRANSPORT.md); a production build must use a keystore.
+ */
+function loadOrCreateIdentity(path: string, endpoint: string): Identity {
+  if (existsSync(path)) {
+    return deserializeIdentity(readFileSync(path, "utf8"));
   }
-  // TODO(merge): import { MatrixTransport } from "@resource-web/transport" once
-  // that package exports it, and construct it here with the MATRIX_* env vars.
+  const identity = createIdentity(endpoint);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, serializeIdentity(identity), { encoding: "utf8", mode: 0o600 });
+  return identity;
+}
+
+/**
+ * Transport factory. TRANSPORT=mock -> in-process InMemoryTransport (I5 proof).
+ * TRANSPORT=didcomm -> DidCommTransport (OpenVTC pillar): loads/creates the
+ * DID identity, advertises this daemon's own http://host:port/didcomm inbound
+ * endpoint, and returns the identity so main() can (a) use the DID as the peer
+ * id and (b) mount the inbound handler + VRC export on the API server.
+ * TRANSPORT=matrix remains a sibling worktree's wiring (unchanged).
+ */
+function createTransport(cfg: EnvConfig): { transport: TransportAdapter; identity?: Identity } {
+  if (cfg.transport === "mock") {
+    return { transport: new InMemoryTransport(new InMemoryBus()) };
+  }
+  if (cfg.transport === "didcomm") {
+    if (!cfg.didIdentityPath) {
+      throw new Error("TRANSPORT=didcomm requires DID_IDENTITY_PATH (path to the did:peer:2 identity file).");
+    }
+    const endpoint = `http://${cfg.didcommHost}:${cfg.agentPort}/didcomm`;
+    const identity = loadOrCreateIdentity(cfg.didIdentityPath, endpoint);
+    return { transport: new DidCommTransport(identity), identity };
+  }
+  // TODO(merge): import { MatrixTransport } from "@resource-web/transport" and
+  // construct it here with the MATRIX_* env vars (sibling worktree owns this).
   throw new Error(
-    "TRANSPORT=matrix is not yet wired: @resource-web/transport does not export a MatrixTransport in this worktree. " +
-      "Use TRANSPORT=mock until the transport package lands (see docs/DAEMON.md, 'Transport factory')."
+    "TRANSPORT=matrix is not yet wired in this worktree. Use TRANSPORT=mock or TRANSPORT=didcomm " +
+      "(see docs/DAEMON.md, 'Transport factory')."
   );
 }
 
@@ -54,9 +95,14 @@ async function main(): Promise<void> {
     }
   }
 
+  const { transport, identity } = createTransport(cfg);
+
+  // For didcomm, the DID is the canonical peer id (a DID is a valid PeerId).
+  const peerId = cfg.transport === "didcomm" && identity ? identity.did : cfg.peerId;
+
   const daemonConfig: DaemonConfig = {
     personaName: cfg.personaName,
-    peerId: cfg.peerId,
+    peerId,
     accent: cfg.accent,
     statusDelayMs: cfg.statusDelayMs,
     defaultAskTtlMs: cfg.defaultAskTtlMs,
@@ -67,7 +113,7 @@ async function main(): Promise<void> {
   const daemon = new Daemon({
     config: daemonConfig,
     store,
-    transport: createTransport(cfg.transport),
+    transport,
     scheduler: new RealScheduler(clock),
     clock,
     embedClient: new OllamaEmbedClient({ baseUrl: cfg.ollamaUrl }),
@@ -75,7 +121,20 @@ async function main(): Promise<void> {
   });
 
   await daemon.init();
-  const server = await startServer(daemon, cfg.agentPort);
+
+  // DIDComm inbound handler + VRC export, wired without touching daemon.ts
+  // (other agents own daemon internals). Both are no-ops for non-didcomm.
+  const didcommTransport = transport instanceof DidCommTransport ? transport : undefined;
+  const server = await startServer(daemon, cfg.agentPort, {
+    didcommInbound: didcommTransport ? (rawBody: string) => didcommTransport.receiveInbound(rawBody) : undefined,
+    trustExport:
+      identity !== undefined
+        ? (): VerifiableRelationshipCredential[] =>
+            store
+              .getTrustEdges()
+              .map((edge) => issueVrc(identity, { peerDid: edge.peer, relationship: "trusted" }))
+        : undefined,
+  });
   // eslint-disable-next-line no-console
   console.log(`[agent-daemon] ${cfg.personaName} listening on http://127.0.0.1:${server.port} (transport=${cfg.transport})`);
 

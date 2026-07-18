@@ -15,10 +15,14 @@ export interface EnvConfig {
   statusDelayMs: number;
   matchThreshold: number;
   defaultAskTtlMs: number;
-  transport: "matrix" | "mock";
+  transport: "matrix" | "mock" | "didcomm";
   matrixHomeserverUrl?: string;
   matrixAccessToken?: string;
   matrixRegistrationSecret?: string;
+  /** did:peer:2 identity file (plaintext secrets — alpha; see docs/TRANSPORT.md). */
+  didIdentityPath?: string;
+  /** Host advertised in the DID's inbound service endpoint (http://<host>:<agentPort>/didcomm). */
+  didcommHost: string;
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, key: string): string {
@@ -28,7 +32,7 @@ function requireEnv(env: NodeJS.ProcessEnv, key: string): string {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): EnvConfig {
-  const transport = env.TRANSPORT === "matrix" ? "matrix" : "mock";
+  const transport = env.TRANSPORT === "matrix" ? "matrix" : env.TRANSPORT === "didcomm" ? "didcomm" : "mock";
   return {
     personaName: requireEnv(env, "PERSONA_NAME"),
     peerId: requireEnv(env, "PEER_ID"),
@@ -47,5 +51,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): EnvConfig {
     matrixHomeserverUrl: env.MATRIX_HOMESERVER_URL,
     matrixAccessToken: env.MATRIX_ACCESS_TOKEN,
     matrixRegistrationSecret: env.MATRIX_REGISTRATION_SECRET,
+    didIdentityPath: env.DID_IDENTITY_PATH,
+    didcommHost: env.DIDCOMM_HOST ?? "127.0.0.1",
   };
 }

@@ -10,12 +10,27 @@ export interface StartedServer {
   port: number;
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+/**
+ * Optional, additive server capabilities wired from main.ts so daemon.ts stays
+ * untouched (other agents own its internals). Both are absent for mock/matrix.
+ */
+export interface ServerExtras {
+  /** Handles an inbound encrypted DIDComm message body (mounted at POST /didcomm). Throws on reject. */
+  didcommInbound?: (rawBody: string) => Promise<void>;
+  /** Returns this daemon's signed VRCs (served at GET /api/trust/export?format=vrc). */
+  trustExport?: () => unknown[];
+}
+
+async function readTextBody(req: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) {
     chunks.push(chunk as Buffer);
   }
-  const raw = Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks).toString("utf8");
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const raw = await readTextBody(req);
   if (!raw) return {};
   return JSON.parse(raw);
 }
@@ -34,7 +49,7 @@ type WsEvent =
   | { type: "ask_update"; request_id: string; state: string }
   | { type: "room_message"; room_id: string; from: string; text: string; ts: string };
 
-export function startServer(daemon: Daemon, port: number): Promise<StartedServer> {
+export function startServer(daemon: Daemon, port: number, extras: ServerExtras = {}): Promise<StartedServer> {
   const sockets = new Set<WebSocket>();
 
   function broadcast(event: WsEvent): void {
@@ -107,6 +122,40 @@ export function startServer(daemon: Daemon, port: number): Promise<StartedServer
       }
       await daemon.withdraw(body.request_id, body.reason ?? "cancelled");
       sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    // OpenVTC pillar (Task 11): inbound encrypted DIDComm messages. The
+    // transport decrypts/verifies and dispatches to the daemon; a reject
+    // (bad signature, replay, wrong recipient) surfaces as 400. Returns 202
+    // without awaiting the daemon's downstream cascade.
+    if (method === "POST" && path === "/didcomm") {
+      if (!extras.didcommInbound) {
+        sendJson(res, 404, { error: "didcomm transport not enabled" });
+        return;
+      }
+      const rawBody = await readTextBody(req);
+      try {
+        await extras.didcommInbound(rawBody);
+      } catch (err) {
+        sendJson(res, 400, { error: `rejected: ${(err as Error).message}` });
+        return;
+      }
+      sendJson(res, 202, { ok: true });
+      return;
+    }
+
+    // GET /api/trust/export?format=vrc — this daemon's signed VRCs.
+    if (method === "GET" && path === "/api/trust/export") {
+      if (url.searchParams.get("format") !== "vrc") {
+        sendJson(res, 400, { error: "only format=vrc is supported" });
+        return;
+      }
+      if (!extras.trustExport) {
+        sendJson(res, 404, { error: "VRC export not available for this transport" });
+        return;
+      }
+      sendJson(res, 200, { credentials: extras.trustExport() });
       return;
     }
 
