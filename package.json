@@ -7,7 +7,11 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "alpha": "bash scripts/alpha_up.sh"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.1"
   },
   "engines": { "node": ">=20" },
   "packageManager": "pnpm@10.33.0"

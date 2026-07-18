@@ -13,3 +13,7 @@ packages/*/coverage/
 apps/*/coverage/
 *.sqlite
 *.sqlite3
+
+# Task 8 alpha env — per-persona DID identities (plaintext secret keys) + SQLite
+# stores, regenerated on every boot. Never commit real key material.
+alpha/state/
