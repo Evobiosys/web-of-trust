@@ -17,3 +17,8 @@ apps/*/coverage/
 # Task 8 alpha env — per-persona DID identities (plaintext secret keys) + SQLite
 # stores, regenerated on every boot. Never commit real key material.
 alpha/state/
+
+# Scratch generated during alpha runs / browser E2E — never source of truth.
+alpha/*.png
+alpha/*.out
+.playwright-mcp/

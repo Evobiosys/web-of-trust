@@ -1,0 +1,217 @@
+=== CORE MEDIATOR TRANSPORT — final verification Sat Jul 18 15:27:21 CEST 2026 ===
+HEAD: 31eb16a on alpha
+
+===== pnpm -r test =====
+Scope: 7 of 8 workspace projects
+apps/dashboard test$ vitest run
+packages/app-profiles test$ vitest run
+packages/protocol test$ vitest run
+apps/dashboard test:  RUN  v2.1.9 /Users/personal/Documents/SingularStructure/Projects/evobiosys/Projects/evobioSYS-sys/Projects/web-of-trust/Code/primary-repo/apps/dashboard
+packages/protocol test:  RUN  v2.1.9 /Users/personal/Documents/SingularStructure/Projects/evobiosys/Projects/evobioSYS-sys/Projects/web-of-trust/Code/primary-repo/packages/protocol
+apps/dashboard test:  ✓ src/config.test.ts (8 tests) 2ms
+apps/dashboard test:  Test Files  1 passed (1)
+apps/dashboard test:       Tests  8 passed (8)
+apps/dashboard test:    Start at  15:27:22
+apps/dashboard test:    Duration  424ms (transform 21ms, setup 0ms, collect 20ms, tests 2ms, environment 192ms, prepare 36ms)
+apps/dashboard test: Done
+packages/protocol test:  ✓ src/scheduling.test.ts (4 tests) 1ms
+packages/protocol test:  ✓ src/state-machine.test.ts (35 tests) 3ms
+packages/protocol test:  ✓ src/decision-log.test.ts (4 tests) 2ms
+packages/protocol test:  ✓ src/policy.test.ts (13 tests) 4ms
+packages/protocol test:  ✓ src/schemas.test.ts (29 tests) 5ms
+packages/protocol test:  ✓ src/envelope.test.ts (52 tests) 7ms
+packages/protocol test:  Test Files  6 passed (6)
+packages/protocol test:       Tests  137 passed (137)
+packages/protocol test:    Start at  15:27:22
+packages/protocol test:    Duration  253ms (transform 146ms, setup 0ms, collect 226ms, tests 22ms, environment 1ms, prepare 265ms)
+packages/protocol test: Done
+packages/app-profiles test:  RUN  v2.1.9 /Users/personal/Documents/SingularStructure/Projects/evobiosys/Projects/evobioSYS-sys/Projects/web-of-trust/Code/primary-repo/packages/app-profiles
+packages/app-profiles test:  ✓ src/profiles.test.ts (15 tests) 3ms
+packages/app-profiles test:  Test Files  1 passed (1)
+packages/app-profiles test:       Tests  15 passed (15)
+packages/app-profiles test:    Start at  15:27:23
+packages/app-profiles test:    Duration  205ms (transform 28ms, setup 0ms, collect 28ms, tests 3ms, environment 0ms, prepare 38ms)
+packages/app-profiles test: Done
+packages/transport test$ vitest run --passWithNoTests
+apps/device-ui test$ vitest run
+packages/transport test:  RUN  v2.1.9 /Users/personal/Documents/SingularStructure/Projects/evobiosys/Projects/evobioSYS-sys/Projects/web-of-trust/Code/primary-repo/packages/transport
+packages/transport test:  ✓ src/relay_queue_store.test.ts (18 tests) 19ms
+packages/transport test:  ✓ src/did_identity.test.ts (6 tests) 34ms
+packages/transport test:  ✓ src/did_identity_card.test.ts (5 tests) 30ms
+packages/transport test:  ✓ src/mock_transport.test.ts (10 tests) 5ms
+packages/transport test:  ✓ src/vrc.test.ts (5 tests) 44ms
+packages/transport test:  ✓ src/didcomm_crypto.test.ts (6 tests) 60ms
+packages/transport test:  ✓ src/delivery_channel.test.ts (8 tests) 56ms
+packages/transport test: stderr | src/dedup_store.test.ts > DidCommTransport freshness horizon (H) + dedup, per DedupStore implementation > InMemoryDedupStore > accepts a message created 10 minutes ago (outside the old 5-min window, inside H) exactly once, then rejects its duplicate
+packages/transport test: [didcomm] rejected duplicate inbound from did:peer:2.Vz6Mkho6b5ncDeHTXH4NyQ11rfNrpPyVa5DZZsEZGS8Np2xTt.Ez6LSqucAtub4BEbDBwmp3wi7AhhCFurdHBFm25KAbnfhbzLu.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovL2FubmEuZXhhbXBsZS9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19 (id=ten-min-old)
+packages/transport test: stderr | src/dedup_store.test.ts > DidCommTransport freshness horizon (H) + dedup, per DedupStore implementation > InMemoryDedupStore > rejects a message older than H
+packages/transport test: [didcomm] rejected inbound from did:peer:2.Vz6MkoKCoEwBx2VNCeCP3eq8C6zZrhpxADVh5GEdj9sozd9bo.Ez6LSme2Gvoe5LhUDKvZdKxKnwTj9gk8yCAXZ7zbZZqR2h6rU.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovL2FubmEuZXhhbXBsZS9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19: message too old / missing created_time (exceeds max-hold horizon) (id=too-old)
+packages/transport test: stderr | src/dedup_store.test.ts > DidCommTransport freshness horizon (H) + dedup, per DedupStore implementation > InMemoryDedupStore > rejects a future-dated message
+packages/transport test: [didcomm] rejected inbound from did:peer:2.Vz6MktvpBfCubm1duWXuTXP2D7HrUr1WicVE5ofoqokNUruAi.Ez6LSsZQkE4hBzkMurwDnFdnxVPLSJKJUJbRNC2QyrnLLCozZ.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovL2FubmEuZXhhbXBsZS9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19: created_time in the future (id=future-dated)
+packages/transport test: stderr | src/dedup_store.test.ts > DidCommTransport freshness horizon (H) + dedup, per DedupStore implementation > SqliteDedupStore > accepts a message created 10 minutes ago (outside the old 5-min window, inside H) exactly once, then rejects its duplicate
+packages/transport test: [didcomm] rejected duplicate inbound from did:peer:2.Vz6MknFM8Npb51iJaCFWjKAnBovBGYfwrXzoNPPj6txZ6NFMa.Ez6LStYz9QDJzegKawfVgh24uryQmLPjEvHVfkyV3sEwQhLzq.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovL2FubmEuZXhhbXBsZS9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19 (id=ten-min-old)
+packages/transport test: stderr | src/dedup_store.test.ts > DidCommTransport freshness horizon (H) + dedup, per DedupStore implementation > SqliteDedupStore > rejects a message older than H
+packages/transport test: [didcomm] rejected inbound from did:peer:2.Vz6Mkk9cRvSLgqHNFN8fxURw7HaoBcSbF3j3TJtQWWPMmQRo9.Ez6LSmNPeonvcLmJcL2xN4pPM7zEQqbvy5XtSUNzB1AQFLCif.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovL2FubmEuZXhhbXBsZS9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19: message too old / missing created_time (exceeds max-hold horizon) (id=too-old)
+packages/transport test: stderr | src/dedup_store.test.ts > DidCommTransport freshness horizon (H) + dedup, per DedupStore implementation > SqliteDedupStore > rejects a future-dated message
+packages/transport test: [didcomm] rejected inbound from did:peer:2.Vz6MkqEruNUDC8mNT5JZ1evLzG92W3SmsSzufGsnyUMqxrLK4.Ez6LSooaVChB4J7yedapqK2ZAbBJ4weZ2vCF88cKp9Djhc6YP.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovL2FubmEuZXhhbXBsZS9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19: created_time in the future (id=future-dated)
+packages/transport test: stderr | src/dedup_store.test.ts > DidCommTransport freshness horizon (H) + dedup, per DedupStore implementation > replay survives a transport restart when backed by SqliteDedupStore: record → new transport instance on the same dedup file → duplicate id still rejected
+packages/transport test: [didcomm] rejected duplicate inbound from did:peer:2.Vz6Mkn8fs3r8XiAvf6teXqM72vjR912nq7oi1QrdjreCtQh2y.Ez6LSm8H9jCLw67TD8MYihbQVWXEE5kzjPrXNwnNnpTwxzpLF.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovL2FubmEuZXhhbXBsZS9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19 (id=restart-replay)
+packages/transport test:  ✓ src/dedup_store.test.ts (14 tests) 92ms
+packages/transport test: (node:24823) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+packages/transport test: (Use `node --trace-deprecation ...` to show where the warning was created)
+packages/transport test: (node:24823) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+packages/transport test:  ↓ src/matrix_transport.integration.test.ts (3 tests | 3 skipped)
+packages/transport test: stderr | src/matrix_transport.integration.test.ts
+packages/transport test: SKIP matrix_transport.integration.test.ts — synapse unreachable at http://localhost:8008/_matrix/client/versions
+packages/transport test: stderr | src/didcomm_transport.integration.test.ts > DidCommTransport over real HTTP > rejects a tampered ciphertext (bad signature/AEAD) with a 4xx and never fires onEnvelope
+packages/transport test: [didcomm] rejected inbound message: invalid tag
+packages/transport test:  ✓ src/matrix_crypto_stub.test.ts (3 tests) 2ms
+packages/transport test: stderr | src/didcomm_transport.integration.test.ts > DidCommTransport over real HTTP > rejects a replayed (duplicate-id) message
+packages/transport test: [didcomm] rejected duplicate inbound from did:peer:2.Vz6MkmBgp31Yiprsskfg8wB8wBLE9hE1oUjbd6BFcP8kA2v9m.Ez6LStq12RXkBK2oQgrAPXPjJ5zpcxJPQNaATssqnJLnhT3u4.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovLzEyNy4wLjAuMTo1NjE3Ny9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19 (id=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb)
+packages/transport test: stderr | src/didcomm_transport.integration.test.ts > DidCommTransport over real HTTP > rejects a room message whose body.from does not match the cryptographically authenticated sender, and never fires the room listener
+packages/transport test: [didcomm] rejected room message: body.from (did:peer:2.Ez6MShadowNotAnnaSoNotEvenAMember.NotAMember) does not match authenticated sender (did:peer:2.Vz6MkqPNhCweVDJhrxYCJTE8oUrNY3GGSAMdEvYwfW47sCzmQ.Ez6LSkbkfqkm7KHViB55gduWriGVXSMFSYbReBmtDkC6yHZUS.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovLzEyNy4wLjAuMTo1NjE4OS9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19)
+packages/transport test:  ✓ src/wire.test.ts (5 tests) 1ms
+packages/transport test: stderr | src/didcomm_transport.integration.test.ts > DidCommTransport over real HTTP > rejects a ROOM_CREATE for an already-known room from a sender who is not an existing member, leaving membership unchanged
+packages/transport test: [didcomm] rejected ROOM_CREATE for known room known-room-1 from did:peer:2.Vz6MkvzPA8i8TEWiTMqPcYfRr3n258uGMoUF5AqdWsNAzp5kF.Ez6LSsaW1857AQZb43GUC7q9q4UuSozMNcBaig2qnCCNBUMdT.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovLzEyNy4wLjAuMTo1NjIwMi9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19: not an existing member, or new member list would drop the local DID
+packages/transport test:  ✓ src/didcomm_transport.integration.test.ts (8 tests) 208ms
+packages/transport test: stderr | src/internet_didcomm.integration.test.ts > Internet DIDComm transport — mediator-only ladder (Task 9) > rejection paths (asserted via the node's real /didcomm HTTP surface) > rejects a tampered ciphertext with a 4xx and never fires onEnvelope
+packages/transport test: [didcomm] rejected inbound message: invalid tag
+packages/transport test: stderr | src/ladder_channel.test.ts > LadderChannel — onInbound() > end-to-end: the same signed message delivered via two rungs is dispatched exactly once (Task 2 dedup absorbs the duplicate)
+packages/transport test: [didcomm] rejected duplicate inbound from did:peer:2.Vz6MkfcjeFapd2qg8p73ejJuK1565qZjRBcMrRbKz71YsVTZh.Ez6LSm2spfUZ1S25MXUGXuDtMgndiFuTqjic42rwKXhES69Zi.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovL2FubmEuZXhhbXBsZS9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19 (id=dup-across-rungs-1)
+packages/transport test:  ✓ src/ladder_channel.test.ts (11 tests) 217ms
+packages/transport test: stderr | src/internet_didcomm.integration.test.ts > Internet DIDComm transport — mediator-only ladder (Task 9) > rejection paths (asserted via the node's real /didcomm HTTP surface) > rejects a replayed (duplicate-id) message
+packages/transport test: [didcomm] rejected duplicate inbound from did:peer:2.Vz6MknxTrFbA3zD9DZ9r9c7eMrvVtMcnFJEt2o1H57YFB7Dpg.Ez6LSmsSb2dsmMT4MqyQBDNjVoMFvX5boeKNwNMwzsv88ZN7M.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovLzEyNy4wLjAuMTo1NjIxNS9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19 (id=8f4fb8ab-a293-49fa-814e-5f8cc9613f30)
+packages/transport test: stderr | src/internet_didcomm.integration.test.ts > Internet DIDComm transport — mediator-only ladder (Task 9) > dedup across restart > a replayed message id is still rejected after the receiving transport is torn down and reconstructed against the same on-disk SqliteDedupStore file
+packages/transport test: [didcomm] rejected duplicate inbound from did:peer:2.Vz6Mkof4uaTx44PZgoCpjMJKNxKMT5hZrPb2HH8S5zBFb2BjF.Ez6LSoJXUxTZRicQtEvMH4ZZDvgdUFx7FHhneo9GBc2GBYED7.SeyJ0IjoiZG0iLCJzIjoiaHR0cDovL2FubmEuZXhhbXBsZS9kaWRjb21tIiwiYSI6WyJkaWRjb21tL3YyIl19 (id=698a32cb-eebf-46ff-a22c-ccf6327c2494)
+packages/transport test:  ✓ src/internet_didcomm.integration.test.ts (7 tests) 227ms
+packages/transport test: (node:24845) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+packages/transport test: (Use `node --trace-deprecation ...` to show where the warning was created)
+packages/transport test: (node:24845) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+packages/transport test:  ↓ src/matrix_provisioning.integration.test.ts (1 test | 1 skipped)
+packages/transport test: stderr | src/matrix_provisioning.integration.test.ts
+packages/transport test: SKIP matrix_provisioning.integration.test.ts — synapse unreachable at http://localhost:8008/_matrix/client/versions
+packages/transport test: (node:24848) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+packages/transport test: (Use `node --trace-deprecation ...` to show where the warning was created)
+packages/transport test: (node:24848) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+packages/transport test:  ✓ src/matrix_provisioning.test.ts (6 tests) 2ms
+apps/device-ui test:  RUN  v2.1.9 /Users/personal/Documents/SingularStructure/Projects/evobiosys/Projects/evobioSYS-sys/Projects/web-of-trust/Code/primary-repo/apps/device-ui
+packages/transport test:  ✓ src/relay_channel.test.ts (9 tests) 638ms
+apps/device-ui test: (node:24884) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+apps/device-ui test: (Use `node --trace-warnings ...` to show where the warning was created)
+apps/device-ui test:  ✓ src/persona.test.ts (4 tests) 1ms
+apps/device-ui test:  ✓ src/runtime_config.test.ts (7 tests) 52ms
+packages/transport test:  ✓ src/relay_server.test.ts (13 tests) 1090ms
+packages/transport test:    ✓ RelayServer — Task 6c: forward-on-connect, ack, and liveness > acking a delivered wire removes it from the queue; a second drain (reconnect) does not redeliver it 302ms
+packages/transport test:  Test Files  16 passed | 2 skipped (18)
+packages/transport test:       Tests  134 passed | 4 skipped (138)
+packages/transport test:    Start at  15:27:23
+packages/transport test:    Duration  1.45s (transform 616ms, setup 0ms, collect 2.11s, tests 2.72s, environment 2ms, prepare 942ms)
+apps/device-ui test:  ✓ src/i2-asker-blindness.test.tsx (2 tests) 24ms
+packages/transport test: Done
+apps/device-ui test:  ✓ src/components/InventoryPane.test.tsx (4 tests) 35ms
+apps/device-ui test:  ✓ src/App.test.tsx (2 tests) 32ms
+apps/device-ui test:  ✓ src/hooks/useAgentState.test.tsx (5 tests) 123ms
+apps/device-ui test:  ✓ src/components/RoomPane.test.tsx (5 tests) 138ms
+apps/device-ui test:  ✓ src/components/ConsentCardsPane.test.tsx (10 tests) 170ms
+apps/device-ui test:  ✓ src/components/StewardPane.test.tsx (7 tests) 213ms
+apps/device-ui test:  Test Files  9 passed (9)
+apps/device-ui test:       Tests  46 passed (46)
+apps/device-ui test:    Start at  15:27:24
+apps/device-ui test:    Duration  954ms (transform 227ms, setup 687ms, collect 1.09s, tests 790ms, environment 2.54s, prepare 460ms)
+apps/device-ui test: Done
+packages/agent-daemon test$ vitest run --passWithNoTests
+packages/agent-daemon test:  RUN  v2.1.9 /Users/personal/Documents/SingularStructure/Projects/evobiosys/Projects/evobioSYS-sys/Projects/web-of-trust/Code/primary-repo/packages/agent-daemon
+packages/agent-daemon test:  ✓ src/matcher/cosine.test.ts (5 tests) 1ms
+packages/agent-daemon test:  ✓ src/transport/in_memory_transport.test.ts (3 tests) 2ms
+packages/agent-daemon test:  ✓ src/clock.test.ts (5 tests) 2ms
+packages/agent-daemon test:  ✓ src/matcher/keyword_fallback.test.ts (5 tests) 2ms
+packages/agent-daemon test:  ✓ src/store/connection_store.test.ts (13 tests) 17ms
+packages/agent-daemon test:  ✓ src/store/sqlite_store.test.ts (16 tests) 15ms
+packages/agent-daemon test:  ✓ src/steward/steward.test.ts (9 tests) 10ms
+packages/agent-daemon test:  ✓ src/matcher/matcher.test.ts (8 tests) 13ms
+packages/agent-daemon test:  ✓ src/daemon/listings.test.ts (18 tests) 37ms
+packages/agent-daemon test:  ✓ src/daemon/daemon.test.ts (13 tests) 43ms
+packages/agent-daemon test:  ✓ src/api/connect.test.ts (7 tests) 69ms
+packages/agent-daemon test: (node:24953) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+packages/agent-daemon test: (Use `node --trace-deprecation ...` to show where the warning was created)
+packages/agent-daemon test: (node:24953) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+packages/agent-daemon test:  ✓ src/api/server.test.ts (26 tests) 165ms
+packages/agent-daemon test:  ✓ src/api/didcomm_lifecycle.integration.test.ts (3 tests) 258ms
+packages/agent-daemon test:  Test Files  13 passed (13)
+packages/agent-daemon test:       Tests  131 passed (131)
+packages/agent-daemon test:    Start at  15:27:25
+packages/agent-daemon test:    Duration  815ms (transform 502ms, setup 0ms, collect 1.46s, tests 636ms, environment 1ms, prepare 790ms)
+packages/agent-daemon test: Done
+apps/mobile-ui test$ vitest run
+apps/mobile-ui test:  RUN  v2.1.9 /Users/personal/Documents/SingularStructure/Projects/evobiosys/Projects/evobioSYS-sys/Projects/web-of-trust/Code/primary-repo/apps/mobile-ui
+apps/mobile-ui test: (node:25026) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+apps/mobile-ui test: (Use `node --trace-warnings ...` to show where the warning was created)
+apps/mobile-ui test:  ✓ src/runtime_config.test.js (5 tests) 15ms
+apps/mobile-ui test:  ✓ src/connect_scan.test.js (3 tests) 4ms
+apps/mobile-ui test:  ✓ src/api_client_live.test.js (8 tests) 12ms
+apps/mobile-ui test:  ✓ src/qr_card.test.js (4 tests) 20ms
+apps/mobile-ui test:  ✓ src/spec_mode.test.js (3 tests) 63ms
+apps/mobile-ui test:  ✓ src/screens/web.test.js (2 tests) 64ms
+apps/mobile-ui test:  ✓ src/screens/host.test.js (2 tests) 86ms
+apps/mobile-ui test:  ✓ src/screens/chat.test.js (3 tests) 90ms
+apps/mobile-ui test:  ✓ src/screens/onboarding.test.js (4 tests) 91ms
+apps/mobile-ui test:  ✓ src/screens/meet.test.js (3 tests) 93ms
+apps/mobile-ui test:  ✓ src/screens/discover.test.js (3 tests) 118ms
+apps/mobile-ui test:  ✓ src/skin.test.js (9 tests) 118ms
+apps/mobile-ui test:  ✓ src/screens/live_render.test.js (3 tests) 1305ms
+apps/mobile-ui test:    ✓ live mode renders every screen without throwing > Finding 2: live celebration copy stays honest — no fabricated venue/content, no seeOpened when nothing actually opened 611ms
+apps/mobile-ui test:    ✓ live mode renders every screen without throwing > Finding 2: live Contact-level celebration + coach chip never name the fixture-only Moon Ceremony 620ms
+apps/mobile-ui test:  Test Files  13 passed (13)
+apps/mobile-ui test:       Tests  52 passed (52)
+apps/mobile-ui test:    Start at  15:27:26
+apps/mobile-ui test:    Duration  2.00s (transform 235ms, setup 221ms, collect 1.10s, tests 2.08s, environment 4.58s, prepare 762ms)
+apps/mobile-ui test: Done
+EXIT_TEST=0
+
+===== pnpm -r typecheck =====
+Scope: 7 of 8 workspace projects
+apps/dashboard typecheck$ tsc --noEmit -p tsconfig.json
+packages/app-profiles typecheck$ tsc --noEmit -p tsconfig.json
+packages/protocol typecheck$ tsc --noEmit -p tsconfig.json
+apps/dashboard typecheck: Done
+packages/app-profiles typecheck: Done
+packages/protocol typecheck: Done
+apps/device-ui typecheck$ tsc --noEmit -p tsconfig.json
+packages/transport typecheck$ tsc --noEmit -p tsconfig.json
+packages/transport typecheck: Done
+apps/device-ui typecheck: Done
+packages/agent-daemon typecheck$ tsc --noEmit -p tsconfig.json
+packages/agent-daemon typecheck: Done
+apps/mobile-ui typecheck$ tsc --noEmit -p tsconfig.json
+apps/mobile-ui typecheck: Done
+EXIT_TYPECHECK=0
+
+===== pnpm -r build =====
+apps/mobile-ui build: ✓ 108 modules transformed.
+apps/mobile-ui build: rendering chunks...
+apps/mobile-ui build: computing gzip size...
+apps/mobile-ui build: dist/index.html                  8.76 kB │ gzip:  3.05 kB
+apps/mobile-ui build: dist/assets/index-DVIA0xVi.css  21.99 kB │ gzip:  5.35 kB
+apps/mobile-ui build: dist/assets/index-FjDk5F8k.js   93.31 kB │ gzip: 34.35 kB
+apps/mobile-ui build: ✓ built in 132ms
+apps/mobile-ui build: Done
+EXIT_BUILD=0
+
+===== LIVE MEDIATOR SMOKE (alpha_server.smoke.test.ts) =====
+(node:25419) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:25419) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+[smoke] booting 2 personas on 127.0.0.1 via bootPersonas()...
+[alpha_server] seeded 2 trust edge(s) (0 already present)
+[smoke] checking GET /api/state on both ports...
+[smoke] PASS: both /api/state OK
+[smoke] Anna publishes a trusted-tier listing...
+[smoke] PASS: listing propagated to Ben's /api/listings received
+[smoke] Ben requests to borrow...
+[smoke] PASS: Anna's state shows the loan (owner side, state=requested)
+[smoke] closing Ben's HTTP server to force the lan_http rung to fail...
+[smoke] Anna DMs Ben — must arrive via the relay rung (lan_http is unreachable)...
+[smoke] PASS: DM delivered to Ben via the relay rung while his own HTTP floor was down
+
+[smoke] ALL CHECKS PASSED
+EXIT_SMOKE=0
