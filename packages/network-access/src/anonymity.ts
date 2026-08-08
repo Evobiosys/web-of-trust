@@ -35,7 +35,7 @@ export function outwardAnonymizedResponse(decision: RevealDecision): OutwardResp
   if (decision.kind === "anonymized") {
     return {
       kind: "anonymized",
-      text: `${decision.matchCount} of ${decision.totalCount} people in this network match your request.`,
+      text: `${decision.matchCount} of ${decision.totalCount} people in this network are sharing what you asked about.`,
       matchCount: decision.matchCount,
       totalCount: decision.totalCount,
     };

@@ -8,7 +8,7 @@
 
 export type Gate0Policy = "blocked" | "ask_each_time" | "standing_allow";
 export type Gate1Policy = "manual" | "auto_small";
-export type Gate2Policy = "manual" | "auto_anonymized";
+export type Gate2Policy = "manual" | "auto_anonymized" | "auto_reveal_identity";
 
 export interface RequesterPolicy {
   gate0: Gate0Policy;
@@ -51,7 +51,7 @@ export type QueryState =
 
 /** Owner-side record of how a query was answered. Never sent outward as-is —
  * requesters only ever see the output of requesterView() (see gates.ts). */
-export type OutwardKind = "nothing_shareable" | "anonymized" | "identified" | "declined";
+export type OutwardKind = "nothing_shareable" | "anonymized" | "identified" | "identity_revealed" | "declined";
 
 export interface OutwardResponse {
   kind: OutwardKind;
@@ -59,6 +59,16 @@ export interface OutwardResponse {
   matchCount?: number;
   totalCount?: number;
   contacts?: { name: string; reason: string }[];
+  profile?: OwnerProfile;
+}
+
+/** A reach-out card the owner can attach when revealing their identity.
+ * Multiple profiles allowed (general + per-use-case alter egos). */
+export interface OwnerProfile {
+  id: string;
+  name: string;
+  contact: string;
+  blurb?: string;
 }
 
 export interface IntroQuery {

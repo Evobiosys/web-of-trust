@@ -15,6 +15,7 @@ import type {
   IntroQuery,
   ModelSize,
   OutwardResponse,
+  OwnerProfile,
   RequesterPolicy,
 } from "./types.js";
 
@@ -25,6 +26,7 @@ export type GateEvent =
   | { type: "match_completed"; matches: ContactMatch[]; totalContacts: number }
   | { type: "reveal_anonymized" }
   | { type: "reveal_identified"; contactIds: string[] }
+  | { type: "reveal_identity"; profile: OwnerProfile }
   | { type: "decline_reveal" }
   | { type: "expire" };
 
@@ -83,11 +85,19 @@ function respondWith(query: IntroQuery, state: IntroQuery["state"], response: Ou
   };
 }
 
+function identityResponse(profile: OwnerProfile): OutwardResponse {
+  return {
+    kind: "identity_revealed",
+    text: `${profile.name} is sharing something that fits your request — reach out directly: ${profile.contact}`,
+    profile,
+  };
+}
+
 export function applyEvent(
   query: IntroQuery,
   event: GateEvent,
   policy: RequesterPolicy,
-  options?: { k?: number; contactsById?: Map<string, ContactRecord> },
+  options?: { k?: number; contactsById?: Map<string, ContactRecord>; defaultProfile?: OwnerProfile },
 ): TransitionResult {
   const k = options?.k ?? DEFAULT_K;
   switch (event.type) {
@@ -113,6 +123,15 @@ export function applyEvent(
       if (policy.gate2 === "auto_anonymized") {
         const decision = anonymizedRevealDecision(event.matches.length, event.totalContacts, k);
         return respondWith(matched, "responded", outwardAnonymizedResponse(decision));
+      }
+      if (policy.gate2 === "auto_reveal_identity") {
+        // Full-trust path: the owner's OWN identity may auto-reveal on a hit —
+        // it exposes no third party, so the k-floor does not apply. No hit
+        // still answers with the indistinguishable no-result text.
+        if (event.matches.length > 0 && options?.defaultProfile) {
+          return respondWith(matched, "responded", identityResponse(options.defaultProfile));
+        }
+        return respondWith(matched, "responded", { kind: "nothing_shareable", text: NOTHING_SHAREABLE_TEXT });
       }
       return { query: { ...matched, state: "awaiting_reveal" }, effects: [] };
     }
@@ -143,6 +162,12 @@ export function applyEvent(
         contacts,
       });
     }
+    case "reveal_identity": {
+      // "Tell them it's my identity" — the owner steps forward so the
+      // requester can reach out. Reveals the owner only, never the matches.
+      if (query.state !== "awaiting_reveal") throw new GateError(`reveal_identity in ${query.state}`);
+      return respondWith(query, "responded", identityResponse(event.profile));
+    }
     case "decline_reveal": {
       if (query.state !== "awaiting_reveal") throw new GateError(`decline_reveal in ${query.state}`);
       return respondWith(query, "declined_reveal", { kind: "declined", text: NOTHING_SHAREABLE_TEXT });
@@ -165,6 +190,7 @@ export interface RequesterQueryView {
   matchCount?: number;
   totalCount?: number;
   contacts?: { name: string; reason: string }[];
+  profile?: OwnerProfile;
 }
 
 export function requesterView(query: IntroQuery): RequesterQueryView {
@@ -176,5 +202,6 @@ export function requesterView(query: IntroQuery): RequesterQueryView {
     view.totalCount = r.totalCount;
   }
   if (r.kind === "identified") view.contacts = r.contacts;
+  if (r.kind === "identity_revealed") view.profile = r.profile;
   return view;
 }

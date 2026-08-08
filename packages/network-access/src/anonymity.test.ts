@@ -32,7 +32,7 @@ describe("anonymizedRevealDecision", () => {
 describe("outwardAnonymizedResponse", () => {
   it("phrases the aggregate as 'N of M'", () => {
     const out = outwardAnonymizedResponse({ kind: "anonymized", matchCount: 3, totalCount: 100 });
-    expect(out.text).toBe("3 of 100 people in this network match your request.");
+    expect(out.text).toBe("3 of 100 people in this network are sharing what you asked about.");
     expect(out.matchCount).toBe(3);
   });
 

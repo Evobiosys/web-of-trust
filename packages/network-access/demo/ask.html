@@ -28,6 +28,8 @@
   <form id="f">
     <label for="requester">Your name</label>
     <input id="requester" required>
+    <label for="email">Your email (required — how the answer reaches you)</label>
+    <input id="email" type="email" required>
     <label for="text">Who are you looking for?</label>
     <textarea id="text" rows="3" required placeholder="e.g. someone who knows permaculture in Vienna"></textarea>
     <button>Send query</button>
@@ -38,7 +40,10 @@
   const ids = JSON.parse(localStorage.getItem("na_asks") || "[]");
   document.getElementById("f").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const requester = document.getElementById("requester").value.trim();
+    const name = document.getElementById("requester").value.trim();
+    const email = document.getElementById("email").value.trim();
+    if (!email) return;
+    const requester = name + " <" + email + ">";
     const text = document.getElementById("text").value.trim();
     const res = await fetch("/api/ask", { method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({ requester, text }) });
     const data = await res.json();

@@ -60,13 +60,26 @@
           ? "below k=" + data.k + " — anonymized share would send the no-result text"
           : "no matches — anonymized share sends the no-result text";
       const list = (q.matches || []).map((m) => '<li><label><input type="checkbox" data-q="' + q.id + '" value="' + esc(m.contact_id) + '"> ' + esc(m.name) + ' <span class="kd">' + esc(m.reason) + "</span></label></li>").join("");
-      return '<ul class="matches">' + list + '</ul><div class="kd">' + kdText + "</div>"
-        + '<button class="primary" onclick=\'ev("' + q.id + '",{type:"reveal_anonymized"})\'>Share anonymized</button>'
+      return '<ul class="matches">' + list + '</ul><div class="kd">' + kdText + "</div>" + trace(q)
+        + '<button class="primary" onclick=\'ev("' + q.id + '",{type:"reveal_identity",profileId:"general"})\'>Tell them it&#39;s my identity</button>'
+        + '<button onclick=\'ev("' + q.id + '",{type:"reveal_anonymized"})\'>Share anonymized</button>'
         + '<button onclick=\'revealIdentified("' + q.id + '")\'>Share selected, identified</button>'
         + '<button onclick=\'ev("' + q.id + '",{type:"decline_reveal"})\'>Decline</button>';
     }
-    if (q.response) return '<div class="kd">answered (' + esc(q.response.kind) + "): " + esc(q.response.text) + "</div>";
+    if (q.response) return '<div class="kd">answered (' + esc(q.response.kind) + "): " + esc(q.response.text) + "</div>" + trace(q);
     return "";
+  }
+  function trace(q) {
+    const t = q.trace;
+    if (!t) return "";
+    const ev = (t.matchEvidence || []).map((m) => esc(m.id) + " (" + Number(m.score).toFixed(2) + "): " + esc(m.reason)).join("<br>");
+    return '<details class="kd"><summary>algorithm trace</summary>'
+      + "<div>scanned " + t.scanned + " entries (" + t.corpusSplit.contacts + " contacts + " + t.corpusSplit.inventory + " inventory)</div>"
+      + (ev ? "<div>" + ev + "</div>" : "<div>no candidates matched</div>")
+      + "<div>k-decision: " + esc(JSON.stringify(t.kDecision)) + "</div>"
+      + (t.outwardIfAnonymized ? "<div>anonymized would send: “" + esc(t.outwardIfAnonymized) + "”</div>" : "")
+      + (t.outwardSent ? "<div>sent: “" + esc(t.outwardSent) + "”</div>" : "")
+      + "</details>";
   }
   function policyRow(q) {
     const p = q.policy;

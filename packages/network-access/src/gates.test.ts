@@ -104,6 +104,32 @@ describe("gate 2 — share the result", () => {
     expect(requesterView(q2).contacts).toEqual([{ name: "c0", reason: "tag overlap" }]);
   });
 
+  it("owner can reveal their identity so the requester reaches out", () => {
+    const { query } = runToMatched(DEFAULT_REQUESTER_POLICY, 2);
+    const profile = { id: "general", name: "Jakob", contact: "connect@evobiosys.org" };
+    const { query: q2 } = applyEvent(query, { type: "reveal_identity", profile }, DEFAULT_REQUESTER_POLICY);
+    const view = requesterView(q2);
+    expect(view.profile).toEqual(profile);
+    expect(view.text).toContain("reach out directly");
+    expect(view.contacts).toBeUndefined();
+  });
+
+  it("auto_reveal_identity policy reveals on a hit, stays silent on none", () => {
+    const policy: RequesterPolicy = { gate0: "standing_allow", gate1: "auto_small", gate2: "auto_reveal_identity" };
+    const profile = { id: "general", name: "Jakob", contact: "connect@evobiosys.org" };
+    let { query } = receiveQuery(base, policy);
+    ({ query } = applyEvent(query, { type: "match_completed", matches: matches(1), totalContacts: 12 }, policy, {
+      defaultProfile: profile,
+    }));
+    expect(requesterView(query).profile).toEqual(profile);
+    let { query: q0 } = receiveQuery(base, policy);
+    ({ query: q0 } = applyEvent(q0, { type: "match_completed", matches: [], totalContacts: 12 }, policy, {
+      defaultProfile: profile,
+    }));
+    expect(requesterView(q0).text).toBe("No shareable result for this request.");
+    expect(requesterView(q0).profile).toBeUndefined();
+  });
+
   it("decline, block, expiry, and no-result all read identically to the requester", () => {
     const declined = applyEvent(
       runToMatched(DEFAULT_REQUESTER_POLICY, 5).query,
