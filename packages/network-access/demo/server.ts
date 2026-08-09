@@ -107,11 +107,14 @@ function ownerView(q: IntroQuery) {
     q.matches !== undefined
       ? anonymizedRevealDecision(q.matches.length, q.totalContacts ?? 0, config.k)
       : undefined;
+  const relayEntry = Object.values(loadRelayMap()).find((e) => e.localId === q.id);
   return {
     ...q,
     matches: q.matches?.map((m) => ({ ...m, name: contactsById.get(m.contact_id)?.name ?? m.contact_id })),
     kDecision: decision,
     policy: store.policyFor(q.requester),
+    emailVerified: relayEntry?.emailVerified ?? null,
+    viaRelay: relayEntry !== undefined,
     // Transparent trace: what the algorithm did / would send, spelled out.
     trace:
       q.matches !== undefined
@@ -156,6 +159,7 @@ const inboxPath = join(homedir(), ".local", "share", "rebiosys", "inbox.jsonl");
 interface RelayMapEntry {
   localId: string;
   pushed: boolean;
+  emailVerified?: boolean;
 }
 function loadRelayMap(): Record<string, RelayMapEntry> {
   return existsSync(relayMapPath) ? JSON.parse(readFileSync(relayMapPath, "utf8")) : {};
@@ -196,7 +200,7 @@ function bridgeCycle(): { ingested: number; pushed: number } {
       );
       store.put(result.query);
       runEffects(result.query, result.effects, policy);
-      map[rec.id] = { localId: result.query.id, pushed: false };
+      map[rec.id] = { localId: result.query.id, pushed: false, emailVerified: !!rec.email_verified };
       ingested++;
     }
   }
