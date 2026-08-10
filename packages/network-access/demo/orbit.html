@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orbit — network access</title>
+<style>
+  :root { --ground:#F2F3EC; --panel:#FAFAF6; --ink:#232A20; --muted:#5C6455; --line:#D6DACA; --accent:#3F7A54; --amber:#9A6B22; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ground:#151A14; --panel:#1C231B; --ink:#E4E7DA; --muted:#9AA391; --line:#323B2F; --accent:#86B894; --amber:#D2A857; }
+  }
+  html, body { height:100%; }
+  body { background:var(--ground); color:var(--ink); font-family:Seravek,"Avenir Next",system-ui,sans-serif; margin:0; overflow:hidden; }
+  header { position:fixed; top:0; left:0; right:0; padding:.9rem 1.1rem; display:flex; align-items:baseline; gap:.8rem; flex-wrap:wrap; pointer-events:none; }
+  header a { pointer-events:auto; }
+  h1 { font-family:Palatino,Georgia,serif; font-size:1.25rem; margin:0; }
+  .meta { color:var(--muted); font-size:.82rem; }
+  a { color:var(--accent); text-decoration:none; }
+  a:hover { text-decoration:underline; }
+  svg { position:fixed; inset:0; width:100%; height:100%; display:block; }
+
+  /* scene */
+  .ring { fill:none; stroke:var(--line); stroke-width:1; }
+  .ring.wide { stroke-dasharray:2 6; opacity:.8; }
+  .owner-body { fill:var(--accent); }
+  .owner-label { fill:#fff; font-size:17px; text-anchor:middle; font-weight:600; }
+  .sat { stroke:none; }
+  .sat.inventory { fill:var(--amber); }
+  .sat.contact-cluster { fill:var(--accent); }
+  .sat-label { fill:var(--muted); font-size:14px; }
+  .planet-body { fill:var(--panel); stroke:var(--line); stroke-width:1.5; }
+  .planet-label { fill:var(--muted); font-size:15px; text-anchor:middle; }
+  .halo { fill:var(--accent); opacity:0; }
+  .glow .halo { animation:breathe 2.6s ease-in-out infinite; }
+  .glow .planet-body { stroke:var(--accent); }
+  .received .planet-body { stroke:var(--amber); stroke-width:2.5; }
+  @keyframes breathe { 0%,100% { opacity:.18; } 50% { opacity:.45; } }
+  .parcel-halo { fill:var(--amber); opacity:.55; }
+  .parcel-core { fill:#FFF6E2; }
+  .pulse { fill:none; stroke:var(--amber); }
+  @media (prefers-reduced-motion: reduce) { .glow .halo { animation:none; opacity:.35; } }
+
+  .legend { position:fixed; left:1.1rem; bottom:1rem; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:.55rem .8rem; font-size:.78rem; color:var(--muted); max-width:min(88vw, 24rem); line-height:1.7; }
+  .legend .dot { display:inline-block; width:.55em; height:.55em; border-radius:50%; vertical-align:baseline; margin-right:.15em; }
+  .legend .dot.owner { background:var(--accent); width:.75em; height:.75em; }
+  .legend .dot.inv { background:var(--amber); }
+  .legend .dot.req { background:var(--panel); border:1.5px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Orbit</h1>
+  <span class="meta" id="meta">loading…</span>
+  <a href="/inbox">← inbox</a>
+</header>
+<svg id="scene" viewBox="-430 -430 860 860" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Orbit view: you at the center, your shareable things orbiting you, and the people who asked on a wide outer ring.">
+  <defs>
+    <filter id="soft" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="4"/></filter>
+    <filter id="softer" x="-80%" y="-80%" width="260%" height="260%"><feGaussianBlur stdDeviation="8"/></filter>
+  </defs>
+  <g id="rings"></g>
+  <g id="sats"></g>
+  <g id="requesters"></g>
+  <g id="center"></g>
+  <g id="parcels"></g>
+</svg>
+<div class="legend">
+  <span class="dot owner"></span> you &nbsp;·&nbsp;
+  <span class="dot inv"></span> things you share &nbsp;·&nbsp;
+  <span class="dot req"></span> people who asked<br>
+  a soft glow = a request being considered · a travelling light = one answer, handed over
+</div>
+<script>
+  const NS = "http://www.w3.org/2000/svg";
+  const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const RING_INV = 118, RING_CLUSTER = 178, RING_REQ = 330;
+  const SHARE_KINDS = new Set(["anonymized", "identified", "identity_revealed"]);
+
+  const $ = (id) => document.getElementById(id);
+  function el(tag, attrs, parent) {
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function short(name, max = 24) { return name.length <= max ? name : name.slice(0, max - 1) + "…"; }
+
+  const sats = [];               // { node, labelNode, r, angle0, speed }
+  const planets = new Map();     // requester -> { g, x, y }
+  const seenResponded = new Set();
+  let primed = false;            // first poll only records history, never animates
+  const parcelQueue = [];
+  let parcelBusy = false;
+  let ownerName = "you";
+
+  function buildRings() {
+    el("circle", { class: "ring", cx: 0, cy: 0, r: RING_INV }, $("rings"));
+    el("circle", { class: "ring", cx: 0, cy: 0, r: RING_CLUSTER }, $("rings"));
+    el("circle", { class: "ring wide", cx: 0, cy: 0, r: RING_REQ }, $("rings"));
+  }
+
+  function buildCenter(owner) {
+    ownerName = owner.name || "you";
+    el("circle", { class: "owner-body", cx: 0, cy: 0, r: 44 }, $("center"));
+    const t = el("text", { class: "owner-label", x: 0, y: 6 }, $("center"));
+    t.textContent = short(ownerName, 10);
+  }
+
+  function buildSatellites(list) {
+    const groups = { inventory: [], "contact-cluster": [] };
+    for (const s of list) (groups[s.kind] || groups.inventory).push(s);
+    const place = (items, r, speed, labelMax) => {
+      items.forEach((s, i) => {
+        const angle0 = (i / Math.max(items.length, 1)) * Math.PI * 2 + r; // ring radius doubles as phase offset
+        const node = el("circle", { class: "sat " + s.kind, r: s.kind === "inventory" ? 6 : 7 }, $("sats"));
+        let labelNode = null;
+        if (i < labelMax) {
+          labelNode = el("text", { class: "sat-label" }, $("sats"));
+          labelNode.textContent = short(s.name, 30);
+        }
+        sats.push({ node, labelNode, r, angle0, speed });
+      });
+    };
+    place(groups.inventory, RING_INV, 0.000055, 4);
+    place(groups["contact-cluster"], RING_CLUSTER, 0.000032, 5);
+  }
+
+  function drawSats(t) {
+    for (const s of sats) {
+      const a = s.angle0 + t * s.speed;
+      const x = Math.cos(a) * s.r, y = Math.sin(a) * s.r;
+      s.node.setAttribute("cx", x); s.node.setAttribute("cy", y);
+      if (s.labelNode) { s.labelNode.setAttribute("x", x + 11); s.labelNode.setAttribute("y", y + 5); }
+    }
+  }
+  function tick(t) { drawSats(t); requestAnimationFrame(tick); }
+
+  function ensurePlanet(requester) {
+    if (planets.has(requester)) return;
+    const g = el("g", {}, $("requesters"));
+    el("circle", { class: "halo", r: 30, filter: "url(#soft)" }, g);
+    el("circle", { class: "planet-body", r: 16 }, g);
+    const label = el("text", { class: "planet-label", x: 0, y: 34 }, g);
+    label.textContent = short(requester);
+    planets.set(requester, { g, x: 0, y: 0 });
+  }
+
+  function layoutPlanets() {
+    const names = [...planets.keys()].sort();
+    names.forEach((name, i) => {
+      const a = -Math.PI / 2 + (i / names.length) * Math.PI * 2;
+      const p = planets.get(name);
+      p.x = Math.cos(a) * RING_REQ; p.y = Math.sin(a) * RING_REQ;
+      p.g.setAttribute("transform", "translate(" + p.x + " " + p.y + ")");
+    });
+  }
+
+  // --- the handover: one luminous parcel at a time, absorb pulse on arrival ---
+  function enqueueParcel(requester) {
+    parcelQueue.push(requester);
+    if (!parcelBusy) nextParcel();
+  }
+  function nextParcel() {
+    const requester = parcelQueue.shift();
+    if (!requester) { parcelBusy = false; return; }
+    parcelBusy = true;
+    const p = planets.get(requester);
+    if (!p) { nextParcel(); return; }
+    if (REDUCED) {
+      // static fallback: a quiet highlight instead of travel
+      p.g.classList.add("received");
+      setTimeout(() => { p.g.classList.remove("received"); nextParcel(); }, 1800);
+      return;
+    }
+    const dist = Math.hypot(p.x, p.y) || 1;
+    const ux = p.x / dist, uy = p.y / dist;
+    const sx = ux * 50, sy = uy * 50;                    // leave the owner's edge
+    const ex = p.x - ux * 20, ey = p.y - uy * 20;        // arrive at the planet's edge
+    const mx = (sx + ex) / 2 - uy * 42, my = (sy + ey) / 2 + ux * 42; // gentle arc
+    const g = el("g", {}, $("parcels"));
+    el("circle", { class: "parcel-halo", r: 11, filter: "url(#softer)" }, g);
+    el("circle", { class: "parcel-core", r: 4 }, g);
+    const DUR = 1600, t0 = performance.now();
+    const ease = (u) => u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2;
+    function step(now) {
+      const u = Math.min((now - t0) / DUR, 1), e = ease(u);
+      const x = (1 - e) * (1 - e) * sx + 2 * (1 - e) * e * mx + e * e * ex;
+      const y = (1 - e) * (1 - e) * sy + 2 * (1 - e) * e * my + e * e * ey;
+      g.setAttribute("transform", "translate(" + x + " " + y + ")");
+      if (u < 1) { requestAnimationFrame(step); return; }
+      g.remove();
+      absorbPulse(p, () => setTimeout(nextParcel, 350));
+    }
+    requestAnimationFrame(step);
+  }
+  function absorbPulse(p, done) {
+    const ring = el("circle", { class: "pulse", cx: p.x, cy: p.y, r: 16, "stroke-width": 3 }, $("parcels"));
+    const body = p.g.querySelector(".planet-body");
+    const DUR = 700, t0 = performance.now();
+    function step(now) {
+      const u = Math.min((now - t0) / DUR, 1);
+      ring.setAttribute("r", 16 + u * 26);
+      ring.setAttribute("opacity", 1 - u);
+      body.setAttribute("r", 16 + Math.sin(u * Math.PI) * 3.5);
+      if (u < 1) { requestAnimationFrame(step); return; }
+      ring.remove(); body.setAttribute("r", 16);
+      done();
+    }
+    requestAnimationFrame(step);
+  }
+
+  // --- live state: poll the inbox the owner already trusts ---
+  async function poll() {
+    let data;
+    try { data = await (await fetch("/api/inbox")).json(); } catch { return; }
+    let added = false;
+    for (const q of data.queries) {
+      if (!planets.has(q.requester)) { ensurePlanet(q.requester); added = true; }
+    }
+    if (added) layoutPlanets();
+    const considering = new Set(
+      data.queries.filter((q) => q.state === "running" || q.state === "awaiting_reveal").map((q) => q.requester),
+    );
+    for (const [name, p] of planets) p.g.classList.toggle("glow", considering.has(name));
+    for (const q of data.queries) {
+      if (q.state === "responded" && q.response && SHARE_KINDS.has(q.response.kind) && !seenResponded.has(q.id)) {
+        seenResponded.add(q.id);
+        if (primed) enqueueParcel(q.requester);
+      }
+    }
+    primed = true;
+    $("meta").textContent = sats.length + " satellites orbit " + ownerName + " · " + planets.size + " " + (planets.size === 1 ? "person has" : "people have") + " asked";
+  }
+
+  async function init() {
+    buildRings();
+    let orbit;
+    try { orbit = await (await fetch("/api/orbit")).json(); }
+    catch { $("meta").textContent = "could not reach the demo server"; return; }
+    buildCenter(orbit.owner);
+    buildSatellites(orbit.owner.satellites);
+    for (const r of orbit.requesters) ensurePlanet(r.requester);
+    layoutPlanets();
+    if (REDUCED) drawSats(0); else requestAnimationFrame(tick);
+    await poll();
+    setInterval(poll, 4000);
+  }
+  init();
+</script>
+</body>
+</html>

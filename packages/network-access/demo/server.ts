@@ -252,6 +252,42 @@ const server = createServer(async (req, res) => {
       res.end(readFileSync(join(here, "inbox.html")));
       return;
     }
+    if (req.method === "GET" && path === "/orbit") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(readFileSync(join(here, "orbit.html")));
+      return;
+    }
+    if (req.method === "GET" && path === "/api/orbit") {
+      // Owner-side scene data: localhost, owner's own screen — full names are fine.
+      // Inventory items orbit individually; contacts orbit as per-network clusters.
+      const networkCounts = new Map<string, number>();
+      for (const c of contacts) {
+        const net = c.networks?.[0] ?? "other";
+        networkCounts.set(net, (networkCounts.get(net) ?? 0) + 1);
+      }
+      const satellites = [
+        ...inventory.map((i) => ({ id: i.id, name: i.name, kind: "inventory" as const })),
+        ...[...networkCounts.entries()].map(([net, n]) => ({
+          id: `contacts-${net}`,
+          name: `${n} contact${n === 1 ? "" : "s"} · ${net}`,
+          kind: "contact-cluster" as const,
+        })),
+      ];
+      const byRequester = new Map<string, { requester: string; state: string; lastKind: string | null; lastAt: number }>();
+      for (const q of store.list()) {
+        const entry = byRequester.get(q.requester) ?? { requester: q.requester, state: q.state, lastKind: null, lastAt: 0 };
+        if (q.receivedAt >= entry.lastAt) {
+          entry.lastAt = q.receivedAt;
+          entry.state = q.state;
+        }
+        if (q.response) entry.lastKind = q.response.kind;
+        byRequester.set(q.requester, entry);
+      }
+      return json(res, 200, {
+        owner: { name: defaultProfile.name, satellites },
+        requesters: [...byRequester.values()].map(({ requester, state, lastKind }) => ({ requester, state, lastKind })),
+      });
+    }
     if (req.method === "POST" && path === "/api/ask") {
       const body = await readBody(req);
       const requester = String(body.requester ?? "").trim();
@@ -326,6 +362,7 @@ server.listen(port, "127.0.0.1", () => {
   console.log(`--------`);
   console.log(`requester page  http://127.0.0.1:${port}/`);
   console.log(`owner inbox     http://127.0.0.1:${port}/inbox`);
+  console.log(`orbit view      http://127.0.0.1:${port}/orbit`);
   console.log(`contacts: ${contacts.length} (${contactsPath})`);
   console.log(`models: small=${config.smallModel} large=${config.largeModel} via ${config.ollamaUrl} (keyword fallback if unreachable)`);
 });
