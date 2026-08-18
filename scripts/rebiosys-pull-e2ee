@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""Pull pending rebiosys queries/waitlist signups from the questhub relay,
+decrypting any E2EE envelopes with the laptop's private key.
+
+Fork of ~/.local/bin/rebiosys-pull (do not edit that file from here). Same
+transport as the original: SSH ControlMaster to questhub (LuLu-proof),
+`GET /pending?token=...`, `POST /ack`. The only change is per-record: a
+record carrying `ciphertext_envelope` (packages/relay-crypto/src/
+sealed_box.ts wire format) is decrypted before being written to inbox.jsonl;
+legacy plaintext records pass through byte-for-byte unchanged.
+
+Keychain entries read (never written) by this script:
+  - rebiosys-pull / questhub  — the relay-pull token, same as the original
+    script.
+  - rebiosys-e2ee / laptop    — the new PKCS8 private key (base64), created
+    by the user running the `security add-generic-password ...` command
+    printed by `pnpm --filter @resource-web/relay-crypto keygen`. If this
+    entry does not exist yet, e2ee records are kept as undecryptable and
+    plaintext (legacy) records still flow normally — the script degrades,
+    it does not fail.
+
+Decryption itself happens in Node (packages/relay-crypto/src/cli_unseal.ts,
+run via the workspace's tsx), because Python has no WebCrypto and the
+`cryptography` package is not installed in this environment.
+
+Per-record outcome:
+  - no ciphertext_envelope  -> pass through unchanged (legacy plaintext).
+  - envelope decrypts       -> stored record = original fields + decrypted
+                                fields + `e2ee: true`; `ciphertext_envelope`
+                                dropped.
+  - envelope fails to
+    decrypt (bad/missing
+    key, tampered ct, ...)  -> record KEPT with `undecryptable: true` and a
+                                short `error` string. Never dropped.
+                                Exit code stays 0.
+
+Usage: rebiosys-pull-e2ee [--dry-run]
+"""
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Optional
+
+INBOX = Path.home() / ".local/share/rebiosys/inbox.jsonl"
+DRY = "--dry-run" in sys.argv
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+CLI_UNSEAL = REPO_ROOT / "packages" / "relay-crypto" / "src" / "cli_unseal.ts"
+TSX_BIN = REPO_ROOT / "node_modules" / ".bin" / "tsx"
+
+
+def keychain_password(service: str, account: str) -> str:
+    out = subprocess.run(
+        ["security", "find-generic-password", "-s", service, "-a", account, "-w"],
+        capture_output=True, text=True,
+    )
+    if out.returncode != 0:
+        sys.exit(f"no {service}/{account} entry in keychain")
+    return out.stdout.strip()
+
+
+def relay(cmd: str) -> dict:
+    out = subprocess.run(["ssh", "questhub", cmd], capture_output=True, text=True, timeout=30)
+    if out.returncode != 0:
+        sys.exit(f"ssh to questhub failed: {out.stderr.strip()[:200]}")
+    return json.loads(out.stdout)
+
+
+def decrypt_envelope(
+    envelope: dict,
+    private_key_b64: str,
+    tsx_bin: Path = TSX_BIN,
+    cli_path: Path = CLI_UNSEAL,
+) -> dict:
+    """Decrypts a ciphertext_envelope by shelling out to the Node CLI.
+    Returns the decoded plaintext object on success. Raises RuntimeError (or
+    lets a lower-level exception through) on any failure — this function
+    never decides what to do about a failed decrypt, that is process_record's
+    job, so it can be unit-tested independently of subprocess/network."""
+    proc = subprocess.run(
+        [str(tsx_bin), str(cli_path), "--key", private_key_b64],
+        input=json.dumps(envelope),
+        capture_output=True, text=True, timeout=30,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(proc.stderr.strip()[:300] or "cli_unseal failed")
+    return json.loads(proc.stdout)
+
+
+def process_record(rec: dict, private_key_b64: Optional[str], decrypt=decrypt_envelope) -> dict:
+    """Pure per-record decision logic. `decrypt` is injectable so this is
+    testable without touching subprocess/keychain/network at all."""
+    envelope = rec.get("ciphertext_envelope")
+    if envelope is None:
+        return rec  # legacy plaintext record, pass through unchanged
+    if private_key_b64 is None:
+        return {**rec, "undecryptable": True, "error": "no rebiosys-e2ee private key in keychain"}
+    try:
+        plaintext = decrypt(envelope, private_key_b64)
+    except Exception as exc:  # noqa: BLE001 - deliberately broad: never drop a record over an unexpected error
+        return {**rec, "undecryptable": True, "error": str(exc)[:300]}
+    merged = {**rec, **plaintext, "e2ee": True}
+    merged.pop("ciphertext_envelope", None)
+    return merged
+
+
+def main() -> None:
+    print("… rebiosys-pull-e2ee running …")
+    print("--------")
+    token = keychain_password("rebiosys-pull", "questhub")
+    data = relay(f"curl -s 'http://127.0.0.1:8095/pending?token={token}'")
+    pending = data.get("pending", [])
+    if not pending:
+        print("nothing pending on the relay")
+        return
+    seen = set()
+    if INBOX.exists():
+        seen = {json.loads(l)["id"] for l in INBOX.read_text().splitlines() if l.strip()}
+    fresh = [r for r in pending if r["id"] not in seen]
+
+    try:
+        private_key_b64 = keychain_password("rebiosys-e2ee", "laptop")
+    except SystemExit:
+        private_key_b64 = None  # no keypair generated yet: e2ee records become undecryptable, plaintext still flows
+
+    processed = [process_record(r, private_key_b64) for r in fresh]
+    for orig, rec in zip(fresh, processed):
+        kind = rec.get("kind", "?")
+        who = rec.get("name") or rec.get("email") or "unknown"
+        flag = " [e2ee]" if rec.get("e2ee") else " [undecryptable]" if rec.get("undecryptable") else ""
+        print(f"[{orig.get('ts')}] {kind} from {who} ({orig.get('channel')}){flag}: {rec.get('text', '')[:80]}")
+    if DRY:
+        print(f"-------- dry run: {len(fresh)} new, not stored, not acked")
+        return
+    INBOX.parent.mkdir(parents=True, exist_ok=True)
+    with INBOX.open("a") as f:
+        for rec in processed:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    os.chmod(INBOX, 0o600)
+    ids = [r["id"] for r in pending]
+    payload = json.dumps({"token": token, "ids": ids})
+    relay(f"curl -s -X POST http://127.0.0.1:8095/ack -H 'content-type: application/json' -d '{payload}'")
+    print(f"-------- {len(fresh)} new stored in {INBOX}, {len(pending)} acked on relay")
+
+
+if __name__ == "__main__":
+    main()
