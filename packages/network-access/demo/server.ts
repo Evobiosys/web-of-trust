@@ -15,12 +15,17 @@ import {
   GateError,
   receiveQuery,
   requesterView,
+  startProactiveReachOut,
   anonymizedRevealDecision,
   KeywordContactMatcher,
   LlmContactMatcher,
   OllamaChatClient,
   QueryStore,
   loadConfig,
+  loadProfilesFile,
+  profileById,
+  ProfileError,
+  ReplySchedule,
 } from "../src/index.js";
 import type {
   ContactRecord,
@@ -64,11 +69,15 @@ const inventory = loadInventory();
 const corpus: ContactRecord[] = [...contacts, ...inventory];
 const contactsById = new Map(corpus.map((c) => [c.id, c]));
 
-const profilesPath = join(here, "..", "data", "profiles.json");
-const profiles: OwnerProfile[] = existsSync(profilesPath)
-  ? JSON.parse(readFileSync(profilesPath, "utf8"))
+// Named profiles (Delta 2): "general" + per-use-case alter egos, one JSON
+// object per line. Legacy profiles.json (single array) still reads as a
+// fallback if the .jsonl file is absent.
+const profilesJsonlPath = join(here, "..", "data", "profiles.jsonl");
+const profilesJsonPath = join(here, "..", "data", "profiles.json");
+const profiles: OwnerProfile[] = existsSync(profilesJsonlPath) || existsSync(profilesJsonPath)
+  ? loadProfilesFile(profilesJsonlPath, profilesJsonPath)
   : [{ id: "general", name: "Owner", contact: "connect@evobiosys.org" }];
-const defaultProfile = profiles[0]!;
+const defaultProfile = profileById(profiles, "general");
 
 const store = new QueryStore(join(here, "..", "data", "demo_state.json"));
 
@@ -170,7 +179,7 @@ function relayToken(): string {
   }).trim();
 }
 
-function bridgeCycle(): { ingested: number; pushed: number } {
+function bridgeCycle(): { ingested: number; scheduled: number; pushed: number } {
   let ingested = 0;
   try {
     execFileSync(join(homedir(), ".local", "bin", "rebiosys-pull"), [], {
@@ -201,15 +210,48 @@ function bridgeCycle(): { ingested: number; pushed: number } {
     }
   }
   saveRelayMap(map);
-  const pushed = pushResponses();
-  return { ingested, pushed };
+  const scheduled = scheduleResponses();
+  const pushed = flushDueResponses(Date.now());
+  return { ingested, scheduled, pushed };
 }
 
-function pushResponses(): number {
+// Uniform reply scheduling (Delta 3, I3 timing-leak fix): outward responses
+// don't push to the relay the instant they're ready — they're enqueued onto
+// a shared 30s-default tick (config.replyTickMs) and only pushed when that
+// tick fires, so a 2s approve and a 90s decline are indistinguishable at
+// release time. replySchedule/scheduledRelayIds are process-local — fine for
+// this single-process demo; a daemon mount would persist the queue.
+const replySchedule = new ReplySchedule<string>(config.replyTickMs, 0);
+const scheduledRelayIds = new Set<string>();
+
+/** Enqueues any answered-but-not-yet-pushed relay entries onto the tick
+ * schedule. Idempotent per relayId — safe to call after every event. */
+function scheduleResponses(): number {
+  const map = loadRelayMap();
+  const now = Date.now();
+  let scheduled = 0;
+  for (const [relayId, entry] of Object.entries(map)) {
+    if (entry.pushed || scheduledRelayIds.has(relayId)) continue;
+    const q = store.get(entry.localId);
+    if (!q?.response) continue;
+    scheduledRelayIds.add(relayId);
+    replySchedule.enqueue(relayId, now);
+    scheduled++;
+  }
+  return scheduled;
+}
+
+/** Pushes over SSH whatever relayIds are due at `now`. Only source of actual
+ * outbound relay traffic — called from the tick interval below and once at
+ * the tail of bridgeCycle (so anything already due doesn't wait an extra
+ * bridge cycle). */
+function flushDueResponses(now: number): number {
   let pushed = 0;
   const map = loadRelayMap();
-  for (const [relayId, entry] of Object.entries(map)) {
-    if (entry.pushed) continue;
+  for (const relayId of replySchedule.due(now)) {
+    scheduledRelayIds.delete(relayId);
+    const entry = map[relayId];
+    if (!entry || entry.pushed) continue;
     const q = store.get(entry.localId);
     if (!q?.response) continue;
     const payload = JSON.stringify({ token: relayToken(), id: relayId, response: requesterView(q) });
@@ -286,24 +328,47 @@ const server = createServer(async (req, res) => {
       if (!q) return json(res, 404, { error: "unknown query" });
       const body = await readBody(req);
       let event = body.event;
+      // profileId is resolved here, not inside gates.ts: profileById() throws
+      // on an unknown id — never a silent fallback to a different identity.
       if (event?.type === "reveal_identity" && !event.profile) {
-        const profile = profiles.find((p) => p.id === (event.profileId ?? "general")) ?? defaultProfile;
-        event = { type: "reveal_identity", profile };
+        event = { type: "reveal_identity", profile: profileById(profiles, event.profileId) };
+      }
+      if (event?.type === "proactive_reach_out" && !event.profile) {
+        event = {
+          type: "proactive_reach_out",
+          profile: profileById(profiles, event.profileId),
+          message: String(event.message ?? ""),
+        };
       }
       const policy = store.policyFor(q.requester);
       const result = applyEvent(q, event, policy, { k: config.k, contactsById, defaultProfile });
       store.put(result.query);
       runEffects(result.query, result.effects, policy);
-      pushResponses();
+      scheduleResponses();
       return json(res, 200, { state: result.query.state });
     }
     if (req.method === "POST" && path === "/api/relay/bridge") {
       const report = bridgeCycle();
       return json(res, 200, report);
     }
+    // Delta 1, standalone case: the owner reaches toward a known requester
+    // with no inbound query driving it — no gate0/gate1 progression, just a
+    // fresh query born already answered via startProactiveReachOut().
+    if (req.method === "POST" && path === "/api/reach-out") {
+      const body = await readBody(req);
+      const requester = String(body.requester ?? "").trim();
+      const message = String(body.message ?? "").trim();
+      if (!requester || !message) return json(res, 400, { error: "requester and message required" });
+      const profile = profileById(profiles, body.profileId);
+      const result = startProactiveReachOut({ id: randomUUID(), requester, receivedAt: Date.now() }, profile, message);
+      store.put(result.query);
+      scheduleResponses();
+      return json(res, 200, { id: result.query.id });
+    }
     json(res, 404, { error: "not found" });
   } catch (err) {
     if (err instanceof GateError) return json(res, 409, { error: err.message });
+    if (err instanceof ProfileError) return json(res, 400, { error: err.message });
     console.error(err);
     json(res, 500, { error: "internal error" });
   }
@@ -313,10 +378,14 @@ const port = Number(process.env.NETWORK_ACCESS_PORT ?? 4790);
 if (process.env.NETWORK_ACCESS_NO_BRIDGE !== "1") {
   setTimeout(() => {
     const r = bridgeCycle();
-    console.log(`relay bridge: ingested ${r.ingested}, pushed ${r.pushed}`);
+    console.log(`relay bridge: ingested ${r.ingested}, scheduled ${r.scheduled}, pushed ${r.pushed}`);
   }, 2_000);
   setInterval(() => bridgeCycle(), 60_000);
 }
+// Uniform reply-scheduling tick (Delta 3): fires independently of the relay
+// bridge's own 60s pull cadence so a response's actual push always waits for
+// the next shared tick, not the next bridge cycle.
+setInterval(() => flushDueResponses(Date.now()), config.replyTickMs);
 server.listen(port, "127.0.0.1", () => {
   console.log("… network-access demo running …");
   console.log(`--------`);
