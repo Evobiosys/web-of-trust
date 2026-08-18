@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, GateError, receiveQuery, requesterView } from "./gates.js";
+import { applyEvent, GateError, receiveQuery, requesterView, startProactiveReachOut } from "./gates.js";
 import { DEFAULT_REQUESTER_POLICY } from "./types.js";
-import type { ContactMatch, IntroQuery, RequesterPolicy } from "./types.js";
+import type { ContactMatch, Gate0Policy, Gate1Policy, Gate2Policy, IntroQuery, RequesterPolicy } from "./types.js";
 
 const base = { id: "q1", requester: "mira", text: "intro to a permaculture person in Vienna", receivedAt: 1 };
 
@@ -149,5 +149,123 @@ describe("gate 2 — share the result", () => {
     ).query;
     const texts = [declined, blocked, expired, none].map((q) => requesterView(q).text);
     expect(new Set(texts).size).toBe(1);
+  });
+});
+
+describe("proactive reach-out (Gate-2 family, Delta 1)", () => {
+  const profile = { id: "general", name: "Jakob", contact: "connect@evobiosys.org" };
+
+  it("owner can compose an outward reach-out on a query awaiting reveal", () => {
+    const { query } = runToMatched(DEFAULT_REQUESTER_POLICY, 2);
+    const { query: q2 } = applyEvent(
+      query,
+      { type: "proactive_reach_out", profile, message: "saw your ask — let's talk" },
+      DEFAULT_REQUESTER_POLICY,
+    );
+    const view = requesterView(q2);
+    expect(view.state).toBe("answered");
+    expect(view.profile).toEqual(profile);
+    expect(view.message).toBe("saw your ask — let's talk");
+    expect(view.text).toContain("saw your ask — let's talk");
+    expect(view.text).toContain(profile.contact);
+  });
+
+  it("owner can reach out before running the matcher at all (awaiting_gate0 / awaiting_run)", () => {
+    const { query } = receiveQuery(base, DEFAULT_REQUESTER_POLICY);
+    expect(query.state).toBe("awaiting_gate0");
+    const { query: q2 } = applyEvent(
+      query,
+      { type: "proactive_reach_out", profile, message: "no need to wait — reach out" },
+      DEFAULT_REQUESTER_POLICY,
+    );
+    expect(q2.state).toBe("responded");
+    expect(requesterView(q2).profile).toEqual(profile);
+  });
+
+  it("throws once the query is already terminal (responded/declined/expired)", () => {
+    const answered = applyEvent(
+      runToMatched(DEFAULT_REQUESTER_POLICY, 2).query,
+      { type: "reveal_anonymized" },
+      DEFAULT_REQUESTER_POLICY,
+    ).query;
+    expect(() =>
+      applyEvent(answered, { type: "proactive_reach_out", profile, message: "hi" }, DEFAULT_REQUESTER_POLICY),
+    ).toThrow(GateError);
+  });
+
+  it("rejects an empty message", () => {
+    const { query } = receiveQuery(base, DEFAULT_REQUESTER_POLICY);
+    expect(() =>
+      applyEvent(query, { type: "proactive_reach_out", profile, message: "   " }, DEFAULT_REQUESTER_POLICY),
+    ).toThrow(GateError);
+  });
+
+  it("startProactiveReachOut builds a standalone query toward a known requester with no inbound ask", () => {
+    const { query } = startProactiveReachOut(
+      { id: "standalone-1", requester: "mira", receivedAt: 42 },
+      profile,
+      "thought of you for this",
+    );
+    expect(query.origin).toBe("owner");
+    expect(query.state).toBe("responded");
+    const view = requesterView(query);
+    expect(view.profile).toEqual(profile);
+    expect(view.message).toBe("thought of you for this");
+  });
+
+  it("is reachable ONLY via the explicit owner event — no policy combination ever emits it automatically", () => {
+    const gate0s: Gate0Policy[] = ["blocked", "ask_each_time", "standing_allow"];
+    const gate1s: Gate1Policy[] = ["manual", "auto_small"];
+    const gate2s: Gate2Policy[] = ["manual", "auto_anonymized", "auto_reveal_identity"];
+    const seenKinds = new Set<string>();
+
+    for (const gate0 of gate0s) {
+      for (const gate1 of gate1s) {
+        for (const gate2 of gate2s) {
+          const policy: RequesterPolicy = { gate0, gate1, gate2 };
+          // Drive every automatic path as far as it goes: receiveQuery may
+          // already respond (blocked) or auto-run (standing_allow+auto_small);
+          // if it reaches "running", complete the match automatically too —
+          // still with no explicit event of any kind besides that lifecycle one.
+          let { query, effects } = receiveQuery(base, policy);
+          if (effects[0]?.type === "respond") seenKinds.add(effects[0].response.kind);
+          if (query.state === "running") {
+            const result = applyEvent(
+              query,
+              { type: "match_completed", matches: matches(5), totalContacts: 100 },
+              policy,
+              { defaultProfile: profile },
+            );
+            query = result.query;
+            for (const eff of result.effects) if (eff.type === "respond") seenKinds.add(eff.response.kind);
+          }
+          // Also probe the manual gate0/gate1 progression for combinations
+          // that hold at awaiting_gate0 / awaiting_run — advance them by
+          // hand through gate0_allow/run (still no proactive_reach_out event)
+          // and complete the match, covering the manual/manual/* matrix too.
+          if (policy.gate0 === "ask_each_time") {
+            let manual = receiveQuery(base, policy).query;
+            ({ query: manual } = applyEvent(manual, { type: "gate0_allow" }, policy));
+            if (manual.state === "awaiting_run") {
+              ({ query: manual } = applyEvent(manual, { type: "run", model: "small" }, policy));
+            }
+            if (manual.state === "running") {
+              const result = applyEvent(
+                manual,
+                { type: "match_completed", matches: matches(5), totalContacts: 100 },
+                policy,
+                { defaultProfile: profile },
+              );
+              for (const eff of result.effects) if (eff.type === "respond") seenKinds.add(eff.response.kind);
+            }
+          }
+        }
+      }
+    }
+
+    expect(seenKinds.has("proactive_reach_out")).toBe(false);
+    // sanity: the sweep did actually exercise other automatic outward kinds,
+    // so an absent "proactive_reach_out" is meaningful, not a no-op sweep.
+    expect(seenKinds.size).toBeGreaterThan(0);
   });
 });

@@ -9,6 +9,7 @@ import {
   NOTHING_SHAREABLE_TEXT,
   DEFAULT_K,
 } from "./anonymity.js";
+import { DEFAULT_REQUESTER_POLICY } from "./types.js";
 import type {
   ContactMatch,
   ContactRecord,
@@ -16,6 +17,7 @@ import type {
   ModelSize,
   OutwardResponse,
   OwnerProfile,
+  QueryState,
   RequesterPolicy,
 } from "./types.js";
 
@@ -27,6 +29,7 @@ export type GateEvent =
   | { type: "reveal_anonymized" }
   | { type: "reveal_identified"; contactIds: string[] }
   | { type: "reveal_identity"; profile: OwnerProfile }
+  | { type: "proactive_reach_out"; profile: OwnerProfile; message: string }
   | { type: "decline_reveal" }
   | { type: "expire" };
 
@@ -91,6 +94,41 @@ function identityResponse(profile: OwnerProfile): OutwardResponse {
     text: `${profile.name} is sharing something that fits your request — reach out directly: ${profile.contact}`,
     profile,
   };
+}
+
+function proactiveReachOutResponse(profile: OwnerProfile, message: string): OutwardResponse {
+  return {
+    kind: "proactive_reach_out",
+    text: `${profile.name} wanted to reach out: "${message}" — ${profile.contact}`,
+    profile,
+    message,
+  };
+}
+
+const TERMINAL_STATES = new Set<QueryState>(["responded", "declined_reveal", "declined_gate0", "expired"]);
+
+/** Builds a fresh, gate-less query for a standalone proactive reach-out: the
+ * owner reaching toward a known requester with no inbound ask driving it.
+ * Immediately applies the proactive_reach_out event so the resulting query
+ * is born already "responded" — it flows through the same outward path
+ * (requesterView / demo relay push) as any other answered query. */
+export function startProactiveReachOut(
+  input: { id: string; requester: string; receivedAt: number },
+  profile: OwnerProfile,
+  message: string,
+): TransitionResult {
+  const query: IntroQuery = {
+    id: input.id,
+    requester: input.requester,
+    text: "",
+    receivedAt: input.receivedAt,
+    state: "awaiting_gate0",
+    origin: "owner",
+  };
+  // Policy plays no role in this branch (an explicit owner event, never
+  // policy-driven) — DEFAULT_REQUESTER_POLICY is passed only to satisfy
+  // applyEvent's signature.
+  return applyEvent(query, { type: "proactive_reach_out", profile, message }, DEFAULT_REQUESTER_POLICY);
 }
 
 export function applyEvent(
@@ -168,6 +206,19 @@ export function applyEvent(
       if (query.state !== "awaiting_reveal") throw new GateError(`reveal_identity in ${query.state}`);
       return respondWith(query, "responded", identityResponse(event.profile));
     }
+    case "proactive_reach_out": {
+      // Explicit owner action ONLY — never reachable from an automatic
+      // policy branch (contrast match_completed's auto_anonymized /
+      // auto_reveal_identity arms above, neither of which mentions this
+      // event type). Allowed from any pre-answer state: the owner may reach
+      // out before, during, or instead of running the matcher (the
+      // standalone case, via startProactiveReachOut, starts here too).
+      if (TERMINAL_STATES.has(query.state)) {
+        throw new GateError(`proactive_reach_out in ${query.state}`);
+      }
+      if (!event.message.trim()) throw new GateError("proactive_reach_out requires a non-empty message");
+      return respondWith(query, "responded", proactiveReachOutResponse(event.profile, event.message));
+    }
     case "decline_reveal": {
       if (query.state !== "awaiting_reveal") throw new GateError(`decline_reveal in ${query.state}`);
       return respondWith(query, "declined_reveal", { kind: "declined", text: NOTHING_SHAREABLE_TEXT });
@@ -191,6 +242,7 @@ export interface RequesterQueryView {
   totalCount?: number;
   contacts?: { name: string; reason: string }[];
   profile?: OwnerProfile;
+  message?: string;
 }
 
 export function requesterView(query: IntroQuery): RequesterQueryView {
@@ -203,5 +255,9 @@ export function requesterView(query: IntroQuery): RequesterQueryView {
   }
   if (r.kind === "identified") view.contacts = r.contacts;
   if (r.kind === "identity_revealed") view.profile = r.profile;
+  if (r.kind === "proactive_reach_out") {
+    view.profile = r.profile;
+    view.message = r.message;
+  }
   return view;
 }

@@ -4,3 +4,5 @@ export * from "./gates.js";
 export * from "./contact_matcher.js";
 export * from "./store.js";
 export * from "./config.js";
+export * from "./profiles.js";
+export * from "./reply_schedule.js";

@@ -51,7 +51,13 @@ export type QueryState =
 
 /** Owner-side record of how a query was answered. Never sent outward as-is —
  * requesters only ever see the output of requesterView() (see gates.ts). */
-export type OutwardKind = "nothing_shareable" | "anonymized" | "identified" | "identity_revealed" | "declined";
+export type OutwardKind =
+  | "nothing_shareable"
+  | "anonymized"
+  | "identified"
+  | "identity_revealed"
+  | "proactive_reach_out"
+  | "declined";
 
 export interface OutwardResponse {
   kind: OutwardKind;
@@ -60,6 +66,8 @@ export interface OutwardResponse {
   totalCount?: number;
   contacts?: { name: string; reason: string }[];
   profile?: OwnerProfile;
+  /** Owner's free-text message, present on proactive_reach_out only. */
+  message?: string;
 }
 
 /** A reach-out card the owner can attach when revealing their identity.
@@ -81,4 +89,8 @@ export interface IntroQuery {
   matches?: ContactMatch[];
   totalContacts?: number;
   response?: OutwardResponse;
+  /** "owner" marks a standalone proactive_reach_out the owner started toward
+   * a known requester with no inbound query (Delta 1). Absent/"requester" =
+   * the ordinary requester-initiated query. */
+  origin?: "requester" | "owner";
 }
