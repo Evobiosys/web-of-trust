@@ -6,7 +6,7 @@
 - Multi-hop beyond one relay
 - Mobile packaging
 - Real ZK circuits (v1 target — Markus owns crypto review, DECISIONS.md D1.3/D2)
-- Federation with OpenVTC networks (the EXTERNAL Danube Tech project, not this repo's own "OpenVTC pillar" — see DECISIONS.md D21's honest-labeling split; `packages/transport/src/credential_provider.ts`'s `OpenVtcProvider` is the stubbed seam this line would land behind)
+- Federation with OpenVTC networks (the EXTERNAL **Affinidi OpenVTC** project, not this repo's own "OpenVTC pillar" — the **early-alpha web-of-trust OpenVTC** / "EW-alpha OpenVTC", per Jakob's naming, 2026-08-25 — see DECISIONS.md D21's honest-labeling split; `packages/transport/src/credential_provider.ts`'s `OpenVtcProvider` is the stubbed seam this line would land behind)
 - Exclusion cascade as *group* governance — per Jakob (D1.5) exclusion stays individual: I downgrade a peer in my own trust graph, no appeals, no notification. Protocol only records `vouched_by` to keep collective mechanisms possible later.
 
 - Per-item SharePolicy editor driven by AppProfile.defaultPolicy (profiles are display-only today; D10).

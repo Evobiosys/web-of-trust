@@ -273,22 +273,24 @@ export class LocalVrcProvider implements CredentialProvider {
 export class NotImplementedError extends Error {
   constructor(method: string) {
     super(
-      `OpenVtcProvider.${method} is not implemented yet — stub only. ` +
-        "Next step: git.myceli.al/markus/danubetech-openvtc runbook + D22 (DECISIONS.md)."
+      `OpenVtcProvider.${method} is not implemented yet — stub only (Affinidi OpenVTC). ` +
+        "Next step: git.myceli.al/markus/danubetech-openvtc runbook + D21 (DECISIONS.md)."
     );
     this.name = "NotImplementedError";
   }
 }
 
 /**
- * Endpoint configuration for the REAL external OpenVTC project (Danube
- * Tech's Verifiable Trust infrastructure) — NOT this repo's own hand-rolled
+ * Endpoint configuration for the REAL external **Affinidi OpenVTC** project
+ * (Verifiable Trust infrastructure) — NOT this repo's own hand-rolled
  * did:peer:2 + DIDComm-shaped + VRC-shaped stack, which this codebase's own
- * comments/docs have historically also called "OpenVTC" (see D22,
- * DECISIONS.md, for the honest-labeling split this class exists to enforce
- * going forward). Owner decision, 2026-08-24: "we will use openvtc for now"
- * — Jakob has confirmed OpenVTC is the intended first real integration, so
- * these TODOs are a concrete next-step map, not an open question.
+ * comments/docs have historically also called "OpenVTC" and which Jakob's
+ * naming (2026-08-25) now calls the **early-alpha web-of-trust OpenVTC**
+ * ("EW-alpha OpenVTC") to keep the two apart (see D21, DECISIONS.md, for the
+ * honest-labeling split this class exists to enforce going forward). Owner
+ * decision, 2026-08-24: "we will use openvtc for now" — Jakob has confirmed
+ * Affinidi OpenVTC is the intended first real integration, so these TODOs
+ * are a concrete next-step map, not an open question.
  */
 export interface OpenVtcProviderConfig {
   /** DID hosting service. TODO next step: resolve/register did:peer:2 (or the DID method OpenVTC expects) against dids.openvtc.danubetech.com:8534. */

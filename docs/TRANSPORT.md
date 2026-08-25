@@ -273,9 +273,10 @@ throttling, orthogonal to whether the transport code itself is correct.
 ## 10. OpenVTC pillar — DIDComm-shaped transport (Task 11, D12)
 
 > **Honest-labeling note (D21):** "OpenVTC pillar" here is THIS repo's own hand-rolled
-> `did:peer:2` + DIDComm-shaped + VRC-shaped stack — self-invented at D12, not built on or
-> interoperable with the external Danube Tech OpenVTC project. `packages/transport/src/
-> credential_provider.ts` stubs that external project behind `OpenVtcProvider`, kept behind the
+> `did:peer:2` + DIDComm-shaped + VRC-shaped stack — self-invented at D12; per Jakob's naming
+> (2026-08-25), the **early-alpha web-of-trust OpenVTC** ("EW-alpha OpenVTC"), not built on or
+> interoperable with the external **Affinidi OpenVTC** project. `packages/transport/src/
+> credential_provider.ts` stubs Affinidi OpenVTC behind `OpenVtcProvider`, kept behind the
 > same `CredentialProvider` interface this pillar's own `LocalVrcProvider` implements. See
 > DECISIONS.md D21.
 

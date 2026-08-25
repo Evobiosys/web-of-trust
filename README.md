@@ -18,10 +18,11 @@ Zach's React app is imported at `apps/web` (+ `packages/ew-contract`); the sprin
 `packages/browser-agent`.
 
 > **Honest-labeling note (D21, `cred-provider` branch):** "the OpenVTC pillar" above names THIS repo's
-> own hand-rolled `did:peer:2` + DIDComm-shaped transport + VRC-shaped credential stack — it predates,
-> and is not built on, the external Danube Tech OpenVTC project. `packages/transport/src/
-> credential_provider.ts`'s `OpenVtcProvider` is a stub for that external project, kept behind the same
-> `CredentialProvider` interface `LocalVrcProvider` (this repo's own stack) implements — see DECISIONS.md.
+> own hand-rolled `did:peer:2` + DIDComm-shaped transport + VRC-shaped credential stack — per Jakob's
+> naming (2026-08-25), the **early-alpha web-of-trust OpenVTC** ("EW-alpha OpenVTC"). It predates, and
+> is not built on, the external **Affinidi OpenVTC** project. `packages/transport/src/
+> credential_provider.ts`'s `OpenVtcProvider` is a stub for Affinidi OpenVTC, kept behind the same
+> `CredentialProvider` interface `LocalVrcProvider` (EW-alpha OpenVTC) implements — see DECISIONS.md.
 
 ---
 
