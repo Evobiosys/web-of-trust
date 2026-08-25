@@ -26,6 +26,26 @@ import {
   profileById,
   ProfileError,
   ReplySchedule,
+  // Query-infra (2026-08-25 memo): pre-approved templates, red flags, pause,
+  // vault (local-files) query target — see DECISIONS.md D22.
+  createTemplate,
+  revokeTemplate,
+  currentView as currentTemplateView,
+  listAllRaw as listAllTemplatesRaw,
+  TemplateError,
+  loadOrCreateSecret,
+  submitQuery,
+  listRedFlags,
+  activeTrustPenalty,
+  effectivePolicy,
+  readPauseState,
+  setPaused,
+  peekQueueLength,
+  drain,
+  loadVault,
+  runVaultQuery,
+  KeywordVaultMatcher,
+  LlmVaultMatcher,
 } from "../src/index.js";
 import type {
   ContactRecord,
@@ -35,6 +55,14 @@ import type {
   OwnerProfile,
   RequesterPolicy,
   RevealDecision,
+  QueryTemplate,
+  TemplateAllowedGates,
+  MatchMode,
+  TemplateTarget,
+  GatewayPaths,
+  SubmitOutcome,
+  SubmitQueryInput,
+  VaultQueryTrace,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -81,6 +109,120 @@ const defaultProfile = profileById(profiles, "general");
 
 const store = new QueryStore(join(here, "..", "data", "demo_state.json"));
 
+// ---------------------------------------------------------------------------
+// Query infra (2026-08-25 memo, DECISIONS.md D22): pre-approved templates,
+// red-flag handling, pause control, local-files (vault) query target. All
+// owner-local state lives under ~/.local/share/rebiosys, same directory as
+// inventory.jsonl/inbox.jsonl — the owner's device store, never repo-tracked.
+const rebiosysDir = join(homedir(), ".local", "share", "rebiosys");
+const gatewayPaths: GatewayPaths = {
+  templatesPath: join(rebiosysDir, "query_templates.jsonl"),
+  templatesSecretPath: join(rebiosysDir, "query_templates.secret"),
+  redFlagsPath: join(rebiosysDir, "red_flags.jsonl"),
+  pauseStatePath: join(rebiosysDir, "pause_state.json"),
+  pauseQueuePath: join(rebiosysDir, "pause_queue.jsonl"),
+};
+
+// Local-files (Obsidian-style) query target. Default points at the repo's
+// synthetic fixtures corpus, resolved relative to this file (NOT computed in
+// src/, which would break once tsc emits to dist/ at a different depth — see
+// config.ts's vaultModel comment). Override with NETWORK_ACCESS_VAULT_PATH to
+// point at a different folder; this demo never reads a real personal vault.
+const vaultPath = process.env.NETWORK_ACCESS_VAULT_PATH ?? join(here, "..", "..", "..", "fixtures", "vault");
+function loadVaultNotes() {
+  return loadVault(vaultPath);
+}
+const vaultKeyword = new KeywordVaultMatcher();
+// Deterministic by default (fast, repeatable — see config.ts's vaultUseLlm
+// doc); NETWORK_ACCESS_VAULT_USE_LLM=1 swaps in the real "strongest local
+// model configured" path, still falling back to vaultKeyword on any failure.
+const vaultMatcher = config.vaultUseLlm
+  ? new LlmVaultMatcher(new OllamaChatClient(config.ollamaUrl), config.vaultModel, vaultKeyword)
+  : vaultKeyword;
+
+// Owner-side trace annex for templated *network* queries (target: "network"):
+// IntroQuery/gates.ts stay completely untouched (D19-D21 behavior unchanged)
+// — this is purely an additive, server-local lookup keyed by query id, merged
+// into ownerView().trace below.
+const templateTraceById = new Map<
+  string,
+  { templateValidation: { status: string; template_id: string; reason?: string }; redFlag?: unknown }
+>();
+
+// Owner-side log of every vault query attempt (accepted-and-run, or
+// red-flagged) — vault queries have no persisted state-machine object like
+// IntroQuery, so this list IS their transparent trace surface (memo item 5).
+interface VaultLogEntry {
+  id: string;
+  ts: string;
+  requester: string;
+  templateId: string;
+  templateValidation: { status: string; template_id: string; reason?: string };
+  redFlag?: unknown;
+  trace?: VaultQueryTrace;
+  outward: string;
+}
+const vaultQueryLog: VaultLogEntry[] = [];
+
+/** Runs one submitted query through the full gateway (template validation →
+ * red-flag or pause or dispatch), then dispatches an "accepted" outcome to
+ * the network ladder or the vault query path per the template's target.
+ * Shared by the immediate /api/query path and resumeQueue()'s replay after
+ * an unpause, so both go through identical logic. */
+async function dispatchQuery(input: { templateId: string; requester: string; text: string; receivedAt?: number }) {
+  const outcome: SubmitOutcome = submitQuery(gatewayPaths, input);
+  if (outcome.kind === "red_flag") {
+    vaultQueryLog.push({
+      id: randomUUID(),
+      ts: new Date().toISOString(),
+      requester: input.requester,
+      templateId: input.templateId,
+      templateValidation: outcome.templateValidation,
+      redFlag: outcome.redFlag,
+      outward: outcome.outward,
+    });
+    return { kind: "red_flag" as const, outward: outcome.outward };
+  }
+  if (outcome.kind === "queued") {
+    return { kind: "queued" as const };
+  }
+  const template = outcome.template;
+  if (template.target === "vault") {
+    const trace = await runVaultQuery(loadVaultNotes(), vaultMatcher, {
+      text: input.text,
+      requester: input.requester,
+      k: config.k,
+    });
+    vaultQueryLog.push({
+      id: randomUUID(),
+      ts: new Date().toISOString(),
+      requester: input.requester,
+      templateId: template.id,
+      templateValidation: outcome.templateValidation,
+      trace,
+      outward: trace.outward.bytes,
+    });
+    return { kind: "vault" as const, outward: trace.outward.bytes, trace };
+  }
+  // target: "network" — the existing D19-D21 consent ladder, using the
+  // template's allowed_gates as the requester policy INSTEAD OF
+  // store.policyFor(requester): a templated query is gated by what the
+  // template itself pre-approved, not by whatever standing per-requester
+  // policy happens to exist.
+  const policy: RequesterPolicy = template.allowed_gates;
+  const result = receiveQuery(
+    { id: randomUUID(), requester: input.requester, text: input.text, receivedAt: input.receivedAt ?? Date.now() },
+    policy,
+  );
+  store.put(result.query);
+  templateTraceById.set(result.query.id, {
+    templateValidation: outcome.templateValidation,
+    redFlag: undefined,
+  });
+  runEffects(result.query, result.effects, policy);
+  return { kind: "network" as const, id: result.query.id };
+}
+
 const keyword = new KeywordContactMatcher();
 function matcherFor(model: ModelSize) {
   const name = model === "small" ? config.smallModel : config.largeModel;
@@ -102,7 +244,13 @@ function runEffects(query: IntroQuery, effects: GateEffect[], policy: RequesterP
             { k: config.k, contactsById, defaultProfile },
           );
           store.put(result.query);
-          pushResponses();
+          // Pre-existing bug fix (found while wiring query-infra, D22): this
+          // called an undefined pushResponses() — every other path that
+          // answers a query (POST /api/queries/:id/event, /api/reach-out)
+          // calls scheduleResponses() afterward; a completed matcher run
+          // answering via an auto Gate-2 policy is exactly the same case and
+          // was silently never scheduling its relay push.
+          scheduleResponses();
         })
         .catch((err) => console.error(`match run failed for ${query.id}:`, err));
     }
@@ -116,12 +264,23 @@ function ownerView(q: IntroQuery) {
     q.matches !== undefined
       ? anonymizedRevealDecision(q.matches.length, q.totalContacts ?? 0, config.k)
       : undefined;
+  const basePolicy = store.policyFor(q.requester);
+  const trustPenalty = activeTrustPenalty(gatewayPaths.redFlagsPath, q.requester);
+  const templateInfo = templateTraceById.get(q.id);
   return {
     ...q,
     matches: q.matches?.map((m) => ({ ...m, name: contactsById.get(m.contact_id)?.name ?? m.contact_id })),
     kDecision: decision,
-    policy: store.policyFor(q.requester),
+    policy: basePolicy,
+    // Red-flag trust downgrade (memo item 2): if this requester has an
+    // unexpired flag, the policy actually applied to NEW queries from them
+    // is stricter than their standing grant — surfaced here so the owner
+    // sees why a "standing_allow" requester is suddenly back to ask-each-time.
+    trustPenalty,
+    effectivePolicy: effectivePolicy(basePolicy, trustPenalty),
     // Transparent trace: what the algorithm did / would send, spelled out.
+    // Additive: templateValidation/redFlag are new keys layered onto the
+    // existing D19-D21 trace object — nothing here or above was renamed.
     trace:
       q.matches !== undefined
         ? {
@@ -131,8 +290,12 @@ function ownerView(q: IntroQuery) {
             kDecision: decision,
             outwardIfAnonymized: decision ? requesterPreview(decision) : undefined,
             outwardSent: q.response?.text,
+            templateValidation: templateInfo?.templateValidation,
+            redFlag: templateInfo?.redFlag,
           }
-        : undefined,
+        : templateInfo
+          ? { templateValidation: templateInfo.templateValidation, redFlag: templateInfo.redFlag }
+          : undefined,
   };
 }
 
@@ -310,12 +473,88 @@ const server = createServer(async (req, res) => {
       return json(res, 200, requesterView(q));
     }
     if (req.method === "GET" && path === "/api/inbox") {
+      const secret = loadOrCreateSecret(gatewayPaths.templatesSecretPath);
       return json(res, 200, {
         queries: store.list().map(ownerView),
         policies: store.listPolicies(),
         contacts: contacts.length,
         k: config.k,
+        // Query infra additions (memo, D22) — owner-side only:
+        templates: currentTemplateView(gatewayPaths.templatesPath, secret),
+        redFlags: listRedFlags(gatewayPaths.redFlagsPath),
+        pause: { ...readPauseState(gatewayPaths.pauseStatePath), queueLength: peekQueueLength(gatewayPaths.pauseQueuePath) },
+        vaultQueries: vaultQueryLog,
+        vaultNoteCount: loadVaultNotes().length,
       });
+    }
+    // --- Query infra endpoints (memo, DECISIONS.md D22) ---------------------
+    if (req.method === "GET" && path === "/api/templates") {
+      const secret = loadOrCreateSecret(gatewayPaths.templatesSecretPath);
+      return json(res, 200, {
+        templates: currentTemplateView(gatewayPaths.templatesPath, secret),
+        raw: listAllTemplatesRaw(gatewayPaths.templatesPath),
+      });
+    }
+    // Owner-only, local-device action: create a pre-approved template. Never
+    // reachable from anything an incoming request supplies.
+    if (req.method === "POST" && path === "/api/templates") {
+      const body = await readBody(req);
+      const template = createTemplate(gatewayPaths.templatesSecretPath, gatewayPaths.templatesPath, {
+        requester: String(body.requester ?? "").trim(),
+        query_text: String(body.query_text ?? "").trim(),
+        match_mode: (body.match_mode as MatchMode) ?? "exact",
+        target: (body.target as TemplateTarget) ?? "vault",
+        allowed_gates: (body.allowed_gates as TemplateAllowedGates) ?? {
+          gate0: "standing_allow",
+          gate1: "manual",
+          gate2: "manual",
+        },
+      });
+      return json(res, 200, template);
+    }
+    const revokeMatch = path.match(/^\/api\/templates\/([^/]+)\/revoke$/);
+    if (req.method === "POST" && revokeMatch) {
+      const revoked = revokeTemplate(gatewayPaths.templatesSecretPath, gatewayPaths.templatesPath, revokeMatch[1]!);
+      return json(res, 200, revoked);
+    }
+    // The one entry point an incoming query actually uses: reference a
+    // template id, nothing else. See query_gateway.ts / dispatchQuery above.
+    if (req.method === "POST" && path === "/api/query") {
+      const body = await readBody(req);
+      const outcome = await dispatchQuery({
+        templateId: String(body.templateId ?? "").trim(),
+        requester: String(body.requester ?? "").trim(),
+        text: String(body.text ?? "").trim(),
+      });
+      return json(res, 200, outcome);
+    }
+    if (req.method === "GET" && path === "/api/pause") {
+      return json(res, 200, {
+        ...readPauseState(gatewayPaths.pauseStatePath),
+        queueLength: peekQueueLength(gatewayPaths.pauseQueuePath),
+      });
+    }
+    if (req.method === "POST" && path === "/api/pause") {
+      const body = await readBody(req);
+      const paused = Boolean(body.paused);
+      const state = setPaused(gatewayPaths.pauseStatePath, paused);
+      if (!paused) {
+        // Resuming: drain whatever queued while paused and run each item's
+        // ORIGINAL (templateId, requester, text) back through dispatchQuery
+        // — the same function a live /api/query call uses. dispatchQuery
+        // re-runs submitQuery() internally, so a template revoked during the
+        // pause window is honored (rejected + red-flagged) rather than
+        // bypassed by a queue built before the revoke. Draining here (not
+        // via query_gateway.ts's own resumeQueue()) is deliberate: that
+        // function lives in src/ with no matcher/HTTP dependency, so it
+        // can't itself run the vault matcher or the network ladder — see its
+        // doc comment.
+        const items = drain<SubmitQueryInput>(gatewayPaths.pauseQueuePath);
+        const outcomes = [];
+        for (const item of items) outcomes.push(await dispatchQuery(item.payload));
+        return json(res, 200, { ...state, drained: outcomes.length });
+      }
+      return json(res, 200, state);
     }
     if (req.method === "POST" && path === "/api/policies") {
       const body = await readBody(req);
@@ -369,6 +608,7 @@ const server = createServer(async (req, res) => {
   } catch (err) {
     if (err instanceof GateError) return json(res, 409, { error: err.message });
     if (err instanceof ProfileError) return json(res, 400, { error: err.message });
+    if (err instanceof TemplateError) return json(res, 400, { error: err.message });
     console.error(err);
     json(res, 500, { error: "internal error" });
   }
