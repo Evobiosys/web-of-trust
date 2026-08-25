@@ -15,8 +15,8 @@ import { ItemSchema, type Item } from "@resource-web/protocol";
 import {
   DidCommTransport,
   createIdentity,
-  issueVrc,
   verifyVrc,
+  LocalVrcProvider,
   type Identity,
   type VerifiableRelationshipCredential,
 } from "@resource-web/transport";
@@ -32,6 +32,7 @@ interface Node {
   identity: Identity;
   server: StartedServer;
   did: string;
+  credentialProvider: LocalVrcProvider;
 }
 
 const started: Node[] = [];
@@ -79,13 +80,24 @@ async function bootDaemon(persona: string, accent: string): Promise<Node> {
   });
   await daemon.init();
 
+  // Same wiring as main.ts's real boot path (credential-provider seam,
+  // 2026-08-24): trustExport routes through LocalVrcProvider.issue()
+  // (persisted, issue-once-per-still-live-edge) instead of minting fresh
+  // VRCs on every call, and the daemon's REST surface also gets a
+  // credentialProvider extra for GET/DELETE /api/trust/credentials.
+  const credentialProvider = new LocalVrcProvider(identity, { store });
   const server = await startServer(daemon, port, {
     didcommInbound: (rawBody: string) => transport.receiveInbound(rawBody),
-    trustExport: (): VerifiableRelationshipCredential[] =>
-      store.getTrustEdges().map((edge) => issueVrc(identity, { peerDid: edge.peer, relationship: "trusted" })),
+    trustExport: async (): Promise<VerifiableRelationshipCredential[]> => {
+      const records = await Promise.all(
+        store.getTrustEdges().map((edge) => credentialProvider.issue({ kind: "relationship", peerDid: edge.peer, relationship: "trusted" }))
+      );
+      return records.map((r) => r.credential as VerifiableRelationshipCredential);
+    },
+    credentialProvider,
   });
 
-  const node: Node = { daemon, store, identity, server, did: identity.did };
+  const node: Node = { daemon, store, identity, server, did: identity.did, credentialProvider };
   started.push(node);
   return node;
 }
@@ -178,5 +190,67 @@ describe("Two daemons over real DidCommTransport (localhost HTTP)", () => {
     const anna = await bootDaemon("Anna", "warm");
     const res = await fetch(`http://127.0.0.1:${anna.server.port}/api/trust/export?format=json`);
     expect(res.status).toBe(400);
+  });
+
+  it("export is idempotent per edge (D17 gap closed): exporting twice does not grow the credential list", async () => {
+    const anna = await bootDaemon("Anna", "warm");
+    const ben = await bootDaemon("Ben", "steady");
+    const nowIso = new Date().toISOString();
+    const expiresIso = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
+    anna.store.putTrustEdge({ peer: ben.did, display: "Ben", level: "friend", created_at: nowIso, expires_at: expiresIso });
+
+    const first = await (await fetch(`http://127.0.0.1:${anna.server.port}/api/trust/export?format=vrc`)).json() as { credentials: VerifiableRelationshipCredential[] };
+    const second = await (await fetch(`http://127.0.0.1:${anna.server.port}/api/trust/export?format=vrc`)).json() as { credentials: VerifiableRelationshipCredential[] };
+    expect(first.credentials).toHaveLength(1);
+    expect(second.credentials).toHaveLength(1);
+    expect(second.credentials[0].proof.jws).toBe(first.credentials[0].proof.jws); // same signed credential, not re-minted
+
+    // Persisted (D17 gap (2)): GET /api/trust/credentials shows exactly the one issued credential.
+    const listRes = await fetch(`http://127.0.0.1:${anna.server.port}/api/trust/credentials`);
+    expect(listRes.status).toBe(200);
+    const listed = await listRes.json() as { credentials: Array<{ id: string; revoked_at?: string }> };
+    expect(listed.credentials).toHaveLength(1);
+    expect(listed.credentials[0].revoked_at).toBeUndefined();
+  });
+
+  it("DELETE /api/trust/credentials/:id revokes; the revoked credential then fails verify() through the provider", async () => {
+    const anna = await bootDaemon("Anna", "warm");
+    const ben = await bootDaemon("Ben", "steady");
+    const nowIso = new Date().toISOString();
+    const expiresIso = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
+    anna.store.putTrustEdge({ peer: ben.did, display: "Ben", level: "friend", created_at: nowIso, expires_at: expiresIso });
+
+    await fetch(`http://127.0.0.1:${anna.server.port}/api/trust/export?format=vrc`); // issues + persists
+    const listed = await (await fetch(`http://127.0.0.1:${anna.server.port}/api/trust/credentials`)).json() as { credentials: Array<{ id: string }> };
+    expect(listed.credentials).toHaveLength(1);
+    const id = listed.credentials[0].id;
+
+    const del = await fetch(`http://127.0.0.1:${anna.server.port}/api/trust/credentials/${id}`, { method: "DELETE" });
+    expect(del.status).toBe(200);
+
+    const afterList = await (await fetch(`http://127.0.0.1:${anna.server.port}/api/trust/credentials`)).json() as { credentials: Array<{ id: string; revoked_at?: string }> };
+    expect(afterList.credentials[0].revoked_at).toBeDefined();
+
+    // Re-exporting now mints a NEW credential (the revoked one is excluded
+    // from issue()'s "existing, non-revoked" lookup) — expected alpha
+    // behavior: revoking degrades to "issue me a fresh one next time", not
+    // "this edge can never export again".
+    const vrc = (await (await fetch(`http://127.0.0.1:${anna.server.port}/api/trust/export?format=vrc`)).json() as { credentials: VerifiableRelationshipCredential[] }).credentials[0];
+    // Bare signature verification (vrc.ts's verifyVrc, no revocation knowledge) still passes — it never re-signs stale bytes.
+    expect(verifyVrc(vrc).valid).toBe(true);
+    // The PROVIDER's verify(), which does know about the status list, still
+    // reports the credential live (this is the freshly re-issued one, not
+    // the revoked one) — fetch the revoked credential straight off the store
+    // to prove ITS verify() specifically comes back revoked.
+    const revokedRecord = (await anna.credentialProvider.list()).find((r) => r.id === id)!;
+    const revokedVerify = await anna.credentialProvider.verify(revokedRecord.credential);
+    expect(revokedVerify.valid).toBe(false);
+    expect(revokedVerify.revoked).toBe(true);
+  });
+
+  it("DELETE /api/trust/credentials/:id returns 404 for an unknown id", async () => {
+    const anna = await bootDaemon("Anna", "warm");
+    const res = await fetch(`http://127.0.0.1:${anna.server.port}/api/trust/credentials/does-not-exist`, { method: "DELETE" });
+    expect(res.status).toBe(404);
   });
 });

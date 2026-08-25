@@ -28,6 +28,8 @@ interface BootOpts {
   relayServer?: { submit(rawWire: string): { routed: "accepted" | "rejected"; reason?: string }; attachDrainWss(httpServer: unknown, path?: string): void };
   /** DID card fields merged into GET /api/card (Task 11's getCardPayload output + Task 5's relay_url). */
   cardExtra?: { did: string; endpoint: string; relays?: string[]; ice_servers?: string[]; relay_url?: string };
+  /** Credential-provider seam (2026-08-24) — a fake satisfying server.ts's structural `credentialProvider` extra, for isolated route testing without real identity/crypto. */
+  credentialProvider?: { list(): Promise<Array<{ id: string; kind: string; credential: unknown; issued_at: string; revoked_at?: string }>>; revoke(id: string): Promise<void> };
 }
 
 async function bootDaemon(port: number, opts: BootOpts = {}): Promise<{ daemon: Daemon; server: StartedServer; store: SqliteStore; transport: InMemoryTransport }> {
@@ -56,6 +58,7 @@ async function bootDaemon(port: number, opts: BootOpts = {}): Promise<{ daemon: 
   const server = await startServer(daemon, port, {
     ...(opts.relayServer ? { relayServer: opts.relayServer as never } : {}),
     ...(opts.cardExtra ? { cardExtra: opts.cardExtra } : {}),
+    ...(opts.credentialProvider ? { credentialProvider: opts.credentialProvider } : {}),
   });
   return { daemon, server, store, transport };
 }
@@ -735,5 +738,61 @@ describe("REST/WS server — Task 5 extended HTTP surface", () => {
 
     const stateAfter = (await (await fetch(`http://127.0.0.1:${portB}/api/state`)).json()) as { connect_cards: Array<{ state: string }> };
     expect(stateAfter.connect_cards[0].state).toBe("accepted");
+  });
+});
+
+describe("REST server — credential-provider seam routes (2026-08-24)", () => {
+  let cleanup: (() => Promise<void>) | undefined;
+
+  afterEach(async () => {
+    if (cleanup) await cleanup();
+    cleanup = undefined;
+  });
+
+  it("GET /api/trust/credentials returns 404 when no provider is wired (mock/matrix transport)", async () => {
+    const port = nextPort();
+    const { server } = await bootDaemon(port);
+    cleanup = () => server.close();
+    const res = await fetch(`http://127.0.0.1:${port}/api/trust/credentials`);
+    expect(res.status).toBe(404);
+  });
+
+  it("DELETE /api/trust/credentials/:id returns 404 when no provider is wired", async () => {
+    const port = nextPort();
+    const { server } = await bootDaemon(port);
+    cleanup = () => server.close();
+    const res = await fetch(`http://127.0.0.1:${port}/api/trust/credentials/anything`, { method: "DELETE" });
+    expect(res.status).toBe(404);
+  });
+
+  it("GET /api/trust/credentials lists what the fake provider holds; DELETE revokes an existing id and 404s on an unknown one", async () => {
+    const port = nextPort();
+    const revoked: string[] = [];
+    const rows = [
+      { id: "cred-a", kind: "relationship", credential: { fake: "a" }, issued_at: "2026-01-01T00:00:00.000Z" },
+      { id: "cred-b", kind: "relationship", credential: { fake: "b" }, issued_at: "2026-01-02T00:00:00.000Z" },
+    ];
+    const fakeProvider = {
+      list: async () => rows,
+      revoke: async (id: string) => {
+        revoked.push(id);
+      },
+    };
+    const { server } = await bootDaemon(port, { credentialProvider: fakeProvider });
+    cleanup = () => server.close();
+
+    const listRes = await fetch(`http://127.0.0.1:${port}/api/trust/credentials`);
+    expect(listRes.status).toBe(200);
+    const body = (await listRes.json()) as { credentials: Array<{ id: string }> };
+    expect(body.credentials.map((c) => c.id)).toEqual(["cred-a", "cred-b"]);
+
+    const delRes = await fetch(`http://127.0.0.1:${port}/api/trust/credentials/cred-a`, { method: "DELETE" });
+    expect(delRes.status).toBe(200);
+    expect(await delRes.json()).toEqual({ ok: true });
+    expect(revoked).toEqual(["cred-a"]);
+
+    const unknownRes = await fetch(`http://127.0.0.1:${port}/api/trust/credentials/does-not-exist`, { method: "DELETE" });
+    expect(unknownRes.status).toBe(404);
+    expect(revoked).toEqual(["cred-a"]); // revoke() was never called for the unknown id
   });
 });

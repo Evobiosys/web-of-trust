@@ -12,9 +12,8 @@ import {
   serializeIdentity,
   deserializeIdentity,
   getCardPayload,
-  issueVrc,
+  LocalVrcProvider,
   type Identity,
-  type VerifiableRelationshipCredential,
 } from "@resource-web/transport";
 import { loadConfig, type EnvConfig } from "./config.js";
 import { SqliteStore } from "./store/sqlite_store.js";
@@ -123,24 +122,37 @@ async function main(): Promise<void> {
 
   await daemon.init();
 
+  // Credential-provider seam (2026-08-24, owner decision: "we will use
+  // openvtc for now" behind a swappable interface). `LocalVrcProvider` wraps
+  // vrc.ts's issueVrc/verifyVrc, persisting through this SAME `store`
+  // instance (SqliteStore now also implements CredentialStore — see
+  // store/sqlite_store.ts's header note on why this is one connection, not
+  // a second one). Wired without touching daemon.ts (other agents own its
+  // internals), same as the DIDComm inbound handler below.
+  const credentialProvider = identity !== undefined ? new LocalVrcProvider(identity, { store }) : undefined;
+
   // DIDComm inbound handler + VRC export, wired without touching daemon.ts
   // (other agents own daemon internals). Both are no-ops for non-didcomm.
   const didcommTransport = transport instanceof DidCommTransport ? transport : undefined;
   const server = await startServer(daemon, cfg.agentPort, {
     didcommInbound: didcommTransport ? (rawBody: string) => didcommTransport.receiveInbound(rawBody) : undefined,
-    // VRCs are issued on demand from the CURRENT (non-expired) trust edges at
-    // export time — self-asserted, not persisted (issuing+storing on edge
-    // creation would require touching daemon.ts/store, owned by other tasks).
+    // D17 gap (2) closed: VRCs are now issued THROUGH the credential
+    // provider (persisted, issue-once-per-still-live-edge — see
+    // LocalVrcProvider.issue()'s idempotency doc comment in
+    // credential_provider.ts) rather than freshly minted on every export
+    // call with nothing stored.
     trustExport:
-      identity !== undefined
-        ? (): VerifiableRelationshipCredential[] => {
+      credentialProvider !== undefined
+        ? async (): Promise<unknown[]> => {
             const now = Date.now();
-            return store
-              .getTrustEdges()
-              .filter((edge) => new Date(edge.expires_at).getTime() > now)
-              .map((edge) => issueVrc(identity, { peerDid: edge.peer, relationship: "trusted" }));
+            const liveEdges = store.getTrustEdges().filter((edge) => new Date(edge.expires_at).getTime() > now);
+            const records = await Promise.all(
+              liveEdges.map((edge) => credentialProvider.issue({ kind: "relationship", peerDid: edge.peer, relationship: "trusted" }))
+            );
+            return records.map((r) => r.credential);
           }
         : undefined,
+    credentialProvider,
     // Task 5: LAN exposure is opt-in via API_HOST — startServer reads
     // process.env.API_HOST itself when `host` is omitted here, so main.ts
     // doesn't need its own config plumbing for it.

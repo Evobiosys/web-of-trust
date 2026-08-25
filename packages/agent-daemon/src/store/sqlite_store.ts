@@ -3,7 +3,17 @@
 // audit_log, plus item_embeddings (matcher cache) and pending_capture
 // (steward confirm-before-save). `DB_PATH` env selects the file; tests use
 // ":memory:".
+//
+// Credential-provider seam (2026-08-24): SqliteStore ALSO implements
+// `CredentialStore` (from @resource-web/transport) against the `credentials`
+// table below, on this same connection/file — deliberately NOT a second
+// `SqlDriver` connection (mirrors `connection_store.ts`'s sidecar pattern in
+// every way except that: a second connection would silently diverge for the
+// common `DB_PATH=":memory:"` case, since two `:memory:` connections are two
+// separate empty databases). `main.ts` passes this same `SqliteStore`
+// instance to `LocalVrcProvider`'s `store` option.
 import { ItemSchema, TrustEdgeSchema, type Item, type TrustEdge } from "@resource-web/protocol";
+import type { CredentialKind, CredentialRecord, CredentialStore, IssuedCredential } from "@resource-web/transport";
 import { createSqlDriver, type SqlDriver } from "./sql_driver.js";
 import type { Store } from "./store.js";
 import type {
@@ -189,6 +199,14 @@ CREATE TABLE IF NOT EXISTS dm_messages (
   direction TEXT NOT NULL,
   text TEXT NOT NULL,
   ts TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS credentials (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  credential_json TEXT NOT NULL,
+  issued_at TEXT NOT NULL,
+  revoked_at TEXT
 );
 `;
 
@@ -460,7 +478,25 @@ function rowToLoan(row: LoanRow): LoanRecord {
   };
 }
 
-export class SqliteStore implements Store {
+interface CredentialRow {
+  id: string;
+  kind: CredentialKind;
+  credential_json: string;
+  issued_at: string;
+  revoked_at: string | null;
+}
+
+function rowToCredential(row: CredentialRow): CredentialRecord {
+  return {
+    id: row.id,
+    kind: row.kind,
+    credential: JSON.parse(row.credential_json) as IssuedCredential,
+    issued_at: row.issued_at,
+    revoked_at: row.revoked_at ?? undefined,
+  };
+}
+
+export class SqliteStore implements Store, CredentialStore {
   private readonly db: SqlDriver;
 
   constructor(path: string) {
@@ -884,6 +920,43 @@ export class SqliteStore implements Store {
 
   getDmPeers(): string[] {
     return this.db.all<{ peer: string }>("SELECT DISTINCT peer FROM dm_messages ORDER BY peer ASC").map((r) => r.peer);
+  }
+
+  // ------------------------------------------ credential-provider seam: CredentialStore --
+  // `LocalVrcProvider`'s persistence port (@resource-web/transport). Same
+  // connection as everything above (see this file's header note) — the
+  // `credentials` table follows the same JSON-column upsert idiom as
+  // `pending_capture`/`listings` above.
+
+  put(record: CredentialRecord): void {
+    this.db.run(
+      // Sticky revocation on an id collision (COALESCE keeps the EXISTING
+      // revoked_at if one is already set, rather than the incoming row's —
+      // always null here, since `put` is only ever called with a freshly-
+      // minted, not-yet-revoked record; see credential_provider.ts's
+      // `InMemoryCredentialStore.put` for why this matters: byte-identical
+      // content re-issued within the same clock-resolution tick after a
+      // revoke derives the SAME id, and without this a plain overwrite
+      // would silently un-revoke it).
+      `INSERT INTO credentials (id, kind, credential_json, issued_at, revoked_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, credential_json=excluded.credential_json,
+         issued_at=excluded.issued_at, revoked_at=COALESCE(credentials.revoked_at, excluded.revoked_at)`,
+      [record.id, record.kind, JSON.stringify(record.credential), record.issued_at, record.revoked_at ?? null]
+    );
+  }
+
+  get(id: string): CredentialRecord | undefined {
+    const row = this.db.get<CredentialRow>("SELECT * FROM credentials WHERE id = ?", [id]);
+    return row ? rowToCredential(row) : undefined;
+  }
+
+  list(): CredentialRecord[] {
+    return this.db.all<CredentialRow>("SELECT * FROM credentials ORDER BY issued_at ASC").map(rowToCredential);
+  }
+
+  markRevoked(id: string, revokedAt: string): void {
+    // COALESCE(revoked_at, ?) — a no-op if already revoked (idempotent per the CredentialStore contract).
+    this.db.run("UPDATE credentials SET revoked_at = COALESCE(revoked_at, ?) WHERE id = ?", [revokedAt, id]);
   }
 
   close(): void {

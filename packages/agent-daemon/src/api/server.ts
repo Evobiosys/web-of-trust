@@ -124,8 +124,25 @@ class PathFilteredUpgradeProxy extends EventEmitter {
 export interface ServerExtras {
   /** Handles an inbound encrypted DIDComm message body (mounted at POST /didcomm). Throws on reject. */
   didcommInbound?: (rawBody: string) => Promise<void>;
-  /** Returns this daemon's signed VRCs (served at GET /api/trust/export?format=vrc). */
-  trustExport?: () => unknown[];
+  /**
+   * Returns this daemon's signed VRCs (served at GET /api/trust/export?format=vrc).
+   * Async since the credential-provider seam (2026-08-24) routes this through
+   * `LocalVrcProvider.issue()`, which persists — `await` at the call site
+   * handles a plain synchronous array too (existing test doubles that return
+   * `unknown[]` directly still work unchanged).
+   */
+  trustExport?: () => Promise<unknown[]> | unknown[];
+  /**
+   * The credential-provider seam's REST surface (2026-08-24) — `list`/`revoke`
+   * only (`issue` stays behind `trustExport` above; `verify`/`present` have
+   * no route yet). Deliberately NOT an import of @resource-web/transport's
+   * `CredentialProvider` type, same reasoning as `RelayMediator` above: this
+   * structural shape is the only coupling point server.ts needs.
+   */
+  credentialProvider?: {
+    list(): Promise<Array<{ id: string; kind: string; credential: unknown; issued_at: string; revoked_at?: string }>>;
+    revoke(id: string): Promise<void>;
+  };
   /**
    * Bind host (Task 5). Defaults to `process.env.API_HOST ?? "127.0.0.1"`
    * inside `startServer` when omitted — kept in this options bag (rather
@@ -726,7 +743,37 @@ export function startServer(daemon: Daemon, port: number, extras: ServerExtras =
         sendJson(res, 404, { error: "VRC export not available for this transport" });
         return;
       }
-      sendJson(res, 200, { credentials: extras.trustExport() });
+      sendJson(res, 200, { credentials: await extras.trustExport() });
+      return;
+    }
+
+    // GET /api/trust/credentials — every credential this provider has issued
+    // and persisted (credential-provider seam, 2026-08-24). Owner-facing
+    // list, not a wire operation — mirrors trustExport's 404-when-absent.
+    if (method === "GET" && path === "/api/trust/credentials") {
+      if (!extras.credentialProvider) {
+        sendJson(res, 404, { error: "credential provider not available for this transport" });
+        return;
+      }
+      sendJson(res, 200, { credentials: await extras.credentialProvider.list() });
+      return;
+    }
+
+    // DELETE /api/trust/credentials/:id — revoke (credential-provider seam).
+    const credentialIdMatch = /^\/api\/trust\/credentials\/([^/]+)$/.exec(path);
+    if (method === "DELETE" && credentialIdMatch) {
+      if (!extras.credentialProvider) {
+        sendJson(res, 404, { error: "credential provider not available for this transport" });
+        return;
+      }
+      const id = decodeURIComponent(credentialIdMatch[1]);
+      const existing = await extras.credentialProvider.list();
+      if (!existing.some((r) => r.id === id)) {
+        sendJson(res, 404, { error: `no credential with id ${id}` });
+        return;
+      }
+      await extras.credentialProvider.revoke(id);
+      sendJson(res, 200, { ok: true });
       return;
     }
 

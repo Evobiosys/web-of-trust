@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import type { Item, TrustEdge } from "@resource-web/protocol";
 import { ItemSchema, TrustEdgeSchema } from "@resource-web/protocol";
+import type { CredentialRecord } from "@resource-web/transport";
 import { SqliteStore } from "./sqlite_store.js";
 import type { AskRecord, AuditRecord, DmMessageRecord, IncomingRecord, ListingRecord, LoanRecord, ReceivedListingRecord } from "./types.js";
 
@@ -252,5 +253,60 @@ describe("SqliteStore", () => {
     expect(store.getDmMessages(anna)).toEqual([m1, m2]);
     expect(store.getDmMessages(timo)).toEqual([m3]);
     expect(store.getDmPeers().sort()).toEqual([anna, timo].sort());
+  });
+
+  // ------------------------------------ credential-provider seam: CredentialStore --
+
+  describe("CredentialStore (credentials table)", () => {
+    function makeCredentialRecord(overrides: Partial<CredentialRecord> = {}): CredentialRecord {
+      return {
+        id: overrides.id ?? "cred-1",
+        kind: overrides.kind ?? "relationship",
+        credential: overrides.credential ?? ({
+          "@context": ["https://www.w3.org/2018/credentials/v1"],
+          type: ["VerifiableCredential", "RelationshipCredential"],
+          issuer: "did:peer:2.issuer",
+          issuanceDate: "2026-01-01T00:00:00.000Z",
+          credentialSubject: { id: "did:peer:2.subject", relationship: "trusted" },
+          proof: { type: "Ed25519Signature2020", created: "2026-01-01T00:00:00.000Z", verificationMethod: "did:peer:2.issuer", proofPurpose: "assertionMethod", jws: "fake-jws" },
+        } as unknown as CredentialRecord["credential"]),
+        issued_at: overrides.issued_at ?? "2026-01-01T00:00:00.000Z",
+        revoked_at: overrides.revoked_at,
+      };
+    }
+
+    it("round-trips a credential record through the JSON column", () => {
+      const record = makeCredentialRecord();
+      store.put(record);
+      expect(store.get("cred-1")).toEqual(record);
+      expect(store.list()).toEqual([record]);
+    });
+
+    it("markRevoked sets revoked_at and is idempotent (a second call does not move the timestamp)", () => {
+      store.put(makeCredentialRecord());
+      expect(store.get("cred-1")?.revoked_at).toBeUndefined();
+
+      store.markRevoked("cred-1", "2026-01-02T00:00:00.000Z");
+      expect(store.get("cred-1")?.revoked_at).toBe("2026-01-02T00:00:00.000Z");
+
+      store.markRevoked("cred-1", "2026-01-03T00:00:00.000Z"); // later call, same id
+      expect(store.get("cred-1")?.revoked_at).toBe("2026-01-02T00:00:00.000Z"); // unchanged
+    });
+
+    it("put() on an id collision preserves an existing revoked_at instead of clearing it (sticky revocation)", () => {
+      store.put(makeCredentialRecord());
+      store.markRevoked("cred-1", "2026-01-02T00:00:00.000Z");
+
+      // A fresh put() for the SAME id (e.g. LocalVrcProvider re-issuing
+      // byte-identical content within the same clock tick) must not silently
+      // un-revoke the row.
+      store.put(makeCredentialRecord());
+      expect(store.get("cred-1")?.revoked_at).toBe("2026-01-02T00:00:00.000Z");
+    });
+
+    it("markRevoked on an unknown id is a harmless no-op", () => {
+      expect(() => store.markRevoked("does-not-exist", "2026-01-02T00:00:00.000Z")).not.toThrow();
+      expect(store.get("does-not-exist")).toBeUndefined();
+    });
   });
 });
