@@ -134,7 +134,7 @@ export interface VaultKDecision {
 }
 
 export interface VaultQueryTrace {
-  query: { text: string; requester: string };
+  query: { text: string; requester: string; gate_states: Record<string, unknown> };
   scanned: { count: number; ids: string[] };
   candidates: VaultCandidate[];
   k_decision: VaultKDecision;
@@ -145,6 +145,12 @@ export interface RunVaultQueryOptions {
   text: string;
   requester: string;
   k?: number;
+  /** Mirrors inventory-store/src/query.ts's QueryTrace shape (requirement 5,
+   * bullet 1: "query text + requester + gate states"). For a templated
+   * query, the caller passes the template's allowed_gates — for a vault
+   * query there's no Gate-0/1/2 ladder of its own, so this is "what gate
+   * policy let this query run at all", not a state machine of its own. */
+  gateStates?: Record<string, unknown>;
 }
 
 function kDecisionLine(sharingCount: number, total: number, k: number, released: boolean): string {
@@ -164,7 +170,7 @@ export async function runVaultQuery(
   matcher: VaultMatcher,
   options: RunVaultQueryOptions,
 ): Promise<VaultQueryTrace> {
-  const { text, requester, k = DEFAULT_VAULT_K } = options;
+  const { text, requester, k = DEFAULT_VAULT_K, gateStates = {} } = options;
   const scanned = { count: notes.length, ids: notes.map((n) => n.id) };
   const candidates = await matcher.match(text, notes);
   const sharingCount = candidates.length;
@@ -174,7 +180,7 @@ export async function runVaultQuery(
     ? `${sharingCount} of ${total} notes in this vault match what you asked about.`
     : VAULT_NOTHING_SHAREABLE_TEXT;
   return {
-    query: { text, requester },
+    query: { text, requester, gate_states: gateStates },
     scanned,
     candidates,
     k_decision: { sharing_count: sharingCount, total, k, released, line: kDecisionLine(sharingCount, total, k, released) },

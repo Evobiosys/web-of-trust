@@ -233,9 +233,13 @@ export type TemplateValidationResult =
 /** Lowercase + collapse whitespace, matching contact_matcher.ts's
  * normalizeText spirit (avoids false red-flags on capitalization/punctuation
  * differences alone) without pulling in its diacritic stripping — template
- * text is compared for a real match, not fuzzy-searched. */
+ * text is compared for a real match, not fuzzy-searched. NFC-normalizes
+ * first: visually identical text can arrive as different Unicode byte
+ * sequences (composed vs. decomposed accents) — without this, a real
+ * legitimate requester could get silently red-flagged (with a 24h trust
+ * downgrade) over a difference invisible to both parties. */
 function normalize(s: string): string {
-  return s.toLowerCase().trim().replace(/\s+/g, " ");
+  return s.normalize("NFC").toLowerCase().trim().replace(/\s+/g, " ");
 }
 
 /**

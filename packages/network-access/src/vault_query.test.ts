@@ -10,7 +10,21 @@ import {
   VAULT_NOTHING_SHAREABLE_TEXT,
   runVaultQuery,
 } from "./vault_query.js";
+import { NOTHING_SHAREABLE_TEXT } from "./anonymity.js";
+import { REJECTED_OUTWARD_TEXT } from "./red_flags.js";
 import type { ChatClient } from "./contact_matcher.js";
+
+describe("VAULT_NOTHING_SHAREABLE_TEXT", () => {
+  it("is byte-identical to the network-access suppression text and the red-flag rejection text", () => {
+    // Three independent constants (anonymity.ts, red_flags.ts, vault_query.ts)
+    // MUST stay byte-identical, or a vault suppression, a network
+    // suppression, and a red-flagged rejection would become distinguishable
+    // from each other — exactly the cross-surface leak I3-style
+    // indistinguishability exists to prevent.
+    expect(VAULT_NOTHING_SHAREABLE_TEXT).toBe(NOTHING_SHAREABLE_TEXT);
+    expect(VAULT_NOTHING_SHAREABLE_TEXT).toBe(REJECTED_OUTWARD_TEXT);
+  });
+});
 
 let dir: string;
 
@@ -65,7 +79,9 @@ describe("KeywordVaultMatcher + runVaultQuery", () => {
     const trace = await runVaultQuery(notes, matcher, {
       text: "Does anyone have camping gear I could borrow for a weekend trip?",
       requester: "anna@example.org",
+      gateStates: { gate0: "standing_allow", gate1: "manual", gate2: "manual" },
     });
+    expect(trace.query.gate_states).toEqual({ gate0: "standing_allow", gate1: "manual", gate2: "manual" });
     expect(trace.scanned.count).toBe(8);
     expect(trace.k_decision.k).toBe(DEFAULT_VAULT_K);
     expect(trace.k_decision.sharing_count).toBeGreaterThanOrEqual(3);

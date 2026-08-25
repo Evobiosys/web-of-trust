@@ -39,6 +39,7 @@ import {
   activeTrustPenalty,
   effectivePolicy,
   readPauseState,
+  isPaused,
   setPaused,
   peekQueueLength,
   drain,
@@ -146,7 +147,15 @@ const vaultMatcher = config.vaultUseLlm
 // into ownerView().trace below.
 const templateTraceById = new Map<
   string,
-  { templateValidation: { status: string; template_id: string; reason?: string }; redFlag?: unknown }
+  {
+    templateValidation: { status: string; template_id: string; reason?: string };
+    redFlag?: unknown;
+    // The policy that ACTUALLY governed this query — template.allowed_gates,
+    // not store.policyFor(requester). Recorded so ownerView() below can show
+    // the true gating policy instead of an unrelated standing default that
+    // never applied to this templated query.
+    policy: RequesterPolicy;
+  }
 >();
 
 // Owner-side log of every vault query attempt (accepted-and-run, or
@@ -192,6 +201,12 @@ async function dispatchQuery(input: { templateId: string; requester: string; tex
       text: input.text,
       requester: input.requester,
       k: config.k,
+      // "what gate policy let this query run at all" — the template's
+      // allowed_gates, since a vault query has no ladder of its own. Cast:
+      // TemplateAllowedGates has no index signature of its own, so it isn't
+      // directly assignable to Record<string, unknown> — the trace field is
+      // read-only display data, so a cast (not a runtime copy) is enough.
+      gateStates: template.allowed_gates as unknown as Record<string, unknown>,
     });
     vaultQueryLog.push({
       id: randomUUID(),
@@ -218,6 +233,7 @@ async function dispatchQuery(input: { templateId: string; requester: string; tex
   templateTraceById.set(result.query.id, {
     templateValidation: outcome.templateValidation,
     redFlag: undefined,
+    policy,
   });
   runEffects(result.query, result.effects, policy);
   return { kind: "network" as const, id: result.query.id };
@@ -264,9 +280,13 @@ function ownerView(q: IntroQuery) {
     q.matches !== undefined
       ? anonymizedRevealDecision(q.matches.length, q.totalContacts ?? 0, config.k)
       : undefined;
-  const basePolicy = store.policyFor(q.requester);
-  const trustPenalty = activeTrustPenalty(gatewayPaths.redFlagsPath, q.requester);
   const templateInfo = templateTraceById.get(q.id);
+  // A templated query is gated by template.allowed_gates, NOT
+  // store.policyFor(requester) — show the policy that actually governed it,
+  // falling back to the standing per-requester default only for
+  // non-templated (D19-D21 legacy /api/ask) queries.
+  const basePolicy = templateInfo?.policy ?? store.policyFor(q.requester);
+  const trustPenalty = activeTrustPenalty(gatewayPaths.redFlagsPath, q.requester);
   return {
     ...q,
     matches: q.matches?.map((m) => ({ ...m, name: contactsById.get(m.contact_id)?.name ?? m.contact_id })),
@@ -360,6 +380,15 @@ function bridgeCycle(): { ingested: number; scheduled: number; pushed: number } 
       if (!line.trim()) continue;
       const rec = JSON.parse(line);
       if (rec.kind !== "query" || map[rec.id]) continue;
+      // Pause control (memo item 3): "it slows my phone/laptop" — a matcher
+      // run is exactly the load this guards against. Stop at the first
+      // not-yet-ingested item rather than skipping it: map[rec.id] stays
+      // unset, so the next bridgeCycle() (post-resume) picks up here again —
+      // relay_map.json IS the persisted queue for this path, no separate one
+      // needed. This does not affect the demo (it runs with
+      // NETWORK_ACCESS_NO_BRIDGE=1, and /api/query's own pause path is
+      // covered by query_gateway.ts's submitQuery/pause.ts).
+      if (isPaused(gatewayPaths.pauseStatePath)) break;
       const requester = rec.email || rec.name || "unknown";
       const policy = store.policyFor(requester);
       const result = receiveQuery(

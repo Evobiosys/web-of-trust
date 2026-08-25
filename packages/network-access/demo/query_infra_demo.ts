@@ -79,7 +79,11 @@ async function main(): Promise<void> {
     const outcomeGood = submitQuery(paths, { templateId: template.id, requester, text: approvedText });
     console.log(`template validation: ${outcomeGood.kind === "accepted" ? "valid — proceeding" : outcomeGood.kind}`);
     if (outcomeGood.kind === "accepted") {
-      const trace = await runVaultQuery(notes, matcher, { text: approvedText, requester });
+      const trace = await runVaultQuery(notes, matcher, {
+        text: approvedText,
+        requester,
+        gateStates: template.allowed_gates as unknown as Record<string, unknown>,
+      });
       printJson("transparent trace", trace);
       console.log(`outward response to requester: "${trace.outward.bytes}"`);
     }

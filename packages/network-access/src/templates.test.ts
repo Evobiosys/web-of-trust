@@ -127,6 +127,28 @@ describe("validateAgainstTemplate", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("treats NFC and NFD encodings of visually identical text as the same (no silent false red-flag)", () => {
+    // Built via .normalize() rather than typed literally so the two forms
+    // are guaranteed byte-different (precomposed vs. base letter + combining
+    // accent) even though they render identically — that difference is
+    // exactly what this test exists to neutralize.
+    const composedText = "caf\u00e9 gear list";
+    const decomposedText = "cafe\u0301 gear list";
+    expect(composedText.normalize("NFC")).toBe(composedText);
+    expect(decomposedText.normalize("NFD")).toBe(decomposedText);
+    expect(composedText).not.toBe(decomposedText); // sanity: genuinely different byte sequences
+    expect(composedText.normalize("NFC")).toBe(decomposedText.normalize("NFC")); // sanity: same after NFC
+
+    const t = createTemplate(secretPath, storePath, { ...BASE_INPUT, query_text: composedText });
+    const { raw, valid } = views();
+    const result = validateAgainstTemplate(raw, valid, {
+      templateId: t.id,
+      requester: "anna@example.org",
+      text: decomposedText,
+    });
+    expect(result.ok).toBe(true);
+  });
+
   it("flags an unknown template id", () => {
     const { raw, valid } = views();
     const result = validateAgainstTemplate(raw, valid, {
