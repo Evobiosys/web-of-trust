@@ -5,8 +5,18 @@
 import { $ } from "../dom.js";
 import { ctx } from "../context.js";
 import { showCoach } from "../coach.js";
+import { shareBarHtml, wireShareBar } from "../permission_policy_ui.js";
 
-/** @type {{ vis: string, steps: number, adv?: boolean }} */
+/**
+ * @typedef {import("../permission_policy_ui.js").AudienceRing} AudienceRing
+ * @typedef {{ vis: AudienceRing, steps: number, adv?: boolean }} HostFormState
+ */
+
+/** hostState.vis starts on "friends" to match permission_policy_ui.js's
+ * FALLBACK_SEED ("trusted" audience -> "friends" ring, see that module and
+ * permission_policy.ts's SEED_RING) — the composer's initial selection and
+ * the split-share-button's initial primary ring agree without either
+ * hard-coding the other. @type {HostFormState} */
 const hostState = { vis: "friends", steps: 2 };
 
 function ringsViz() {
@@ -43,19 +53,6 @@ function updateReach() {
 
 export function renderHost() {
   const f = $("hostForm");
-  const s = ctx.api.getState();
-  let visHtml = "";
-  s.vis.forEach((v) => {
-    visHtml += '<button class="vis-opt' + (hostState.vis === v.k ? " on" : "") + '" data-v="' + v.k + '">' +
-      '<span class="dot"></span><span>' + v.t + "<small>" + v.s + "</small></span></button>";
-  });
-  /** @type {Record<string, string>} */
-  const blurb = {
-    pub: "The whole city — no web needed.",
-    commons: "Everyone woven into your community’s web, however lightly.",
-    friends: "Only friends or closer. For everyone else, this gathering doesn’t exist.",
-    close: "Only your close friends. The quietest room.",
-  };
   f.innerHTML =
     '<div data-anchor="HST-1">' +
     '<div class="fld"><label>Name</label><input id="hn" value="Sunset Rooftop Dance"></div>' +
@@ -64,8 +61,8 @@ export function renderHost() {
     "</div>" +
     '<div data-anchor="HST-2">' +
     '<p class="eyebrow" style="margin:16px 0 8px">Who can see this?</p>' +
-    ringsViz() + visHtml +
-    '<p style="font-size:12px;color:var(--ink-soft);margin:2px 4px 0">' + blurb[hostState.vis] + "</p>" +
+    ringsViz() +
+    shareBarHtml("gathering") +
     "</div>" +
     '<div class="reach" id="reach" data-anchor="HST-4"></div>' +
     '<button class="adv-link" id="hostAdv" data-anchor="HST-3" style="color:var(--electric-deep)">' +
@@ -77,13 +74,7 @@ export function renderHost() {
     '<button class="btn btn-coral" style="width:100%;margin-top:14px" id="hostGo" data-anchor="HST-5">Open the doors</button>' +
     '<button class="btn btn-ghost" style="width:100%" id="hostCancel">Cancel</button>';
 
-  const opts = f.querySelectorAll(".vis-opt");
-  opts.forEach((opt) => {
-    /** @type {HTMLElement} */ (opt).onclick = () => {
-      hostState.vis = opt.getAttribute("data-v") || "friends";
-      renderHost();
-    };
-  });
+  wireShareBar("gathering", (ring) => { hostState.vis = ring; renderHost(); });
   $("hostAdv").onclick = () => { hostState.adv = !hostState.adv; renderHost(); };
   if (hostState.adv) {
     $("stDown").onclick = () => { if (hostState.steps > 1) { hostState.steps--; renderHost(); } };

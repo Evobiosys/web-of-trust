@@ -97,8 +97,10 @@ describe("live mode renders every screen without throwing", () => {
 
     ctx.show("host");
     expect(el("hostForm").textContent).toContain("Who can see this?");
-    // reach names come from real trust edges (Ben is close → in every tier)
-    el("hostForm").querySelectorAll(".vis-opt")[2].dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    // reach names come from real trust edges (Ben is close → in every tier).
+    // Pressing the split-share-button's main action re-renders the composer
+    // against live state (D21: replaced the old .vis-opt row with #shareMain).
+    el("shareMain").dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(el("reach").textContent).toContain("Ben");
 
     ctx.show("you");

@@ -13,12 +13,12 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@resource-web/agent-daemon": "workspace:*",
     "@resource-web/app-profiles": "workspace:*",
     "@resource-web/browser-agent": "workspace:*",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
-    "@resource-web/agent-daemon": "workspace:*",
     "@types/qrcode": "^1.5.5",
     "jsdom": "^25.0.1",
     "typescript": "^5.6.0",
