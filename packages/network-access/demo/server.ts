@@ -47,6 +47,15 @@ import {
   runVaultQuery,
   KeywordVaultMatcher,
   LlmVaultMatcher,
+  // Owner-review UI (2026-08-25 memo, follow-on to D22): pending-approval
+  // queue, reach-out channel resolution, restore-trust prompt stub — see
+  // demo/review.html.
+  buildReviewQueue,
+  staleness,
+  resolveContactOptionsFor,
+  recordRestorePrompt,
+  listRestorePrompts,
+  latestRestorePromptFor,
 } from "../src/index.js";
 import type {
   ContactRecord,
@@ -64,6 +73,8 @@ import type {
   SubmitOutcome,
   SubmitQueryInput,
   VaultQueryTrace,
+  QueueCardInput,
+  PeerContactRecord,
 } from "../src/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -115,7 +126,13 @@ const store = new QueryStore(join(here, "..", "data", "demo_state.json"));
 // red-flag handling, pause control, local-files (vault) query target. All
 // owner-local state lives under ~/.local/share/rebiosys, same directory as
 // inventory.jsonl/inbox.jsonl — the owner's device store, never repo-tracked.
-const rebiosysDir = join(homedir(), ".local", "share", "rebiosys");
+// NETWORK_ACCESS_STATE_DIR override (owner-review UI addition): lets a
+// headless verification run point the query-infra device store at a temp
+// directory instead of the real ~/.local/share/rebiosys, so exercising the
+// review UI never writes test templates/red-flags into the owner's actual
+// device state (see DECISIONS.md D22's note on purging test artifacts —
+// this makes that purge step unnecessary going forward).
+const rebiosysDir = process.env.NETWORK_ACCESS_STATE_DIR ?? join(homedir(), ".local", "share", "rebiosys");
 const gatewayPaths: GatewayPaths = {
   templatesPath: join(rebiosysDir, "query_templates.jsonl"),
   templatesSecretPath: join(rebiosysDir, "query_templates.secret"),
@@ -123,6 +140,22 @@ const gatewayPaths: GatewayPaths = {
   pauseStatePath: join(rebiosysDir, "pause_state.json"),
   pauseQueuePath: join(rebiosysDir, "pause_queue.jsonl"),
 };
+// Restore-trust prompt log (owner-review UI): deliberately NOT part of
+// GatewayPaths — that type is submitQuery()'s input contract specifically,
+// and restore-prompt recording has nothing to do with query submission.
+// Keeping it a sibling const avoids widening GatewayPaths (which
+// demo/query_infra_demo.ts also constructs) for an unrelated feature.
+const restorePromptsPath = join(rebiosysDir, "restore_prompts.jsonl");
+
+// Per-peer reach-out channel map (memo: "a button to reach out to the
+// person over the web of trust, or matrix or signal as a fallback"). Same
+// resolution shape a future transcript-derived contact-preference inference
+// would populate — see contact_channels.ts's file header.
+const peerContactsPath =
+  process.env.NETWORK_ACCESS_PEER_CONTACTS ?? join(here, "..", "data", "peer_contacts.sample.json");
+const peerContacts: PeerContactRecord[] = existsSync(peerContactsPath)
+  ? (JSON.parse(readFileSync(peerContactsPath, "utf8")) as PeerContactRecord[])
+  : [];
 
 // Local-files (Obsidian-style) query target. Default points at the repo's
 // synthetic fixtures corpus, resolved relative to this file (NOT computed in
@@ -325,6 +358,71 @@ function requesterPreview(decision: RevealDecision): string {
     : "No shareable result for this request.";
 }
 
+// ---------------------------------------------------------------------------
+// Owner-review UI (demo/review.html, 2026-08-25 memo): builds the
+// pending-approval queue + red-flag cards + reach-out channel lookup that
+// GET /api/inbox now also returns. Additive only — nothing above this
+// changes shape, inbox.html keeps working unmodified (same convention D22
+// established for templateValidation/redFlag on the trace object).
+function buildOwnerReviewPayload() {
+  const now = Date.now();
+  const pendingCards: QueueCardInput[] = store
+    .list()
+    .filter((q) => !["responded", "declined_reveal", "declined_gate0", "expired"].includes(q.state))
+    .map((q) => {
+      const templateInfo = templateTraceById.get(q.id);
+      const basePolicy = templateInfo?.policy ?? store.policyFor(q.requester);
+      const trustPenalty = activeTrustPenalty(gatewayPaths.redFlagsPath, q.requester);
+      return {
+        kind: "pending" as const,
+        id: q.id,
+        requester: q.requester,
+        text: q.text,
+        receivedAt: q.receivedAt,
+        state: q.state,
+        template: templateInfo ? { id: templateInfo.templateValidation.template_id, target: "network" as const } : undefined,
+        policy: basePolicy,
+        effectivePolicy: effectivePolicy(basePolicy, trustPenalty),
+      };
+    });
+  const restorePromptEvents = listRestorePrompts(restorePromptsPath);
+  const redFlagCards: QueueCardInput[] = listRedFlags(gatewayPaths.redFlagsPath).map((e) => ({
+    kind: "red_flag" as const,
+    id: e.id,
+    requester: e.requester,
+    receivedText: e.received_text,
+    ts: e.ts,
+    reason: e.reason,
+    trustDowngradeExpiresAt: e.trust_downgrade.expires_at,
+    restorePromptSentAt: latestRestorePromptFor(restorePromptEvents, e.id)?.ts,
+  }));
+  const queue = buildReviewQueue([...pendingCards, ...redFlagCards]).map((c) => ({
+    ...c,
+    staleness: staleness(c.kind === "red_flag" ? Date.parse(c.ts) : c.receivedAt, now),
+  }));
+
+  const allRequesters = new Set<string>([
+    ...store.list().map((q) => q.requester),
+    ...listRedFlags(gatewayPaths.redFlagsPath).map((e) => e.requester),
+    ...vaultQueryLog.map((v) => v.requester),
+  ]);
+  const reachOutByRequester = resolveContactOptionsFor(peerContacts, allRequesters);
+
+  // "Processed" list: already-answered/declined network queries + the vault
+  // log, each one tap from its transparent trace (memo item 4's "trace one
+  // tap away per processed query").
+  const processed = store
+    .list()
+    .filter((q) => ["responded", "declined_reveal", "declined_gate0", "expired"].includes(q.state))
+    .map((q) => ({ ...ownerView(q), staleness: staleness(q.receivedAt, now) }))
+    .sort((a, b) => b.receivedAt - a.receivedAt);
+  const vaultProcessed = vaultQueryLog
+    .map((v) => ({ ...v, staleness: staleness(Date.parse(v.ts), now) }))
+    .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts));
+
+  return { queue, processed, vaultProcessed, reachOutByRequester, restorePrompts: restorePromptEvents };
+}
+
 function json(res: import("node:http").ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
@@ -482,6 +580,13 @@ const server = createServer(async (req, res) => {
       res.end(readFileSync(join(here, "inbox.html")));
       return;
     }
+    // Owner-review UI (2026-08-25 memo): a new surface, additive — /inbox
+    // above is untouched and keeps working exactly as before.
+    if (req.method === "GET" && path === "/review") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(readFileSync(join(here, "review.html")));
+      return;
+    }
     if (req.method === "POST" && path === "/api/ask") {
       const body = await readBody(req);
       const requester = String(body.requester ?? "").trim();
@@ -507,6 +612,7 @@ const server = createServer(async (req, res) => {
         queries: store.list().map(ownerView),
         policies: store.listPolicies(),
         contacts: contacts.length,
+        corpusTotal: corpus.length,
         k: config.k,
         // Query infra additions (memo, D22) — owner-side only:
         templates: currentTemplateView(gatewayPaths.templatesPath, secret),
@@ -514,7 +620,20 @@ const server = createServer(async (req, res) => {
         pause: { ...readPauseState(gatewayPaths.pauseStatePath), queueLength: peekQueueLength(gatewayPaths.pauseQueuePath) },
         vaultQueries: vaultQueryLog,
         vaultNoteCount: loadVaultNotes().length,
+        // Owner-review UI additions — additive keys only, nothing above renamed.
+        review: buildOwnerReviewPayload(),
       });
+    }
+    // Records that the owner asked for a restore-trust nudge to go out for
+    // one red-flag event. Recording only — actual delivery over the
+    // requester's resolved reach-out channel is TODO (see restore_prompt.ts).
+    const restorePromptMatch = path.match(/^\/api\/red-flags\/([^/]+)\/restore-prompt$/);
+    if (req.method === "POST" && restorePromptMatch) {
+      const flagId = restorePromptMatch[1]!;
+      const flag = listRedFlags(gatewayPaths.redFlagsPath).find((e) => e.id === flagId);
+      if (!flag) return json(res, 404, { error: "unknown red-flag event" });
+      const event = recordRestorePrompt(restorePromptsPath, { redFlagId: flag.id, requester: flag.requester });
+      return json(res, 200, event);
     }
     // --- Query infra endpoints (memo, DECISIONS.md D22) ---------------------
     if (req.method === "GET" && path === "/api/templates") {

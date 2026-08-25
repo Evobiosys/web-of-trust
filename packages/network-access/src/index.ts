@@ -12,3 +12,6 @@ export * from "./pause.js";
 export * from "./vault.js";
 export * from "./vault_query.js";
 export * from "./query_gateway.js";
+export * from "./contact_channels.js";
+export * from "./review_queue.js";
+export * from "./restore_prompt.js";
