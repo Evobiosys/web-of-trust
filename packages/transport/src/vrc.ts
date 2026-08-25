@@ -49,10 +49,14 @@ export interface IssueVrcArgs {
   issuedAt?: string;
 }
 
-const VC_CONTEXT = ["https://www.w3.org/2018/credentials/v1", "https://w3id.org/security/suites/ed25519-2020/v1"];
+/** Exported so other credential shapes (scoped-grant credentials, credential_provider.ts's
+ * credential-id derivation) reuse the exact same VC context, not a hand-copied duplicate. */
+export const VC_CONTEXT = ["https://www.w3.org/2018/credentials/v1", "https://w3id.org/security/suites/ed25519-2020/v1"];
 
-/** Deterministic key-sorted JSON — the canonical bytes the proof signs over (NOT URDNA2015; see header). */
-function canonicalize(value: unknown): unknown {
+/** Deterministic key-sorted JSON — the canonical bytes the proof signs over (NOT URDNA2015; see
+ * header). Exported so scoped_grant.ts's issue/verify pair (same Ed25519Signature2020-shaped
+ * proof convention) doesn't hand-roll a second, possibly-drifting canonicalizer. */
+export function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
@@ -64,8 +68,13 @@ function canonicalize(value: unknown): unknown {
   return value;
 }
 
-/** The signable payload: the credential without its `proof`. */
-function signingBytes(credentialWithoutProof: Omit<VerifiableRelationshipCredential, "proof">): Uint8Array {
+/** The signable payload: any credential-shaped object without its `proof` field. Widened from
+ * `Omit<VerifiableRelationshipCredential, "proof">` (its original, narrower type) to `unknown` —
+ * a pure widening, no behavior change for the existing VRC callers below — so this file's own
+ * shape is no longer artificially VRC-specific even though the function itself stays private;
+ * scoped_grant.ts reuses the exported `canonicalize` directly for its own one-line equivalent
+ * rather than reaching into this module's private helper. */
+function signingBytes(credentialWithoutProof: unknown): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(canonicalize(credentialWithoutProof)));
 }
 

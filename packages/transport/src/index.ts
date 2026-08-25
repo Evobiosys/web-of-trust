@@ -67,4 +67,34 @@ export {
   type VerifiableRelationshipCredential,
   type VrcCredentialSubject,
   type VrcVerifyResult,
+  type VrcProof,
 } from "./vrc.js";
+export {
+  issueScopedGrant,
+  verifyScopedGrant,
+  type ScopedGrantCredential,
+  type ScopedGrantCredentialSubject,
+  type ScopedGrantVerifyResult,
+  type IssueScopedGrantArgs,
+} from "./scoped_grant.js";
+
+// Credential-provider swap seam (owner decision 2026-08-24: "we will use
+// openvtc for now" behind a swappable interface) — mirrors TransportAdapter's
+// export shape above.
+export {
+  LocalVrcProvider,
+  OpenVtcProvider,
+  InMemoryCredentialStore,
+  credentialId,
+  NotImplementedError,
+  type CredentialProvider,
+  type CredentialStore,
+  type CredentialRecord,
+  type CredentialKind,
+  type IssuedCredential,
+  type IssueCredentialArgs,
+  type CredentialVerifyResult,
+  type VerifiablePresentation,
+  type PresentArgs,
+  type OpenVtcProviderConfig,
+} from "./credential_provider.js";
