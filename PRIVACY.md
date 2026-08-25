@@ -17,6 +17,11 @@ Mechanism: unlinkability by protocol — uniform STATUS schedule (default 30 s, 
 
 ### Transport-metadata note — OpenVTC / DIDComm pillar (Task 11, D12)
 
+> **Honest-labeling note (D21):** "OpenVTC pillar" below is THIS repo's own hand-rolled
+> `did:peer:2` + DIDComm-shaped stack (D12), not the external Danube Tech OpenVTC project — see
+> DECISIONS.md D21 for the split and `packages/transport/src/credential_provider.ts`'s stubbed
+> `OpenVtcProvider` for where the external project is now an integration target, not yet built.
+
 The primary transport is the **peer-to-peer OpenVTC pillar**
 (`DidCommTransport`). Messages are sign-then-encrypted and the wire is opaque:
 the payload is never in cleartext and the sender DID is **not** in the
