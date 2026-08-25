@@ -12,7 +12,12 @@
 // this package is mounted into the daemon wire protocol.
 import type { OutwardResponse } from "./types.js";
 
-export const DEFAULT_K = 3;
+// Default floor is 7 (Jakob, 2026-08-25 owner decision — see DECISIONS.md
+// D24): "set the default floor to 7, and let people adjust that in
+// 'contracts' with each other." Per-peer overrides live in contracts.ts
+// (effectiveK()/effectiveKFor()) and can only raise the floor freely; they
+// may lower it only with mutual:true, and never below contracts.ts's MIN_K.
+export const DEFAULT_K = 7;
 
 export const NOTHING_SHAREABLE_TEXT = "No shareable result for this request.";
 

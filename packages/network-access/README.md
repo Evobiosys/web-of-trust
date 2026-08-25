@@ -17,11 +17,14 @@ Two invariants are enforced in `gates.ts`/`anonymity.ts` and covered by tests:
 - **Identified reveals are never automatic.** No policy reaches the
   `reveal_identified` branch — only an explicit owner event with explicit
   contact ids does.
-- **k-anonymity floor (k=3 default).** An aggregate ("3 of 100 people match")
+- **k-anonymity floor (k=7 default).** An aggregate ("7 of 100 people match")
   is only released at ≥k matches. Below k, the outward response is
   byte-identical to the zero-match response — as are declines, blocks, and
   expiries (extends invariant **I3**, Indistinguishable No). Requesters only
   ever see the output of `requesterView()`, the single sanitize chokepoint (I2).
+  Per-peer **contracts** (`contracts.ts`) can adjust the floor for one
+  requester — freely upward, or downward only with an explicit mutual
+  agreement, never below k=2.
 
 **Contract-review flag:** ADR-3 / retired WEB-3 forbids aggregate counts about
 non-visible second-ring people. This aggregate is a different object — it

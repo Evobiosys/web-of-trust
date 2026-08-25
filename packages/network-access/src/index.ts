@@ -15,3 +15,4 @@ export * from "./query_gateway.js";
 export * from "./contact_channels.js";
 export * from "./review_queue.js";
 export * from "./restore_prompt.js";
+export * from "./contracts.js";

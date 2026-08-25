@@ -10,15 +10,15 @@ describe("anonymizedRevealDecision", () => {
     expect(anonymizedRevealDecision(0, 100)).toEqual({ kind: "none" });
   });
 
-  it("suppresses below the default k of 3", () => {
+  it("suppresses below the default k of 7", () => {
     expect(anonymizedRevealDecision(1, 100)).toEqual({ kind: "suppressed", matchCount: 1 });
-    expect(anonymizedRevealDecision(2, 100)).toEqual({ kind: "suppressed", matchCount: 2 });
+    expect(anonymizedRevealDecision(6, 100)).toEqual({ kind: "suppressed", matchCount: 6 });
   });
 
   it("anonymizes at k and above", () => {
-    expect(anonymizedRevealDecision(3, 100)).toEqual({
+    expect(anonymizedRevealDecision(7, 100)).toEqual({
       kind: "anonymized",
-      matchCount: 3,
+      matchCount: 7,
       totalCount: 100,
     });
   });

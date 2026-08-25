@@ -70,9 +70,15 @@ describe("KeywordVaultMatcher + runVaultQuery", () => {
     writeNote("community-garden-plan.md", "# Community garden plan\nBed rotation and compost schedule.");
     writeNote("book-recommendations.md", "# Book recommendations\nNovels and essays worth a read.");
     writeNote("bike-repair-log.md", "# Bike repair log\nBrake pads and chain lube history.");
+    // Three more camping-vocabulary notes so the default k=7 floor (see
+    // anonymity.ts's DEFAULT_K, Jakob's 2026-08-25 decision) is actually
+    // clearable by this fixture's default-k test below.
+    writeNote("camp-stove-loan.md", "# Camp stove loan\nCamping stove and cooler free to borrow for a weekend trip.");
+    writeNote("spare-sleeping-bags.md", "# Spare sleeping bags\nTwo sleeping bags to borrow for a camping weekend trip.");
+    writeNote("rooftop-tent.md", "# Rooftop tent\nRooftop tent to lend for a camping weekend, fits most roof racks.");
   }
 
-  it("releases the aggregate at k=3 when >=3 notes share the topic", async () => {
+  it("releases the aggregate at the default k (7) when >=7 notes share the topic", async () => {
     seedCampingVault();
     const notes = loadVault(dir);
     const matcher = new KeywordVaultMatcher();
@@ -82,14 +88,28 @@ describe("KeywordVaultMatcher + runVaultQuery", () => {
       gateStates: { gate0: "standing_allow", gate1: "manual", gate2: "manual" },
     });
     expect(trace.query.gate_states).toEqual({ gate0: "standing_allow", gate1: "manual", gate2: "manual" });
-    expect(trace.scanned.count).toBe(8);
+    expect(trace.scanned.count).toBe(11);
     expect(trace.k_decision.k).toBe(DEFAULT_VAULT_K);
-    expect(trace.k_decision.sharing_count).toBeGreaterThanOrEqual(3);
+    expect(DEFAULT_VAULT_K).toBe(7);
+    expect(trace.k_decision.sharing_count).toBeGreaterThanOrEqual(7);
     expect(trace.k_decision.released).toBe(true);
     expect(trace.outward.bytes).toBe(
-      `${trace.k_decision.sharing_count} of 8 notes in this vault match what you asked about.`,
+      `${trace.k_decision.sharing_count} of 11 notes in this vault match what you asked about.`,
     );
     expect(trace.candidates.every((c) => c.matched_terms.length > 0)).toBe(true);
+  });
+
+  it("releases at a custom, lower k when explicitly passed (contract-style override)", async () => {
+    seedCampingVault();
+    const notes = loadVault(dir);
+    const matcher = new KeywordVaultMatcher();
+    const trace = await runVaultQuery(notes, matcher, {
+      text: "Does anyone have camping gear I could borrow for a weekend trip?",
+      requester: "anna@example.org",
+      k: 3,
+    });
+    expect(trace.k_decision.k).toBe(3);
+    expect(trace.k_decision.released).toBe(true);
   });
 
   it("suppresses below k with the byte-identical nothing-shareable text", async () => {

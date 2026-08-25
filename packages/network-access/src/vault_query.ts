@@ -11,7 +11,10 @@
 import type { ChatClient } from "./contact_matcher.js";
 import type { VaultNote } from "./vault.js";
 
-export const DEFAULT_VAULT_K = 3;
+// Default floor is 7, same owner decision as anonymity.ts's DEFAULT_K
+// (2026-08-25, DECISIONS.md D24) — the vault target is a different query
+// surface but the same k-anonymity convention.
+export const DEFAULT_VAULT_K = 7;
 export const VAULT_NOTHING_SHAREABLE_TEXT = "No shareable result for this request.";
 
 const STOPWORDS = new Set([

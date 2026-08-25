@@ -39,7 +39,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): NetworkAccessC
     largeModel: env.NETWORK_ACCESS_LARGE_MODEL ?? "qwen3.6-27b-iq4:latest",
     vaultModel: env.NETWORK_ACCESS_VAULT_MODEL ?? "mistral-small:24b",
     vaultUseLlm: env.NETWORK_ACCESS_VAULT_USE_LLM === "1",
-    k: env.NETWORK_ACCESS_K ? Number(env.NETWORK_ACCESS_K) : 3,
+    k: env.NETWORK_ACCESS_K ? Number(env.NETWORK_ACCESS_K) : 7,
     replyTickMs: env.NETWORK_ACCESS_REPLY_TICK_MS ? Number(env.NETWORK_ACCESS_REPLY_TICK_MS) : 30_000,
   };
 }

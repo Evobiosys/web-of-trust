@@ -72,9 +72,9 @@ describe("gate 2 — share the result", () => {
 
   it("auto_anonymized responds immediately with the aggregate at k or above", () => {
     const policy: RequesterPolicy = { gate0: "standing_allow", gate1: "auto_small", gate2: "auto_anonymized" };
-    const { query } = runToMatched(policy, 3);
+    const { query } = runToMatched(policy, 7);
     expect(query.state).toBe("responded");
-    expect(requesterView(query)).toMatchObject({ state: "answered", matchCount: 3, totalCount: 100 });
+    expect(requesterView(query)).toMatchObject({ state: "answered", matchCount: 7, totalCount: 100 });
   });
 
   it("auto_anonymized below k responds with the no-result text, never the count", () => {
