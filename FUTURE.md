@@ -9,7 +9,7 @@
 - Federation with OpenVTC networks
 - Exclusion cascade as *group* governance — per Jakob (D1.5) exclusion stays individual: I downgrade a peer in my own trust graph, no appeals, no notification. Protocol only records `vouched_by` to keep collective mechanisms possible later.
 
-- Per-item SharePolicy editor driven by AppProfile.defaultPolicy (profiles are display-only today; D10).
+- ~~Per-item SharePolicy editor driven by AppProfile.defaultPolicy~~ — landed as the permission-gating split-button + matrix, D21 (gating-ui branch): `createDefaultPolicy()` reads `AppProfile.defaultPolicy` as a seed. What's still open: (1) no `/api/policy` REST route or live daemon round-trip — the UI is local-first (localStorage) today; (2) the matrix's "once" cell state has no enforcement wiring in `daemon/listings.ts` — it's a settable standing default with no one-shot-then-revert behavior at publish/broadcast time yet.
 - WhatsApp/Signal bridge onboarding: user chats in a bridged WhatsApp group with their private agent (no app install; Tana 2026-07-17). Requires Matrix path + bridge configs on matrix.myceli.al. Steward already speaks message-events.
 - NFC handshake (Anton: QR "cannot just be pointed at"); web alpha ships QR + manual code.
 - holons.io-style dashboard beyond the Web-rings tab (reference/holons).
