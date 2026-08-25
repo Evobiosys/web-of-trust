@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Web of Trust — Gating Prototype (draft)</title>
+<style>
+  :root{
+    --bg:#faf8f4; --panel:#ffffff; --ink:#1c2420; --muted:#5f6d66; --line:#e3ded4;
+    --accent:#2e6e4e; --accent-ink:#ffffff; --accent-soft:#e5f0ea;
+    --warn:#a05a1c; --warn-soft:#f7ecdd; --danger:#a33a2e;
+    --chip:#eef2ee; --shadow:0 2px 10px rgba(28,36,32,.07);
+    --radius:14px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#151a17; --panel:#1d2420; --ink:#e8ece9; --muted:#9aa8a0; --line:#2c352f;
+      --accent:#5eab84; --accent-ink:#10241a; --accent-soft:#22352b;
+      --warn:#d99a55; --warn-soft:#332a1d; --danger:#d0685c;
+      --chip:#26302a; --shadow:0 2px 10px rgba(0,0,0,.35);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:16px/1.55 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+  .wrap{max-width:980px;margin:0 auto;padding:28px 18px 80px}
+  header.page h1{font-size:1.7rem;margin:.2em 0 .1em}
+  header.page p.sub{color:var(--muted);margin:.2em 0 0;max-width:64ch}
+  .draftband{display:inline-block;background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn);border-radius:999px;padding:2px 12px;font-size:.8rem;font-weight:600;letter-spacing:.03em}
+  nav.toc{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0 6px}
+  nav.toc a{font-size:.85rem;text-decoration:none;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:4px 12px}
+  section.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:22px;margin:26px 0}
+  section.card h2{margin:0 0 4px;font-size:1.2rem}
+  section.card p.lead{color:var(--muted);margin:.25em 0 1em;font-size:.95rem;max-width:70ch}
+  .hint{font-size:.82rem;color:var(--muted)}
+  /* ---------- split share button ---------- */
+  .sharebar{display:flex;align-items:stretch;max-width:430px;position:relative}
+  .sharebar .main{flex:1;background:var(--accent);color:var(--accent-ink);border:none;border-radius:12px 0 0 12px;padding:13px 16px;font-size:1rem;font-weight:650;cursor:pointer;text-align:left}
+  .sharebar .caret{background:var(--accent);color:var(--accent-ink);border:none;border-left:1px solid rgba(255,255,255,.35);border-radius:0 12px 12px 0;padding:0 15px;font-size:1rem;cursor:pointer}
+  .dropdown{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:6px;display:none;z-index:5}
+  .dropdown.open{display:block}
+  .dropdown button.opt{display:flex;justify-content:space-between;align-items:center;width:100%;background:none;border:none;color:var(--ink);padding:10px 12px;border-radius:9px;font-size:.95rem;cursor:pointer;text-align:left}
+  .dropdown button.opt:hover{background:var(--accent-soft)}
+  .dropdown button.opt .set{font-size:.75rem;color:var(--muted)}
+  .dropdown .divider{border-top:1px solid var(--line);margin:6px 4px}
+  .dropdown button.more{width:100%;background:none;border:none;color:var(--accent);font-size:.88rem;padding:8px;cursor:pointer}
+  /* matrix */
+  .matrix{overflow-x:auto;margin-top:14px;display:none}
+  .matrix.open{display:block}
+  .matrix table{border-collapse:collapse;min-width:560px;font-size:.88rem}
+  .matrix th,.matrix td{border:1px solid var(--line);padding:7px 10px;text-align:center}
+  .matrix th{background:var(--chip);font-weight:600}
+  .matrix td.rowhead{text-align:left;font-weight:600;background:var(--chip)}
+  .matrix td button{border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:8px;padding:3px 9px;font-size:.8rem;cursor:pointer;min-width:74px}
+  .matrix td button.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .matrix td button.ask{background:var(--warn-soft);border-color:var(--warn);color:var(--warn)}
+  .matrix td button.once{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+  .statusline{margin-top:12px;font-size:.9rem;color:var(--muted)}
+  .statusline b{color:var(--ink)}
+  /* ---------- urgency ---------- */
+  .urgrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:8px}
+  .btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:11px;padding:10px 16px;font-size:.95rem;cursor:pointer}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:650}
+  .btn.urgent{background:var(--warn-soft);border-color:var(--warn);color:var(--warn);font-weight:650}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .meter{height:6px;background:var(--chip);border-radius:99px;overflow:hidden;max-width:430px;margin-top:10px}
+  .meter i{display:block;height:100%;background:var(--warn);width:0%;transition:width .25s linear}
+  .log{margin-top:12px;font-size:.85rem;color:var(--muted);max-width:60ch}
+  .log div{padding:2px 0;border-bottom:1px dashed var(--line)}
+  /* ---------- phone frames ---------- */
+  .phones{display:flex;gap:22px;flex-wrap:wrap;margin-top:10px}
+  .phone{width:250px;border:2px solid var(--line);border-radius:26px;background:var(--panel);overflow:hidden;flex-shrink:0}
+  .phone .screen{padding:16px 14px;min-height:380px;display:flex;flex-direction:column;gap:10px}
+  .phone .titlebar{font-size:.78rem;color:var(--muted);text-align:center}
+  .phone h3{margin:0;font-size:1rem;text-align:center}
+  .qr{width:150px;height:150px;margin:6px auto;border-radius:10px;background:
+     repeating-linear-gradient(0deg,var(--ink) 0 6px,transparent 6px 12px),
+     repeating-linear-gradient(90deg,var(--ink) 0 6px,transparent 6px 12px);
+     opacity:.85;border:6px solid var(--panel);outline:1px solid var(--line)}
+  .qr.signal{background:
+     radial-gradient(circle at 30% 30%,var(--ink) 2px,transparent 2px) 0 0/14px 14px,
+     radial-gradient(circle at 70% 60%,var(--ink) 2px,transparent 2px) 7px 7px/14px 14px}
+  .pilllist{display:flex;flex-direction:column;gap:8px}
+  .pilllist .btn{font-size:.85rem;padding:9px 12px;text-align:center}
+  .swipehint{text-align:center;color:var(--muted);font-size:.78rem;margin-top:auto}
+  .badge{display:inline-block;font-size:.7rem;border-radius:99px;padding:1px 9px;font-weight:650}
+  .badge.ai{background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn)}
+  .badge.ok{background:var(--accent-soft);color:var(--accent);border:1px solid var(--accent)}
+  /* ---------- stepper ---------- */
+  .step{display:none}
+  .step.on{display:flex;flex-direction:column;gap:10px}
+  .stepdots{display:flex;gap:6px;justify-content:center;margin-top:auto;padding-top:8px}
+  .stepdots i{width:8px;height:8px;border-radius:99px;background:var(--line)}
+  .stepdots i.on{background:var(--accent)}
+  .consent{background:var(--accent-soft);border:1px solid var(--accent);border-radius:10px;padding:10px;font-size:.83rem}
+  /* profile versions */
+  .verlist{list-style:none;margin:8px 0 0;padding:0;font-size:.86rem}
+  .verlist li{padding:8px 10px;border:1px solid var(--line);border-radius:10px;margin-bottom:7px;display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap}
+  .resource{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dashed var(--line);padding:6px 0;font-size:.88rem;flex-wrap:wrap}
+  .resource .via{color:var(--muted);font-size:.78rem}
+  footer{margin-top:40px;color:var(--muted);font-size:.82rem}
+  a{color:var(--accent)}
+  .twocol{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:760px){.twocol{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="page">
+  <span class="draftband">DRAFT — interactive prototype, not the live product</span>
+  <h1>Web of Trust — permission gating & in-person flows</h1>
+  <p class="sub">Interactive prototype of the 2026-08-24 direction: layered permission gating with good defaults, cross-community sharing rules, urgency escalation with anti-abuse cooldowns, unified QR/NFC contact exchange, the OMI conversation flow, and AI-updated profiles with version history. Everything below is clickable and stores your choices locally in this browser only.</p>
+  <nav class="toc">
+    <a href="#gating">Permission gating</a>
+    <a href="#communities">Cross-community</a>
+    <a href="#urgency">Urgency</a>
+    <a href="#exchange">QR/NFC exchange</a>
+    <a href="#conversation">Conversation flow</a>
+    <a href="#profile">AI profile history</a>
+    <a href="mockup/">Full app mockup →</a>
+  </nav>
+</header>
+
+<!-- ================= 1. permission gating ================= -->
+<section class="card" id="gating">
+  <h2>1 · Layered permission gating — split-button with good defaults</h2>
+  <p class="lead">One broad default up front, three user-configured secondary options behind the arrow, and the full audience × category matrix below that. Long-press any dropdown option (here: the "set default" link) to make it the new primary.</p>
+
+  <div class="sharebar" id="sharebar">
+    <button class="main" id="shareMain">Share · <span id="shareLabel">Close friends</span></button>
+    <button class="caret" id="shareCaret" aria-label="More sharing options">▾</button>
+    <div class="dropdown" id="shareDrop">
+      <div id="optSlots"></div>
+      <div class="divider"></div>
+      <button class="more" id="matrixToggle">All options — full matrix ▸</button>
+    </div>
+  </div>
+
+  <div class="matrix" id="matrix">
+    <table>
+      <thead><tr><th></th><th>Close</th><th>Friends</th><th>Contacts</th><th>Community</th><th>Public</th></tr></thead>
+      <tbody id="matrixBody"></tbody>
+    </table>
+    <p class="hint">Click a cell to cycle: <b>share</b> → <b>ask me</b> → <b>once</b> → off. Row = content category, column = audience ring. These become your standing defaults.</p>
+  </div>
+
+  <p class="statusline" id="shareStatus">Default: <b>Close friends</b>. Nothing shared yet.</p>
+</section>
+
+<!-- ================= 2. cross-community ================= -->
+<section class="card" id="communities">
+  <h2>2 · Two communities, gated sharing between them</h2>
+  <p class="lead">Each community runs its own node. A category can be <b>always shared</b> ongoingly, <b>ask each time</b>, or shared <b>one-time</b>. The receiving side sees provenance.</p>
+  <div class="matrix open">
+    <table>
+      <thead><tr><th>Category → other community</th><th>Gathering dates</th><th>Skill directory</th><th>Housing offers</th><th>Meeting notes</th></tr></thead>
+      <tbody id="commBody"></tbody>
+    </table>
+  </div>
+  <p class="statusline" id="commStatus">Rule changes apply ongoingly; "once" shares the current snapshot only.</p>
+</section>
+
+<!-- ================= 3. urgency ================= -->
+<section class="card" id="urgency">
+  <h2>3 · "It's urgent" escalation — with anti-abuse cooldown</h2>
+  <p class="lead">Default messaging stays calm and asynchronous. Marking a message urgent requires a short wait first (deliberate friction), then triggers a real notification on the other side — and starts a grace period before it can be used again. Recipients can grant specific people 1–2 instant-urgent overrides.</p>
+  <div class="urgrow">
+    <button class="btn primary" id="sendMsg">Send message</button>
+    <button class="btn urgent" id="markUrgent" disabled>Mark urgent (hold 5 s)</button>
+    <label class="hint"><input type="checkbox" id="override"> recipient granted me instant-urgent (2 left)</label>
+  </div>
+  <div class="meter"><i id="urgMeter"></i></div>
+  <div class="log" id="urgLog"></div>
+</section>
+
+<!-- ================= 4. exchange ================= -->
+<section class="card" id="exchange">
+  <h2>4 · Unified contact exchange — WoT first, Signal on swipe, Matrix next</h2>
+  <p class="lead">Page one is your Web-of-Trust code (NFC tap or QR scan — you choose which methods can create a connection). Swipe down for Signal; Matrix joins once ready. Same gesture in person every time.</p>
+  <div class="phones">
+    <div class="phone"><div class="screen">
+      <div class="titlebar">wot://jakob · page 1/3</div>
+      <h3>My Web of Trust</h3>
+      <div class="qr"></div>
+      <div class="pilllist">
+        <button class="btn primary">⚡ NFC tap to connect</button>
+        <button class="btn">Scan theirs instead</button>
+      </div>
+      <label class="hint" style="text-align:center"><input type="checkbox" checked> NFC-only gating (QR disabled unless I enable it)</label>
+      <div class="swipehint">⌄ swipe down: Signal</div>
+    </div></div>
+    <div class="phone"><div class="screen">
+      <div class="titlebar">Signal · page 2/3</div>
+      <h3>Say hi on Signal</h3>
+      <div class="qr signal"></div>
+      <div class="pilllist">
+        <button class="btn primary">Send message request — "Hi 👋"</button>
+        <button class="btn">Share transcript file here later</button>
+      </div>
+      <div class="swipehint">⌄ swipe down: Matrix</div>
+    </div></div>
+    <div class="phone"><div class="screen">
+      <div class="titlebar">Matrix · page 3/3</div>
+      <h3>Matrix</h3>
+      <div class="qr" style="opacity:.25"></div>
+      <div class="pilllist"><button class="btn" disabled>Coming when bridge is ready</button></div>
+      <div class="swipehint">Android↔Android & Android↔Mac file drop: LocalSend-class transport, NFC-initiated</div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ================= 5. conversation flow ================= -->
+<section class="card" id="conversation">
+  <h2>5 · In-person conversation flow — OMI + GrapheneOS, local-first</h2>
+  <p class="lead">The OMI wearable records; the phone transcribes locally when it can, else the speaker's chosen server. Consent gates every step. At the end: transcript hand-off via WoT (direct access) or Signal (file), and AI-drafted profile updates — always marked unreviewed until you approve.</p>
+  <div class="phones">
+    <div class="phone"><div class="screen" id="convoScreen">
+      <div class="titlebar">conversation · live</div>
+      <div class="step on" data-step="0">
+        <h3>Start</h3>
+        <div class="consent">"Hey — okay if I record this locally? It stays on my device."</div>
+        <div class="pilllist">
+          <button class="btn primary" onclick="convoNext()">They agreed — record</button>
+          <button class="btn">No recording</button>
+        </div>
+      </div>
+      <div class="step" data-step="1">
+        <h3>Transcribe</h3>
+        <div class="consent">Transcribing <b>on-device</b> (local model). Older phone? Fall back to a server <i>you</i> pick.</div>
+        <div class="pilllist">
+          <button class="btn primary" onclick="convoNext()">On-device ✓</button>
+          <button class="btn" onclick="convoNext()">My chosen server (E2E)</button>
+        </div>
+      </div>
+      <div class="step" data-step="2">
+        <h3>End of conversation</h3>
+        <div class="pilllist">
+          <button class="btn primary" onclick="convoNext()">Offer transcript + exchange contacts</button>
+          <button class="btn" onclick="convoNext()">Just exchange contacts</button>
+          <button class="btn">Neither</button>
+        </div>
+      </div>
+      <div class="step" data-step="3">
+        <h3>Hand-off</h3>
+        <div class="pilllist">
+          <button class="btn primary" onclick="convoNext()">Via Web of Trust — they get direct access</button>
+          <button class="btn" onclick="convoNext()">Via Signal — paste transcript as file</button>
+        </div>
+      </div>
+      <div class="step" data-step="4">
+        <h3>Done ✓</h3>
+        <div class="consent">Transcript stored <b>locally</b>. Profile updates drafted — review them under <a href="#profile">AI profile history</a>.</div>
+        <div class="pilllist"><button class="btn" onclick="convoReset()">Run flow again</button></div>
+      </div>
+      <div class="stepdots" id="convoDots"></div>
+    </div></div>
+    <div style="flex:1;min-width:260px">
+      <p class="hint" style="max-width:46ch">Everything stays local-first: the recording and transcript never leave the phone unless a hand-off is explicitly chosen. The other person's access flows through the Web-of-Trust permission gates from section 1 — a transcript is just another gated category.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 6. profile ================= -->
+<section class="card" id="profile">
+  <h2>6 · AI-updated profile & resource web — with version history</h2>
+  <p class="lead">Each conversation updates your profile and the resource graph: what you share, what you have, what you can reach through friends. AI drafts are visibly unreviewed until approved; every iteration is kept.</p>
+  <div class="twocol">
+    <div>
+      <h3 style="margin:0 0 6px;font-size:.95rem">Resources</h3>
+      <div class="resource"><span>Sauna access (own)</span><span class="badge ok">reviewed</span></div>
+      <div class="resource"><span>Beamer, lendable (own)</span><span class="badge ai">AI draft — unreviewed</span></div>
+      <div class="resource"><span>Timber workshop <span class="via">via Maria (friend)</span></span><span class="badge ok">reviewed</span></div>
+      <div class="resource"><span>Grafing garden plot <span class="via">via Theo → Nora (2 hops)</span></span><span class="badge ai">AI draft — unreviewed</span></div>
+    </div>
+    <div>
+      <h3 style="margin:0 0 6px;font-size:.95rem">Version history — "About me"</h3>
+      <ul class="verlist">
+        <li><span>v7 · from conversation with Maria, 24 Aug</span><span class="badge ai">AI · unreviewed</span></li>
+        <li><span>v6 · from OMI transcript, 22 Aug</span><span class="badge ok">approved 23 Aug</span></li>
+        <li><span>v5 · manual edit</span><span class="badge ok">you</span></li>
+      </ul>
+      <button class="btn primary" onclick="this.textContent='v7 approved ✓';this.disabled=true">Review & approve v7</button>
+    </div>
+  </div>
+</section>
+
+<footer>
+  Draft prototype · local-first, no analytics, choices stay in this browser (localStorage). ·
+  <a href="mockup/">Full clickable app mockup</a> · <a href="../">Web of Trust home</a>
+</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var LS = null; try { LS = window.localStorage; } catch(e) {}
+  function lsGet(k,d){ try{ var v=LS&&LS.getItem(k); return v?JSON.parse(v):d; }catch(e){ return d; } }
+  function lsSet(k,v){ try{ LS&&LS.setItem(k,JSON.stringify(v)); }catch(e){} }
+
+  /* ---- 1. split button ---- */
+  var AUD=["Close","Friends","Contacts","Community","Public"];
+  var slots = lsGet("wot.slots", {primary:"Close friends", secondary:["Friends","This community","One person…"]});
+  var drop=document.getElementById("shareDrop"), caret=document.getElementById("shareCaret"),
+      label=document.getElementById("shareLabel"), main=document.getElementById("shareMain"),
+      status=document.getElementById("shareStatus"), slotBox=document.getElementById("optSlots");
+  function renderSlots(){
+    label.textContent=slots.primary;
+    slotBox.innerHTML="";
+    slots.secondary.forEach(function(s,i){
+      var b=document.createElement("button"); b.className="opt";
+      b.innerHTML="<span>"+s+"</span><span class='set'>set as default</span>";
+      b.addEventListener("click",function(ev){
+        if(ev.target.classList.contains("set")){
+          var old=slots.primary; slots.primary=s; slots.secondary[i]=old;
+          lsSet("wot.slots",slots); renderSlots();
+          status.innerHTML="Default changed to <b>"+s+"</b>.";
+        }else{
+          status.innerHTML="Shared with <b>"+s+"</b> (one action, no default change).";
+        }
+        drop.classList.remove("open");
+      });
+      slotBox.appendChild(b);
+    });
+  }
+  renderSlots();
+  caret.addEventListener("click",function(){ drop.classList.toggle("open"); });
+  main.addEventListener("click",function(){ status.innerHTML="Shared with <b>"+slots.primary+"</b> — the broad default, one tap."; });
+  document.addEventListener("click",function(e){ if(!document.getElementById("sharebar").contains(e.target)) drop.classList.remove("open"); });
+
+  /* ---- matrix ---- */
+  var CATS=["Availability / calendar","Resources I lend","Location (coarse)","Transcripts","Housing status"];
+  var STATES=["off","share","ask","once"];
+  var mstate = lsGet("wot.matrix", {});
+  var mb=document.getElementById("matrixBody");
+  CATS.forEach(function(cat,r){
+    var tr=document.createElement("tr");
+    tr.innerHTML="<td class='rowhead'>"+cat+"</td>";
+    AUD.forEach(function(a,c){
+      var td=document.createElement("td"), b=document.createElement("button");
+      var key=r+"."+c; var st=mstate[key]||"off";
+      function paint(){ b.className=st==="share"?"on":st; b.textContent=st==="off"?"—":st; }
+      paint();
+      b.addEventListener("click",function(){
+        st=STATES[(STATES.indexOf(st)+1)%STATES.length];
+        mstate[key]=st; lsSet("wot.matrix",mstate); paint();
+      });
+      td.appendChild(b); tr.appendChild(td);
+    });
+    mb.appendChild(tr);
+  });
+  document.getElementById("matrixToggle").addEventListener("click",function(){
+    document.getElementById("matrix").classList.toggle("open");
+  });
+
+  /* ---- 2. cross-community ---- */
+  var COMMS=["Valley node → Vienna node","Vienna node → Valley node"];
+  var CSTATES=["never","always","ask","once"];
+  var cstate=lsGet("wot.comm",{});
+  var cb=document.getElementById("commBody");
+  COMMS.forEach(function(row,r){
+    var tr=document.createElement("tr");
+    tr.innerHTML="<td class='rowhead'>"+row+"</td>";
+    for(var c=0;c<4;c++){
+      (function(){
+        var key=r+"."+c; var st=cstate[key]||"never";
+        var td=document.createElement("td"), b=document.createElement("button");
+        function paint(){ b.className=st==="always"?"on":(st==="ask"?"ask":(st==="once"?"once":"")); b.textContent=st==="never"?"—":st; }
+        paint();
+        b.addEventListener("click",function(){
+          st=CSTATES[(CSTATES.indexOf(st)+1)%CSTATES.length];
+          cstate[key]=st; lsSet("wot.comm",cstate); paint();
+          document.getElementById("commStatus").innerHTML="<b>"+row+"</b> · category "+(c+1)+" → <b>"+st+"</b>.";
+        });
+        td.appendChild(b); tr.appendChild(td);
+      })();
+    }
+    cb.appendChild(tr);
+  });
+
+  /* ---- 3. urgency ---- */
+  var sendBtn=document.getElementById("sendMsg"), urgBtn=document.getElementById("markUrgent"),
+      meter=document.getElementById("urgMeter"), ulog=document.getElementById("urgLog"),
+      override=document.getElementById("override");
+  var overridesLeft=2, cooldownUntil=0, holdTimer=null, holdStart=0, armTimer=null;
+  function logline(t){ var d=document.createElement("div"); d.textContent=t; ulog.prepend(d); }
+  sendBtn.addEventListener("click",function(){
+    logline("Message sent (normal priority). Urgent unlocks after a 10 s wait…");
+    urgBtn.disabled=true; meter.style.width="0%";
+    var t0=Date.now(); clearInterval(armTimer);
+    armTimer=setInterval(function(){
+      var p=Math.min(100,(Date.now()-t0)/100); meter.style.width=p+"%";
+      if(p>=100){ clearInterval(armTimer);
+        if(Date.now()<cooldownUntil && !override.checked){
+          logline("⏳ Urgent still in grace period ("+Math.ceil((cooldownUntil-Date.now())/1000)+" s left) — anti-abuse cooldown.");
+          meter.style.width="0%";
+        } else { urgBtn.disabled=false; logline("Urgent now available — press and hold 5 s."); }
+      }
+    },100);
+  });
+  function fireUrgent(how){
+    logline("🔔 URGENT delivered ("+how+"). Grace period: no new urgent for 120 s.");
+    cooldownUntil=Date.now()+120000; urgBtn.disabled=true; meter.style.width="0%";
+  }
+  urgBtn.addEventListener("mousedown",startHold); urgBtn.addEventListener("touchstart",startHold);
+  urgBtn.addEventListener("mouseup",cancelHold); urgBtn.addEventListener("mouseleave",cancelHold); urgBtn.addEventListener("touchend",cancelHold);
+  function startHold(){ if(urgBtn.disabled)return; holdStart=Date.now();
+    holdTimer=setInterval(function(){ var p=Math.min(100,(Date.now()-holdStart)/50); meter.style.width=p+"%";
+      if(p>=100){ cancelHold(); fireUrgent("held 5 s"); } },100); }
+  function cancelHold(){ if(holdTimer){ clearInterval(holdTimer); holdTimer=null; if(!urgBtn.disabled)meter.style.width="0%"; } }
+  override.addEventListener("change",function(){
+    if(override.checked){
+      if(overridesLeft<=0){ override.checked=false; logline("No instant-urgent overrides left for this contact."); return; }
+      overridesLeft--; fireUrgent("instant override, "+overridesLeft+" left");
+      override.checked=false;
+      override.parentElement.lastChild.textContent=" recipient granted me instant-urgent ("+overridesLeft+" left)";
+    }
+  });
+
+  /* ---- 5. conversation stepper ---- */
+  var steps=document.querySelectorAll("#convoScreen .step"), dots=document.getElementById("convoDots"), cur=0;
+  for(var i=0;i<steps.length;i++){ var d=document.createElement("i"); if(i===0)d.className="on"; dots.appendChild(d); }
+  window.convoNext=function(){ if(cur>=steps.length-1)return; steps[cur].classList.remove("on"); cur++;
+    steps[cur].classList.add("on"); paintDots(); };
+  window.convoReset=function(){ steps[cur].classList.remove("on"); cur=0; steps[0].classList.add("on"); paintDots(); };
+  function paintDots(){ var ds=dots.children; for(var i=0;i<ds.length;i++) ds[i].className=i===cur?"on":""; }
+})();
+</script>
+</body>
+</html>

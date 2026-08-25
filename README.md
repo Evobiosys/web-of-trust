@@ -17,6 +17,15 @@ Zach's React app is imported at `apps/web` (+ `packages/ew-contract`); the sprin
 `apps/mobile-ui`; the backend lives in `packages/{protocol,transport,agent-daemon,app-profiles}` and
 `packages/browser-agent`.
 
+## Live demos
+
+- App mockup (phone UI, clickable): https://idea2.site/web-of-trust/ — file copy: [`demos/app-mockup.html`](demos/app-mockup.html)
+- Interactive permission-gating prototype: https://evobiosys.org/web-of-trust/draft-prototype/ — file copy: [`demos/gating-prototype.html`](demos/gating-prototype.html)
+- Project site: https://evobiosys.org/web-of-trust/ · deep dive: https://evobiosys.org/systems/web-of-trust/
+- Query infrastructure incl. the 60-second scripted demo: branch [`rebiosys`](../../tree/rebiosys) — `pnpm --filter @resource-web/network-access demo:query-infra`
+- Credential-provider seam (issue/verify/revoke/present): branch [`cred-provider`](../../tree/cred-provider)
+
+
 ---
 
 ## Part 1 — Design surface (the mockup + docs)
