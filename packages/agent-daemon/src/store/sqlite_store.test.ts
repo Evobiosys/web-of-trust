@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import type { Item, TrustEdge } from "@resource-web/protocol";
 import { ItemSchema, TrustEdgeSchema } from "@resource-web/protocol";
 import { SqliteStore } from "./sqlite_store.js";
-import type { AskRecord, AuditRecord, DmMessageRecord, IncomingRecord, ListingRecord, LoanRecord, ReceivedListingRecord } from "./types.js";
+import type { AskRecord, AuditRecord, DmMessageRecord, IncomingRecord, ListingRecord, LoanRecord, PermissionPolicyRecord, ReceivedListingRecord } from "./types.js";
 
 function makeItem(overrides: Partial<Item> = {}): Item {
   return ItemSchema.parse({
@@ -252,5 +252,49 @@ describe("SqliteStore", () => {
     expect(store.getDmMessages(anna)).toEqual([m1, m2]);
     expect(store.getDmMessages(timo)).toEqual([m3]);
     expect(store.getDmPeers().sort()).toEqual([anna, timo].sort());
+  });
+
+  // ------------------------------------------------- D21: permission policy --
+
+  it("has no permission policy row before one is ever put", () => {
+    expect(store.getPermissionPolicy()).toBeUndefined();
+  });
+
+  it("round-trips a PermissionPolicyRecord (matrix + cross-community rules) through JSON columns", () => {
+    const record: PermissionPolicyRecord = {
+      policy: {
+        gathering: {
+          primaryRing: "friends",
+          secondaryRings: ["close", "commons", "pub"],
+          matrix: { close: "off", friends: "ask", commons: "off", pub: "off" },
+        },
+        offer: {
+          primaryRing: "close",
+          secondaryRings: ["friends", "commons", "pub"],
+          matrix: { close: "share", friends: "off", commons: "off", pub: "off" },
+        },
+      },
+      cross_community: { gathering: { "vienna-node": "always" } },
+      updated_at: "2026-08-25T00:00:00.000Z",
+    };
+    store.putPermissionPolicy(record);
+    expect(store.getPermissionPolicy()).toEqual(record);
+  });
+
+  it("upserts the permission policy on a second put (single row per persona)", () => {
+    const first: PermissionPolicyRecord = {
+      policy: {
+        gathering: { primaryRing: "close", secondaryRings: ["friends", "commons", "pub"], matrix: { close: "off", friends: "off", commons: "off", pub: "off" } },
+        offer: { primaryRing: "close", secondaryRings: ["friends", "commons", "pub"], matrix: { close: "off", friends: "off", commons: "off", pub: "off" } },
+      },
+      cross_community: {},
+      updated_at: "2026-08-25T00:00:00.000Z",
+    };
+    store.putPermissionPolicy(first);
+    const second: PermissionPolicyRecord = { ...first, cross_community: { offer: { "graz-node": "once" } }, updated_at: "2026-08-25T01:00:00.000Z" };
+    store.putPermissionPolicy(second);
+
+    const rows = store.getPermissionPolicy();
+    expect(rows).toEqual(second);
   });
 });

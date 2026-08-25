@@ -12,6 +12,7 @@ import type {
   ListingRecord,
   LoanRecord,
   PendingCaptureRecord,
+  PermissionPolicyRecord,
   ReceivedListingRecord,
   RelayLinkRecord,
   RoomMessageRecord,
@@ -98,6 +99,10 @@ export interface Store {
   addDmMessage(msg: DmMessageRecord): void;
   getDmMessages(peer: string): DmMessageRecord[];
   getDmPeers(): string[];
+
+  // D21: permission-gating policy (single row per persona, id "self" server-side)
+  putPermissionPolicy(record: PermissionPolicyRecord): void;
+  getPermissionPolicy(): PermissionPolicyRecord | undefined;
 
   close(): void;
 }

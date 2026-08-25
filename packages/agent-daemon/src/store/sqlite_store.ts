@@ -16,6 +16,7 @@ import type {
   ListingRecord,
   LoanRecord,
   PendingCaptureRecord,
+  PermissionPolicyRecord,
   ReceivedListingRecord,
   RelayLinkRecord,
   RoomMessageRecord,
@@ -189,6 +190,13 @@ CREATE TABLE IF NOT EXISTS dm_messages (
   direction TEXT NOT NULL,
   text TEXT NOT NULL,
   ts TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS permission_policy (
+  id TEXT PRIMARY KEY,
+  policy_json TEXT NOT NULL,
+  cross_community_json TEXT NOT NULL,
+  updated_at TEXT NOT NULL
 );
 `;
 
@@ -884,6 +892,30 @@ export class SqliteStore implements Store {
 
   getDmPeers(): string[] {
     return this.db.all<{ peer: string }>("SELECT DISTINCT peer FROM dm_messages ORDER BY peer ASC").map((r) => r.peer);
+  }
+
+  // --------------------------------------------------- D21: permission policy --
+
+  /** Single row per persona — `id` is always 'self' (server-decided, never
+   * caller-supplied; matches browser-agent's IndexedDB identity record
+   * convention of one fixed record key per origin). */
+  putPermissionPolicy(record: PermissionPolicyRecord): void {
+    this.db.run(
+      `INSERT INTO permission_policy (id, policy_json, cross_community_json, updated_at)
+       VALUES ('self', ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET policy_json=excluded.policy_json,
+         cross_community_json=excluded.cross_community_json, updated_at=excluded.updated_at`,
+      [JSON.stringify(record.policy), JSON.stringify(record.cross_community), record.updated_at]
+    );
+  }
+
+  getPermissionPolicy(): PermissionPolicyRecord | undefined {
+    const row = this.db.get<{ policy_json: string; cross_community_json: string; updated_at: string }>(
+      "SELECT policy_json, cross_community_json, updated_at FROM permission_policy WHERE id = 'self'"
+    );
+    return row
+      ? { policy: JSON.parse(row.policy_json), cross_community: JSON.parse(row.cross_community_json), updated_at: row.updated_at }
+      : undefined;
   }
 
   close(): void {

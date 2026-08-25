@@ -3,6 +3,7 @@
 // types. Kept in one file so the Store interface (store.ts) and both
 // implementations (sqlite_store.ts, node_sqlite_store.ts) share one contract.
 import type { DecisionLogEntry, Item, TrustEdge } from "@resource-web/protocol";
+import type { CrossCommunityRules, PermissionPolicy } from "../policy/permission_policy.js";
 
 /** Internal per-peer status for one outstanding ask — NEVER exposed as-is over the API (I2). */
 export type AskPeerState = "queried" | "pass" | "pending" | "consented" | "declined";
@@ -225,4 +226,20 @@ export interface AuditRecord extends DecisionLogEntry {
    * entries (actor: "owner") are never redacted — I4 gives the owner full context. */
   redact_for_asker: boolean;
   detail: string;
+}
+
+// ------------------------------------------------------- D21: permission policy --
+
+/** Persisted form of ../policy/permission_policy.js's pure state — a single
+ * row per persona (id "self", set server-side; see sqlite_store.ts). Two
+ * JSON-blob columns rather than a normalized per-cell table: the whole
+ * PermissionPolicy/CrossCommunityRules value is always read/written as one
+ * unit (the UI renders the full matrix at once), so there is no query this
+ * repo needs that a normalized shape would serve better — same tradeoff
+ * `items.policy_json` and `asks.peers_json` already make elsewhere in this
+ * file for nested structures that are always read/written whole. */
+export interface PermissionPolicyRecord {
+  policy: PermissionPolicy;
+  cross_community: CrossCommunityRules;
+  updated_at: string;
 }
