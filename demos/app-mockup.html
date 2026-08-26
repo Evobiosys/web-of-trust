@@ -1,4 +1,4 @@
-<title>Ecstatic World — Web of Trust Mockup</title>
+<title>Gathering World — Web of Trust Mockup</title>
 <style>
   /* ============ page tokens (theme-aware chrome around the phone) ============ */
   :root{
@@ -377,7 +377,7 @@
 </style>
 
 <div class="page-head">
-  <h1>Ecstatic World — the trust prototype, in your hand</h1>
+  <h1>Gathering World — the trust prototype, in your hand</h1>
   <p>Clickable mobile mockup · v6. Demo path in the repo README. Implementers: turn on spec mode
   (or open with <b>#spec</b>) and tap any badge to see its contract + doc reference.</p>
   <button class="spec-toggle" id="specBtn" aria-pressed="false">Spec mode</button>
@@ -406,9 +406,9 @@
         </div>
         <div class="chips">
           <button class="chip on">This week</button>
-          <button class="chip">Ecstatic Dance</button>
-          <button class="chip">Biodanza</button>
-          <button class="chip">Contact Improv</button>
+          <button class="chip">Community Meals</button>
+          <button class="chip">Full Moon Hikes</button>
+          <button class="chip">Skill Shares</button>
           <button class="chip">Hangouts</button>
         </div>
         <div id="mapWrap" data-anchor="DIS-4"><canvas id="mapCanvas" width="356" height="300"></canvas></div>
@@ -472,7 +472,7 @@
       <h2>Woven.</h2>
       <p id="celebText"></p>
       <button class="btn btn-electric" id="seeOpened">See what opened</button>
-      <button class="btn btn-ghost" id="backFloor" style="color:#fff">Back to the floor</button>
+      <button class="btn btn-ghost" id="backFloor" style="color:#fff">Back to Discover</button>
     </div>
   </div>
 
@@ -516,7 +516,7 @@
       <button class="plc-btn" data-plc="adv" style="margin-top:14px">🗝 Recovery verse &amp; server choice — held for a later pass</button>
       <div class="verse" style="margin-top:14px">
         <h3>Read the source</h3>
-        <p>Every line of this prototype is open — git.myceli.al · consensual/ecstatic-world.</p>
+        <p>Every line of this prototype is open — git.myceli.al · consensual/gathering-world.</p>
       </div>
     </div>
   </div>
@@ -689,7 +689,7 @@
   });
 
   /* ---------- onboarding ---------- */
-  var VERSE = ["fern","tambor","luz","raíz","brisa","canto","selva","ámbar","puente","cielo","miel","danza"];
+  var VERSE = ["fern","tambor","luz","raíz","brisa","canto","selva","ámbar","puente","cielo","miel","nube"];
   var ONB_ANCHOR = {welcome:"ONB-1", signup:"ONB-2", verse:"ONB-3", server:"ONB-4", name:"ONB-5"};
   function onb(step){
     var el = $("onbInner");
@@ -697,7 +697,7 @@
     if (step==="welcome"){
       el.innerHTML =
         '<svg class="foot-svg" viewBox="0 0 48 48"><path d="M20 38c-3 0-5-2.4-5-5.5 0-4.5 3-7.5 3-12C18 14 21 9 26 9s8 5.5 8 11c0 6-3.5 9-6.5 12.5C25.5 35 23 38 20 38z"/><circle cx="16" cy="15" r="1.6"/><circle cx="20" cy="12" r="1.6"/><circle cx="25" cy="10.5" r="1.4"/></svg>' +
-        '<h2>Step onto the floor</h2>' +
+        '<h2>Step into the web</h2>' +
         '<p>Your identity is created here, on your phone. No account. No one to ask permission.</p>' +
         '<div class="signup-grid" data-anchor="ONB-2">' +
         '<button class="signup-card" id="suQuick2"><b>Quick start</b><small>Keys made and kept in this phone’s secure storage, unlocked by your face or PIN. Nothing to write down.</small></button>' +
@@ -753,7 +753,7 @@
     } else {
       el.innerHTML =
         '<span class="eyebrow">Almost there</span>' +
-        '<h2>What do people call you on the floor?</h2>' +
+        '<h2>What do people call you here?</h2>' +
         '<input class="name-input" id="nameIn" value="Zach" maxlength="16" aria-label="Your name">' +
         '<div class="actions"><button class="btn btn-coral" id="onbDone">Enter</button>' +
         '<button class="btn btn-ghost" id="onbBack2">Back</button></div>';
@@ -800,7 +800,7 @@
     state.guest = true;
     $("tabs").style.display = "none";
     $("joinBar").classList.add("on");
-    $("coachText").innerHTML = "Browsing as a guest — the public floor only";
+    $("coachText").innerHTML = "Browsing as a guest — public gatherings only";
     $("coach").style.display = "flex";
     show("discover"); renderList();
   }
@@ -812,10 +812,10 @@
 
   /* ---------- discover ---------- */
   var EVENTS = [
-    {t:"Ecstatic Dance Palermo", m:"Sun 11:00 · Parque Tres de Febrero · with DJ Aluna", b:"pub", bl:"Public"},
-    {t:"Biodanza — Casa Luna", m:"Tue 19:00 · Villa Crespo · facilitated by Clara", b:"pub", bl:"Public"},
-    {t:"Contact Improv Jam", m:"Thu 20:30 · Espacio Cielo · linked ecosystem", b:"link", bl:"Linked · CI"},
-    {t:"Cacao & Movement Hangout", m:"Sat 16:00 · Verde Café · community hangout", b:"hang", bl:"Hangout"}
+    {t:"Palermo Park Gathering", m:"Sun 11:00 · Parque Tres de Febrero · hosted by Alina", b:"pub", bl:"Public"},
+    {t:"Storytelling Night — Casa Luna", m:"Tue 19:00 · Villa Crespo · hosted by Clara", b:"pub", bl:"Public"},
+    {t:"Skill Share Jam", m:"Thu 20:30 · Espacio Cielo · linked ecosystem", b:"link", bl:"Linked · SS"},
+    {t:"Cacao & Community Hangout", m:"Sat 16:00 · Verde Café · community hangout", b:"hang", bl:"Hangout"}
   ];
   var PRIVATE_EVENT = {t:"Moon Ceremony", m:"Fri 23:00 · location shared with your web · hosted by Maria’s circle", b:"priv", bl:"Private · your web"};
 
@@ -825,7 +825,7 @@
       var pitch = document.createElement("div");
       pitch.className = "card private";
       pitch.setAttribute("data-anchor","DIS-5");
-      pitch.innerHTML = "<h3>This is the public floor</h3>" +
+      pitch.innerHTML = "<h3>This is the public view</h3>" +
         "<div class='meta'>Join the web of trust and more appears — private gatherings your friends open to you, " +
         "things to borrow from your people, and the people they hold. Built on real, in-person meetings.</div>";
       w.appendChild(pitch);
@@ -1038,12 +1038,12 @@
   function personSheet(n, ring){
     var html = '<div class="grab"></div><div data-anchor="WEB-2"><h3>'+n.n+'</h3></div>';
     if (ring===1){
-      var ctx = n.id==="maria" ? "Ecstatic Dance Palermo · today" :
-                (n.id==="lucia" ? "Biodanza — Casa Luna · May" : "Ecstatic Dance Palermo · June");
+      var ctx = n.id==="maria" ? "Palermo Park Gathering · today" :
+                (n.id==="lucia" ? "Storytelling Night — Casa Luna · May" : "Palermo Park Gathering · June");
       html += '<div class="meta">'+(n.lvl||levelLabel())+' · met at '+ctx+'</div>' +
         '<div class="path">You ⟷ <b>'+n.n+'</b><br><span style="color:var(--ink-soft)">Connected in person, confirmed both ways — you hold each other’s thread.</span></div>' +
         (n.offer ? '<div class="path" style="border-left-color:var(--mint)"><b>◉ Offers '+n.offer+'</b> — see it under Discover → Offers.</div>' : '') +
-        '<div class="tagchips" data-anchor="PLC-2"><span class="tagchip">#ecstatic</span><span class="tagchip">#dj</span><span class="tagchip">#facilitator</span><span class="tagchip">＋ tag</span></div>' +
+        '<div class="tagchips" data-anchor="PLC-2"><span class="tagchip">#community</span><span class="tagchip">#host</span><span class="tagchip">#facilitator</span><span class="tagchip">＋ tag</span></div>' +
         '<button class="btn btn-electric" id="sheetMsg" data-mid="'+n.id+'" data-mn="'+n.n+'">Message</button>' +
         '<button class="btn btn-ghost">Open their card</button>' +
         '<button class="btn btn-ghost">Vouch for something they do</button>' +
@@ -1067,11 +1067,11 @@
   function renderPeople(){
     var w = $("pplList"); w.innerHTML = "";
     var ppl = [
-      {id:"lucia", n:"Lucía", c:"Biodanza — Casa Luna · May", s:"mutual", sl:"Connected"},
-      {id:"rafa", n:"Rafa", c:"Ecstatic Dance Palermo · June", s:"mutual", sl:"Connected"},
-      {id:"tomas", n:"Tomás", c:"Contact Improv Jam · June", s:"out", sl:"Pending"}
+      {id:"lucia", n:"Lucía", c:"Storytelling Night — Casa Luna · May", s:"mutual", sl:"Connected"},
+      {id:"rafa", n:"Rafa", c:"Palermo Park Gathering · June", s:"mutual", sl:"Connected"},
+      {id:"tomas", n:"Tomás", c:"Skill Share Jam · June", s:"out", sl:"Pending"}
     ];
-    if (state.met) ppl.unshift({id:"maria", n:"Maria", c:"Ecstatic Dance Palermo · today", s:"mutual", sl:"Connected"});
+    if (state.met) ppl.unshift({id:"maria", n:"Maria", c:"Palermo Park Gathering · today", s:"mutual", sl:"Connected"});
     $("pplCap").textContent = ppl.length + " people, all met in person. Tap anyone for their card.";
     ppl.forEach(function(p){
       var b = document.createElement("button");
@@ -1082,8 +1082,8 @@
       b.onclick = function(){
         openSheet('<div class="grab"></div><div data-anchor="PPL-2"><h3>'+p.n+'</h3>' +
           '<div class="meta">'+p.c+'</div>' +
-          '<div class="path"><b>Their card</b><br><span style="color:var(--ink-soft)">What '+p.n+' chooses to share with you: how to reach them, where they dance, what they offer. Updates itself when they change it.</span></div>' +
-          '<div class="tagchips" data-anchor="PLC-2"><span class="tagchip">#ecstatic</span><span class="tagchip">＋ tag</span></div>' +
+          '<div class="path"><b>Their card</b><br><span style="color:var(--ink-soft)">What '+p.n+' chooses to share with you: how to reach them, what they\'re into, what they offer. Updates itself when they change it.</span></div>' +
+          '<div class="tagchips" data-anchor="PLC-2"><span class="tagchip">#community</span><span class="tagchip">＋ tag</span></div>' +
           '<button class="btn btn-electric" id="sheetMsg" data-mid="'+p.id+'" data-mn="'+p.n+'">Message</button>' +
           '<button class="btn btn-ghost">Grow this connection</button>' +
           (p.s==="out" ? '<button class="btn btn-ghost">Waiting for '+p.n+' to confirm</button>' : '') +
@@ -1129,7 +1129,7 @@
     });
     f.innerHTML =
       '<div data-anchor="HST-1">' +
-      '<div class="fld"><label>Name</label><input id="hn" value="Sunset Rooftop Dance"></div>' +
+      '<div class="fld"><label>Name</label><input id="hn" value="Sunset Rooftop Dinner"></div>' +
       '<div class="fld"><label>When</label><input id="hw" value="Sat 18:30"></div>' +
       '<div class="fld"><label>Where</label><input id="hp" value="Roof of Casa Verde — shared on arrival"></div>' +
       '</div>' +
@@ -1163,7 +1163,7 @@
     updateReach();
     $("hostGo").onclick = function(){
       state.hosted = {
-        t: $("hn").value || "Sunset Rooftop Dance",
+        t: $("hn").value || "Sunset Rooftop Dinner",
         m: ($("hw").value||"Sat 18:30") + " · " + ($("hp").value||"Casa Verde"),
         vis: hostState.vis, steps: hostState.steps
       };
@@ -1201,8 +1201,8 @@
 
   /* ---------- offers + loans ---------- */
   var OFFERS = [
-    {id:"speakers", t:"PA speakers (pair)", d:"Warm full-range pair, battery option — carried them to fifty dance floors.", owner:"Lucía", ownerId:"lucia", tier:"Friends", state:"available"},
-    {id:"djtable", t:"DJ table + mixer", d:"Folding table, 4-channel mixer, cabling included.", owner:"Rafa", ownerId:"rafa", tier:"Friends", state:"available"},
+    {id:"speakers", t:"PA speakers (pair)", d:"Warm full-range pair, battery option — carried them to fifty gatherings.", owner:"Lucía", ownerId:"lucia", tier:"Friends", state:"available"},
+    {id:"djtable", t:"Sound system + mixer", d:"Folding table, 4-channel mixer, cabling included.", owner:"Rafa", ownerId:"rafa", tier:"Friends", state:"available"},
     {id:"cacao", t:"Ceremonial cacao (1kg blocks)", d:"Your own offering to the web.", owner:"You", mine:true, tier:"Friends", state:"available"},
     {id:"venue", t:"Garden venue (up to 40)", d:"Quiet garden with a wooden deck — mornings and sunsets.", owner:"Sofía", ownerId:"sofia", tier:"Friends", via:"Maria", needsWeb:true, state:"available"}
   ];
@@ -1374,7 +1374,7 @@
   };
   $("segOff").onclick = function(){
     if (state.guest){
-      openSheet('<div class="grab"></div><h3>Offers live inside the web</h3><div class="meta">Speakers, DJ tables, cacao, venues — shared between people who have actually met. Join to see what your people offer.</div>');
+      openSheet('<div class="grab"></div><h3>Offers live inside the web</h3><div class="meta">Speakers, sound gear, cacao, venues — shared between people who have actually met. Join to see what your people offer.</div>');
       return;
     }
     $("segOff").classList.add("on"); $("segGath").classList.remove("on");
@@ -1420,7 +1420,7 @@
     var kind = p.getAttribute("data-plc");
     var PLC_TXT = {
       flag: "When someone causes harm in a trusted space, there will be a path that repairs rather than punishes — context-scoped, no public marks, restoration named by the people affected. It isn’t designed yet, on purpose: the community shapes it first. Spec stub: docs/70.",
-      tags: "Tags will let you group your people (#dj, #facilitator…) and grant sharing permissions to a whole tag at once — atomic underneath, bulk on top. Spec stub: docs/70.",
+      tags: "Tags will let you group your people (#host, #facilitator…) and grant sharing permissions to a whole tag at once — atomic underneath, bulk on top. Spec stub: docs/70.",
       adv: "The Advanced path will let you hold your own twelve-word recovery verse, choose which server carries your encrypted backups, and self-host if you like. Your keys don’t change when it arrives — you upgrade in place."
     };
     openSheet('<div class="grab"></div><h3>Held for a later pass</h3>' +
@@ -1479,12 +1479,12 @@
         '<button class="adv-link" id="advBtn" data-anchor="CER-2">' + (state.adv ? "Hide advanced" : "Advanced: what they may reach") + '</button>' +
         (state.adv ?
           '<div class="perm-panel" data-anchor="CER-2">' +
-          '<button class="perm-row'+(state.permCtx?"":" off")+'" data-p="permCtx">Ecstatic-dance context only — widen later if you choose<span class="tog">'+(state.permCtx?"On":"Off")+'</span></button>' +
+          '<button class="perm-row'+(state.permCtx?"":" off")+'" data-p="permCtx">This gathering\'s context only — widen later if you choose<span class="tog">'+(state.permCtx?"On":"Off")+'</span></button>' +
           '<button class="perm-row'+(state.permOffers?"":" off")+'" data-p="permOffers">May see my offers at their level<span class="tog">'+(state.permOffers?"On":"Off")+'</span></button>' +
           '<button class="perm-row'+(state.permRing?"":" off")+'" data-p="permRing">May see my second ring (people who consent)<span class="tog">'+(state.permRing?"On":"Off")+'</span></button>' +
           '<p style="font-size:11px;color:#A78CC9;margin:4px 2px 0">Skippable — everything here can be adjusted per person, later.</p>' +
           '</div>' : '') +
-        '<p class="offline-note">Works with no signal. The floor doesn’t need wifi.</p>';
+        '<p class="offline-note">Works with no signal. No wifi needed.</p>';
       if (state.chan==="qr") fakeQR($("qr"));
       var lp = el.querySelectorAll(".lvl-pill");
       for (var li=0; li<lp.length; li++) lp[li].onclick = function(){
@@ -1514,7 +1514,7 @@
         '<span class="eyebrow">Found someone</span>' +
         '<div class="big-ava" style="background:'+AVA_GRADS.maria+'">M</div>' +
         '<h2>Maria</h2>' +
-        '<div class="ctx-chip">☀ Ecstatic Dance Palermo · today</div>' +
+        '<div class="ctx-chip">☀ Palermo Park Gathering · today</div>' +
         '<p class="sub">Is this the person in front of you?</p>' +
         '<div class="lvl-row">' +
         '<button class="lvl-pill" data-l="Contact">Contact</button>' +
@@ -1556,8 +1556,8 @@
         state.unlocked = opens; state.justUnlocked = opens;
         renderList();
         $("celebText").textContent = opens
-          ? "You and Maria now hold each other’s thread — " + levelLabel().toLowerCase() + "s, at Ecstatic Dance Palermo. Her circle’s Moon Ceremony just opened to you."
-          : "You and Maria now hold each other’s cards — contacts, met at Ecstatic Dance Palermo. Deeper rooms open as you grow closer.";
+          ? "You and Maria now hold each other’s thread — " + levelLabel().toLowerCase() + "s, at Palermo Park Gathering. Her circle’s Moon Ceremony just opened to you."
+          : "You and Maria now hold each other’s cards — contacts, met at Palermo Park Gathering. Deeper rooms open as you grow closer.";
         $("seeOpened").style.display = opens ? "" : "none";
         show("celebrate");
         confetti();
