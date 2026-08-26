@@ -1,10 +1,10 @@
-# Ecstatic World — Web of Trust (`jakob+zach` combined)
+# Ecstatic World — Web of Trust (combined branch)
 
 A web-of-trust for real, in-person community: people meet face to face, confirm each other, and a
 trust graph gates what each person can see and share — events, offers, housing, people. This branch
 unites the two halves of the project:
 
-- **Design surface (Zach):** a clickable mobile mockup + the authoritative UX/data contracts and
+- **Design surface (design collaborator):** a clickable mobile mockup + the authoritative UX/data contracts and
   architecture decisions (`mockup/`, `docs/00`–`70`). It shows the intended experience and specifies
   the contracts behind it.
 - **Implementation (Jakob):** a working TypeScript monorepo — a local-first **agent-daemon** backend,
@@ -13,7 +13,7 @@ unites the two halves of the project:
   **skins** (ecstatic / housing / family / business), and the designer's React app wired to the real
   backend.
 
-Zach's React app is imported at `apps/web` (+ `packages/ew-contract`); the sprint's vanilla client is
+the designer's React app is imported at `apps/web` (+ `packages/ew-contract`); the sprint's vanilla client is
 `apps/mobile-ui`; the backend lives in `packages/{protocol,transport,agent-daemon,app-profiles}` and
 `packages/browser-agent`.
 

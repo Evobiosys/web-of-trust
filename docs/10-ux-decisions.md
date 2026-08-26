@@ -123,7 +123,7 @@ option you're about to re-propose.
 - **Why:** The public tier should actually be public — requiring an account to see public events
   would undercut the whole point of the tier.
 
-## r7 — Zach's review round (2026-07-17, applied in v7)
+## r7 — the designer's review round (2026-07-17, applied in v7)
 
 - **One-screen onboarding.** Quick / Advanced signup cards live directly on "Step onto the
   floor," beside "Just look around." Fewer steps, less friction. Back buttons throughout

@@ -13,7 +13,7 @@ is to make the guest a *full origin node itself*: once connected, the guest can
 **show its own QR** so a third person can connect to *it* — not just chat with the
 one origin.
 
-This is the recursion of Zach's `strip-to-core` framing — *"the core is two DIDs
+This is the recursion of the designer's `strip-to-core` framing — *"the core is two DIDs
 connecting, with a QR establishing the first connection; everything else sits on
 top of that."* Each connected device becomes able to originate its own
 connections.

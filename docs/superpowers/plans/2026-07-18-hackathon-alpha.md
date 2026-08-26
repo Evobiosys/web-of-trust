@@ -1,10 +1,10 @@
-# Hackathon Alpha Implementation Plan — REVISION 2 (Zach mockup = the client)
+# Hackathon Alpha Implementation Plan — REVISION 2 (the design collaborator mockup = the client)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** By tomorrow evening, Jakob + hackathon friends alpha-test on their devices (phones on one LAN): Zach's v6/v7 mobile mockup (`reference/zach-mockup-v7.html` — THE UX version of truth) running as a real client against the agent-daemon backend, with app skins (ecstatic/housing/family/business) and one-degree-removed sharing.
+**Goal:** By tomorrow evening, Jakob + hackathon friends alpha-test on their devices (phones on one LAN): the designer's v6/v7 mobile mockup (`reference/design-mockup-v7.html` — THE UX version of truth) running as a real client against the agent-daemon backend, with app skins (ecstatic/housing/family/business) and one-degree-removed sharing.
 
-**Revision 2 rationale (supersedes R1 Tasks 4/5):** Jakob's stated priority order: (1) Zach's UX implementations — functionality that does not require agents, (2) chats in general, (3) agents, (4) Matrix. Zach's mockup is a complete 5-tab app (Discover / Chat / Meet / Web / You) with its own spec-anchor registry (ANCHORS in the mockup source). We port the mockup itself (vanilla JS, adapted) as `apps/mobile-ui` instead of rebuilding in React. OpenVTC = seam + VRC-shaped export only this sprint (Jakob's answer). Matrix homeserver: local synapse container now, matrix.myceli.al later.
+**Revision 2 rationale (supersedes R1 Tasks 4/5):** Jakob's stated priority order: (1) the designer's UX implementations — functionality that does not require agents, (2) chats in general, (3) agents, (4) Matrix. the designer's mockup is a complete 5-tab app (Discover / Chat / Meet / Web / You) with its own spec-anchor registry (ANCHORS in the mockup source). We port the mockup itself (vanilla JS, adapted) as `apps/mobile-ui` instead of rebuilding in React. OpenVTC = seam + VRC-shaped export only this sprint (Jakob's answer). Matrix homeserver: local synapse container now, matrix.myceli.al later.
 
 **Architecture:** `apps/mobile-ui` (vanilla JS + Vite, ported mockup) ⇄ `ApiClient` (fixture mode = mockup's demo data; live mode = daemon REST/WS) ⇄ agent-daemon (extended: trust levels, LISTING/LOAN/DM envelopes) ⇄ transport (InMemory hub for one-host alpha; Matrix/synapse for multi-host). Old `apps/device-ui` stays untouched (demo gallery).
 
@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Invariants I1–I9 (`CLAUDE.md`) still bind. I3 (indistinguishable No) applies to ask-matching; listings are owner-published, so visibility filtering happens on the OWNER's side before send (a peer below tier receives NOTHING — mirroring "private = invisible").
-- UX truth: `reference/zach-mockup-v7.html`. When porting a screen, preserve its copy, layout, class names, and interaction flow. Deviations only where real data requires; keep the poetic voice ("held between you", "Woven.").
+- UX truth: `reference/design-mockup-v7.html`. When porting a screen, preserve its copy, layout, class names, and interaction flow. Deviations only where real data requires; keep the poetic voice ("held between you", "Woven.").
 - Protocol: additive changes only, integrator-approved (log like D7): TrustEdge.level, audience values, LISTING/LOAN/DM envelope types. Version string stays "0.1".
 - Package filters: `@resource-web/{protocol,transport,agent-daemon,device-ui,dashboard}` + new `@resource-web/mobile-ui`.
 - Tests: node-ish vitest per package; `pnpm -r test` must stay green. TDD for backend logic; UI screens get smoke/behavior tests (vitest+jsdom) not pixel tests.
@@ -60,10 +60,10 @@ DM:      { text }
 
 ---
 
-### Task 4 (REVISED): port Zach's mockup → `apps/mobile-ui` (fixture mode)
+### Task 4 (REVISED): port the designer's mockup → `apps/mobile-ui` (fixture mode)
 
 **Files:**
-- Read first (THE spec): `reference/zach-mockup-v7.html` (1618 lines, self-contained). Also `apps/device-ui/vite.config.ts` + `package.json` as Vite/vitest reference.
+- Read first (THE spec): `reference/design-mockup-v7.html` (1618 lines, self-contained). Also `apps/device-ui/vite.config.ts` + `package.json` as Vite/vitest reference.
 - Create: `apps/mobile-ui/{package.json,vite.config.ts,tsconfig.json,index.html}`
 - Create: `apps/mobile-ui/src/styles.css` (mockup CSS, phone frame made full-viewport-first: keep the `@media (max-width:480px)` full-bleed branch as default on mobile; desktop keeps the phone frame + notes panel hidden)
 - Create: `apps/mobile-ui/src/api_client.js` — `createApiClient({ mode: "fixture" | "live", agentUrl })`; fixture mode returns the mockup's demo data (EVENTS, OFFERS, THREADS, rings people, activity seed) behind the SAME interface live mode will implement: `getState()`, `subscribe(cb)`, `publishListing(x)`, `requestBorrow(id)`, `loanAction(loan_id, state)`, `sendDm(peer, text)`, `addTrust(card, level)`, `setVisibilityDial(on)`, `sendSteward(text)` (steward = agent chat, wired later)
@@ -76,7 +76,7 @@ DM:      { text }
 - All 5 tabs + onboarding + ceremony + celebration + sheets + coach chip + guest mode + spec mode work exactly as in the mockup, powered by the fixture ApiClient.
 - The "Message" flows open the thread sheet (THREADS fixture).
 - `pnpm --filter @resource-web/mobile-ui dev` serves it; `build` green; tests green.
-- Commit per screen-group; final commit `feat(mobile-ui): Zach mockup ported as modular app (fixture mode)`.
+- Commit per screen-group; final commit `feat(mobile-ui): the design collaborator mockup ported as modular app (fixture mode)`.
 
 ---
 
@@ -145,7 +145,7 @@ Superseded — Task 11 ships signed VRCs + the export endpoint as core (D12). Ke
 
 ## Self-review notes (R2)
 
-- User priorities: Zach UX ✅ (T4 is the mockup itself, ported; hard rules bound globally), chats ✅ (DM threads T2/T5/T6 + activity), agents kept secondary ✅ (steward endpoint still exists; relay T1 continues), Matrix ✅ (synapse image prefetched, profile documented, transport untouched).
+- User priorities: the design collaborator UX ✅ (T4 is the mockup itself, ported; hard rules bound globally), chats ✅ (DM threads T2/T5/T6 + activity), agents kept secondary ✅ (steward endpoint still exists; relay T1 continues), Matrix ✅ (synapse image prefetched, profile documented, transport untouched).
 - Holons dashboard (minimal overview): the mockup's Web tab (rings + people + intros) IS the alpha overview; deeper holons-style boards → FUTURE.md with `reference/holons`. Jakob chose "minimal overview tab" — satisfied by Web tab + reach previews; noted explicitly in T9 docs.
 - Type consistency: ApiClient interface named identically in T4 (fixture) and T6 (live); endpoint names in T5 match T6 calls; profile exports (`getProfile`, `ALL_PROFILES`) preserved through the T7 lift.
 - YAGNI guards: no reputation, no scores, no bridges this sprint, no OpenVTC runtime, amends/tags stay placeholders (mockup marks them "held for a future circle").

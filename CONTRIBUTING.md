@@ -2,7 +2,7 @@
 
 ## Ownership
 
-- **Mockup + UX docs (00, 10, 50, 60, 70):** Zach (UX owner). Propose changes, don't merge them
+- **Mockup + UX docs (00, 10, 50, 60, 70):** the design collaborator (UX owner). Propose changes, don't merge them
   silently.
 - **Architecture decisions (docs/30):** the implementation team. Each ADR is OPEN until you close
   it — edit the doc with your decision + date + who decided.
