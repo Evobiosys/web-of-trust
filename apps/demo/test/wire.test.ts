@@ -1,0 +1,231 @@
+import { describe, expect, it } from 'vitest'
+import { decodeFromQr, encodeForQr, type Envelope } from '../src/wire'
+import {
+  derivePairKey,
+  fromB64u,
+  open,
+  randomBytes,
+  randomId,
+  seal,
+  toB64u,
+} from '../src/crypto'
+import type { AnswerEnvelope, ConnectEnvelope, QueryEnvelope } from '../src/types'
+
+// ---------------------------------------------------------------------------
+// crypto.ts -- no dedicated test file was allotted to this deliverable, so
+// its primitives are exercised here (gate_identity/gate_timing exercise the
+// crypto path end to end, but the base64url round-trip and seal/open edge
+// cases deserve direct coverage).
+// ---------------------------------------------------------------------------
+
+describe('toB64u / fromB64u', () => {
+  it('round-trips 1000 random buffers of varying length', () => {
+    for (let i = 0; i < 1000; i++) {
+      const len = Math.floor(Math.random() * 300) // includes 0
+      const bytes = randomBytes(len)
+      const encoded = toB64u(bytes)
+      expect(encoded).not.toMatch(/[+/=]/)
+      const decoded = fromB64u(encoded)
+      expect(Array.from(decoded)).toEqual(Array.from(bytes))
+    }
+  })
+
+  it('round-trips fixed edge-case lengths 0, 1, 2, 3', () => {
+    for (const len of [0, 1, 2, 3]) {
+      const bytes = randomBytes(len)
+      expect(Array.from(fromB64u(toB64u(bytes)))).toEqual(Array.from(bytes))
+    }
+  })
+
+  it('fromB64u throws on an invalid character (callers must catch)', () => {
+    expect(() => fromB64u('not valid b64u!')).toThrow()
+  })
+})
+
+describe('randomBytes / randomId', () => {
+  it('randomBytes returns the requested length and is not all-zero', () => {
+    const bytes = randomBytes(32)
+    expect(bytes.length).toBe(32)
+    expect(bytes.some((b) => b !== 0)).toBe(true)
+  })
+
+  it('randomId returns exactly the requested character length', () => {
+    for (const len of [1, 8, 16, 33]) {
+      expect(randomId(len).length).toBe(len)
+    }
+  })
+
+  it('randomId(0) is an empty string', () => {
+    expect(randomId(0)).toBe('')
+  })
+})
+
+describe('derivePairKey', () => {
+  it('is symmetric: (a, b) and (b, a) derive usable-identically keys', async () => {
+    const keyAB = await derivePairKey('nonce-a', 'nonce-b')
+    const keyBA = await derivePairKey('nonce-b', 'nonce-a')
+
+    const iv = new Uint8Array(12)
+    const plaintext = new TextEncoder().encode('symmetry check')
+    const ctAB = await seal(keyAB, iv, plaintext)
+    const opened = await open(keyBA, iv, ctAB)
+
+    expect(opened).not.toBeNull()
+    expect(new TextDecoder().decode(opened as Uint8Array)).toBe('symmetry check')
+  })
+
+  it('different nonce pairs derive different keys', async () => {
+    const key1 = await derivePairKey('n1', 'n2')
+    const key2 = await derivePairKey('n1', 'n3')
+    const iv = new Uint8Array(12)
+    const plaintext = new TextEncoder().encode('hello')
+    const ct = await seal(key1, iv, plaintext)
+    const opened = await open(key2, iv, ct)
+    expect(opened).toBeNull()
+  })
+})
+
+describe('seal / open', () => {
+  it('round-trips plaintext', async () => {
+    const key = await derivePairKey('a', 'b')
+    const iv = randomBytes(12)
+    const plaintext = new TextEncoder().encode('the quick brown fox')
+    const ct = await seal(key, iv, plaintext)
+    const opened = await open(key, iv, ct)
+    expect(opened).not.toBeNull()
+    expect(new TextDecoder().decode(opened as Uint8Array)).toBe('the quick brown fox')
+  })
+
+  it('open returns null (never throws) on a tampered ciphertext', async () => {
+    const key = await derivePairKey('a', 'b')
+    const iv = randomBytes(12)
+    const ct = await seal(key, iv, new TextEncoder().encode('data'))
+    const tampered = new Uint8Array(ct)
+    tampered[0] ^= 0xff
+    await expect(open(key, iv, tampered)).resolves.toBeNull()
+  })
+
+  it('open returns null on a wrong key', async () => {
+    const key1 = await derivePairKey('a', 'b')
+    const key2 = await derivePairKey('c', 'd')
+    const iv = randomBytes(12)
+    const ct = await seal(key1, iv, new TextEncoder().encode('data'))
+    await expect(open(key2, iv, ct)).resolves.toBeNull()
+  })
+
+  it('open returns null on garbage input, never throws', async () => {
+    const key = await derivePairKey('a', 'b')
+    const iv = randomBytes(12)
+    await expect(open(key, iv, new Uint8Array([1, 2, 3]))).resolves.toBeNull()
+    await expect(open(key, iv, new Uint8Array(0))).resolves.toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// wire.ts
+// ---------------------------------------------------------------------------
+
+const CONNECT: ConnectEnvelope = {
+  v: 1,
+  t: 'connect',
+  from: { id: 'abcd1234', displayName: 'Alice' },
+  nonce: 'nonce-connect-1',
+}
+
+const QUERY: QueryEnvelope = {
+  v: 1,
+  t: 'query',
+  from: { id: 'ffff9999', displayName: 'Bob' },
+  templateId: 'tmpl-1',
+  templateVersion: 3,
+  qid: 'qid-abc',
+  issuedAt: 1735689600000,
+}
+
+const ANSWER: AnswerEnvelope = {
+  v: 1,
+  t: 'answer',
+  qid: 'qid-abc',
+  body: toB64u(randomBytes(540)),
+}
+
+describe('encodeForQr / decodeFromQr round trip', () => {
+  it('round-trips a ConnectEnvelope', () => {
+    expect(decodeFromQr(encodeForQr(CONNECT))).toEqual(CONNECT)
+  })
+
+  it('round-trips a QueryEnvelope', () => {
+    expect(decodeFromQr(encodeForQr(QUERY))).toEqual(QUERY)
+  })
+
+  it('round-trips an AnswerEnvelope', () => {
+    expect(decodeFromQr(encodeForQr(ANSWER))).toEqual(ANSWER)
+  })
+})
+
+describe('decodeFromQr rejects malformed input', () => {
+  it('rejects a wrong version', () => {
+    const bad = JSON.stringify({ ...CONNECT, v: 2 })
+    expect(decodeFromQr(bad)).toBeNull()
+  })
+
+  it('rejects an unknown envelope type', () => {
+    const bad = JSON.stringify({ v: 1, t: 'not-a-real-type' })
+    expect(decodeFromQr(bad)).toBeNull()
+  })
+
+  it('rejects missing required fields per type', () => {
+    expect(decodeFromQr(JSON.stringify({ v: 1, t: 'connect' }))).toBeNull()
+    expect(
+      decodeFromQr(JSON.stringify({ v: 1, t: 'connect', from: { id: 'x' } })),
+    ).toBeNull() // missing displayName
+    expect(decodeFromQr(JSON.stringify({ v: 1, t: 'query', from: QUERY.from }))).toBeNull()
+    expect(decodeFromQr(JSON.stringify({ v: 1, t: 'answer', qid: 'x' }))).toBeNull() // no body
+  })
+
+  it('rejects non-JSON garbage without throwing', () => {
+    expect(() => decodeFromQr('not json at all {{{')).not.toThrow()
+    expect(decodeFromQr('not json at all {{{')).toBeNull()
+  })
+
+  it('rejects a bare JSON primitive / array / null', () => {
+    expect(decodeFromQr('null')).toBeNull()
+    expect(decodeFromQr('42')).toBeNull()
+    expect(decodeFromQr('"a string"')).toBeNull()
+    expect(decodeFromQr('[1,2,3]')).toBeNull()
+  })
+
+  it('rejects an empty string', () => {
+    expect(decodeFromQr('')).toBeNull()
+  })
+
+  it('fuzz: 200 random truncations of a valid envelope never throw', () => {
+    const full = encodeForQr(ANSWER)
+    for (let i = 0; i < 200; i++) {
+      const cut = Math.floor(Math.random() * (full.length + 1))
+      const truncated = full.slice(0, cut)
+      let result: Envelope | null = null
+      expect(() => {
+        result = decodeFromQr(truncated)
+      }).not.toThrow()
+      if (cut < full.length) {
+        // A genuine truncation is (almost) never still valid JSON matching
+        // the full shape -- but we only assert the "never throws" contract
+        // plus "well-typed-or-null", not that every truncation is rejected.
+        expect(result === null || typeof result === 'object').toBe(true)
+      }
+    }
+  })
+
+  it('fuzz: 200 random single-character mutations never throw', () => {
+    const full = encodeForQr(QUERY)
+    const chars = full.split('')
+    for (let i = 0; i < 200; i++) {
+      const idx = Math.floor(Math.random() * chars.length)
+      const mutated = chars.slice()
+      mutated[idx] = String.fromCharCode(33 + Math.floor(Math.random() * 90))
+      const candidate = mutated.join('')
+      expect(() => decodeFromQr(candidate)).not.toThrow()
+    }
+  })
+})

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Vertrauensnetz Demo, Nachweis</title>
+<style>
+:root{--bg:#0f1317;--card:#171d24;--line:#28323d;--ink:#e9eef4;--dim:#9fb0c0;--faint:#6b7d8e;--ok:#6fbf8b;--warn:#e0a34a;color-scheme:dark}
+@media(prefers-color-scheme:light){:root{--bg:#f4f6f8;--card:#fff;--line:#d3dce4;--ink:#16202a;--dim:#4d6070;--faint:#7b8c9b;--ok:#2f7d52;--warn:#8a5a10;color-scheme:light}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding:32px 20px 80px}
+h1{font-size:clamp(24px,5vw,34px);line-height:1.15;letter-spacing:-.02em;margin:0 0 6px}
+.sub{color:var(--dim);margin:0 0 28px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--dim);margin:40px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+p{color:var(--dim);margin:0 0 14px}
+a{color:var(--ok)}
+.hero{display:block;background:var(--ok);color:#06120b;text-decoration:none;font-weight:700;text-align:center;padding:18px;border-radius:14px;margin:0 0 10px;font-size:18px}
+@media(prefers-color-scheme:light){.hero{color:#fff}}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:16px}
+figure{margin:0;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+figure img{display:block;width:100%;height:auto;background:#000}
+figcaption{padding:10px 12px;font-size:13px;color:var(--dim);border-top:1px solid var(--line)}
+figcaption b{display:block;color:var(--ink);font-size:13.5px;margin-bottom:2px}
+.checks{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 0;margin:0 0 18px}
+.checks div{display:flex;gap:12px;padding:7px 16px;font-size:14.5px;align-items:baseline}
+.checks .p{color:var(--ok);font-weight:700;font-family:ui-monospace,monospace;font-size:12px;flex:none;width:38px}
+.checks .g{color:var(--faint);font-size:12px;letter-spacing:.07em;text-transform:uppercase;padding:16px 16px 4px;display:block}
+.note{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--warn);border-radius:12px;padding:16px 18px;margin:0 0 16px}
+.note b{color:var(--ink)}
+.ok-note{border-left-color:var(--ok)}
+ul{color:var(--dim);padding-left:20px;margin:0 0 14px}
+li{margin-bottom:7px}
+code{background:var(--card);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:13px}
+.files{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
+.files a{display:block;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;text-decoration:none;color:var(--ink);font-size:14px}
+.files a span{display:block;color:var(--faint);font-size:12.5px;margin-top:3px}
+footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);color:var(--faint);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>Vertrauensnetz, Demo-Nachweis</h1>
+<p class="sub">Gebaut in der Nacht auf 1. September 2026. Alles unten wurde ausgeführt, nicht behauptet.</p>
+
+<a class="hero" href="https://idea2.site/wot-demo/">Demo öffnen &rarr; idea2.site/wot-demo/</a>
+<p class="mono" style="text-align:center">Beide Handys öffnen diese Adresse. Kein App Store, keine Installation.</p>
+
+<h2>Die sieben Schritte, headless verifiziert</h2>
+<p>Zwei getrennte Browser-Kontexte in Handy-Größe, gegen die echte HTTPS-Adresse. Die Kamera lässt sich headless nicht bedienen, also läuft der Test über den Einfügen-Weg. Der eingefügte Text ist Byte für Byte derselbe, den der QR-Code trägt.</p>
+<div class="checks">
+<span class="g">Schritte 1 bis 3, zwei Geräte, bereits verbunden</span>
+<div><span class="p">PASS</span><span>Nora device boots</span></div>
+<div><span class="p">PASS</span><span>Marlene device boots</span></div>
+<div><span class="p">PASS</span><span>Marlene has the neighbourhood group</span></div>
+<div><span class="p">PASS</span><span>the 1-on-1 chat is excluded by default</span></div>
+<span class="g">Schritt 4, Nora fragt</span>
+<div><span class="p">PASS</span><span>query code produced</span></div>
+<span class="g">Schritte 5 und 6, lokaler Abgleich und Einwilligung</span>
+<div><span class="p">PASS</span><span>Marlene found something</span></div>
+<div><span class="p">PASS</span><span>the preview shows the real flat message</span></div>
+<div><span class="p">PASS</span><span>decoys are not the top hit</span></div>
+<div><span class="p">PASS</span><span>Nora sees a shared answer</span></div>
+<div><span class="p">PASS</span><span>Nora sees the flat message</span></div>
+<div><span class="p">PASS</span><span>Nora never sees the excluded 1-on-1 content</span></div>
+<span class="g">Der Kern: Ablehnung und Nichts sind ununterscheidbar</span>
+<div><span class="p">PASS</span><span>declined answer reads as "no answer"</span></div>
+<div><span class="p">PASS</span><span>no-match answer reads as "no answer"</span></div>
+<div><span class="p">PASS</span><span>both answer payloads are the same length</span></div>
+<div><span class="p">PASS</span><span>both payloads are the same length as a shared one</span></div>
+<div><span class="p">PASS</span><span>Nora sees an identical screen for decline and no-match</span></div>
+<span class="g">Byte-Identität, gleiche Frage, echte Oberfläche</span>
+<div><span class="p">PASS</span><span>the decline path really had a match to withhold</span></div>
+<div><span class="p">PASS</span><span>the no-match path really had nothing</span></div>
+<div><span class="p">PASS</span><span>decline and no-match are BYTE IDENTICAL for the same question</span></div>
+<span class="g">Der Ausschluss von Einzelchats greift wirklich</span>
+<div><span class="p">PASS</span><span>with the 1-on-1 included, its content becomes matchable</span></div>
+<div><span class="p">PASS</span><span>no uncaught page errors</span></div>
+</div>
+<p class="mono">21 von 21. Dazu 193 Unit-Tests, Typecheck sauber.</p>
+
+<h2>Was diese drei Zeilen bedeuten</h2>
+<div class="note ok-note">
+<p><b>„decoys are not the top hit“.</b> Im eingespielten Chatverlauf liegen eine Ferienwohnung im Salzkammergut, ein Angebot Wohnungen zu putzen und ein WG-Zimmer wenige Zeilen neben dem echten Hinweis. Der Abgleich stellt die Herklotzgasse über alle drei. Eine Demo, die vor zwei Menschen die falsche Nachricht findet, ist schlimmer als eine, die nichts findet.</p>
+<p><b>„decline and no-match are BYTE IDENTICAL for the same question“.</b> Kein Unit-Test mit fixiertem Schlüssel, sondern zwei echte Geräte auf dieselbe Frage: eines lehnt mit einem echten Fund in der Hand ab, das andere hat tatsächlich nichts. Beide senden dieselbe Zeichenkette.</p>
+<p><b>„Nora never sees the excluded 1-on-1 content“, gefolgt von „with the 1-on-1 included, its content becomes matchable“.</b> Der Schalter ist in beide Richtungen belastbar. Nur so weiß man, dass er überhaupt verdrahtet ist.</p>
+</div>
+
+<h2>Die Bildschirme</h2>
+<div class="grid">
+<figure><img src="./shots/01-start-dark.png" alt="Startbildschirm, Personenauswahl"><figcaption><b>Start</b>Wer bist du? Zwei Geräte, zwei Rollen.</figcaption></figure>
+<figure><img src="./shots/03-chats-optout.png" alt="Chatliste mit Ausschluss von Einzelchats"><figcaption><b>Meine Chats</b>Gruppen sichtbar, Einzelchats ausgeschlossen. Voreinstellung, nicht versteckte Option.</figcaption></figure>
+<figure><img src="./shots/04-ask-templates.png" alt="Fragenauswahl"><figcaption><b>Fragen</b>Keine Freitextsuche. Fünf feste Fragen.</figcaption></figure>
+<figure><img src="./shots/05-query-qr.png" alt="Frage als QR-Code"><figcaption><b>Die Frage</b>Nur Fragenkennung und Zufallszahl.</figcaption></figure>
+<figure><img src="./shots/07-consent-revealed.png" alt="Einwilligung mit sichtbarem Fund"><figcaption><b>Die Einwilligung</b>Sie sieht zuerst, was geteilt würde. Dann entscheidet sie.</figcaption></figure>
+<figure><img src="./shots/08-answer-qr.png" alt="Antwort als QR-Code"><figcaption><b>Die Antwort</b>Sieht gleich aus, egal wie sie entschieden hat.</figcaption></figure>
+<figure><img src="./shots/09-result-shared.png" alt="Ergebnis geteilt"><figcaption><b>Geteilt</b>Die echte, unaufgeräumte Chatnachricht. Datum bewusst grob.</figcaption></figure>
+<figure><img src="./shots/10-result-nothing.png" alt="Ergebnis keine Antwort"><figcaption><b>Keine Antwort</b>Der Bildschirm, der das Argument trägt.</figcaption></figure>
+<figure><img src="./shots/11-english.png" alt="Englische Oberfläche"><figcaption><b>EN</b>Sprachumschaltung.</figcaption></figure>
+<figure><img src="./shots/01-start-light.png" alt="Heller Modus"><figcaption><b>Hell</b>Folgt der Systemeinstellung.</figcaption></figure>
+</div>
+
+<h2>Was ehrlich noch offen ist</h2>
+<div class="note">
+<p><b>Der Satz, der stimmt:</b> „Nora kann an der Antwort nicht erkennen, ob Marlene nichts hatte oder ob Marlene etwas hatte und nicht teilen wollte.“</p>
+<p><b>Nicht:</b> „Nora erfährt gar nichts.“ Sie erfährt genau ein Bit.</p>
+<p>Die Rechenzeit ist angeglichen. Die <b>Überlegungszeit eines Menschen ist es nicht</b>, und kein festes Zeitbudget nach dem Antippen kann eine Streuung verbergen, die vor dem Antippen entsteht. Das sauber zu schließen braucht eine feste Frist, also eine Produktentscheidung, keinen Bugfix.</p>
+<p><code>kThreshold: 1</code> auf der Wohnungsfrage ist ein Demo-Behelf und darf nicht in Produktion. Die Recherche stuft „Wohnung vor Inserat“ als hoch sensibel ein, und k gleich 1 heißt, eine Nachricht führt auf eine Person zurück.</p>
+</div>
+
+<h2>Was heute Nacht sonst entstand</h2>
+<div class="files">
+<a href="#">DEMO-RUNBOOK.md<span>Der Ablauf, nummeriert, mit Ausweg pro Schritt und 60-Sekunden-Reset</span></a>
+<a href="#">05-chat-group-information.md<span>17 Kategorien, die nur in Chatgruppen zirkulieren, Wiener Quellen, fünf Fragenvorlagen</span></a>
+<a href="#">06-messages.md<span>Nachrichtenverläufe sicher abfragen: Recht, Nutzungsbedingungen, DSGVO Art. 20, lokale Modelle</span></a>
+<a href="#">04-permission-model.md<span>Community wird Network, benutzerbestimmte Stufen, Vertrauensgraph</span></a>
+<a href="#">stub/trust-graph.html<span>Lauffähiger Stub des Vertrauensgraphen</span></a>
+<a href="#">07-packaging.md<span>APK ohne App Store, und warum es das für iOS nicht gibt</span></a>
+<a href="#">03-closing-questions.md<span>Die Fragen für nachher, und die eine für vorher</span></a>
+<a href="#">RESULT-REPORT.md<span>Was gilt, was sich geändert hat, was überholt ist, was offen bleibt</span></a>
+</div>
+<p class="mono" style="margin-top:14px">Alle unter <code>web-of-trust/overnight/</code> im Repo. Zweig <code>demo-2026-08-31</code>.</p>
+
+<footer>Nachweisseite, erzeugt aus echten Testläufen gegen idea2.site/wot-demo/ am 1. September 2026.</footer>
+</div></body></html>

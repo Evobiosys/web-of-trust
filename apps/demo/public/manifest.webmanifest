@@ -1,0 +1,12 @@
+{
+  "name": "Vertrauensnetz",
+  "short_name": "Vertrauen",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#12161b",
+  "theme_color": "#12161b",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
