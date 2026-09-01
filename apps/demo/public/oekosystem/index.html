@@ -225,8 +225,72 @@ footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--line);color:v
 <p><strong>Complete Memory's ingestion pipeline</strong> is stalled and its main corpus is confirmed absent from disk. <strong>Grapevine</strong> maps social-media relationships, not resource sharing. <strong>The maps and world-regions work</strong> is at continental zoom, not building or neighbourhood.</p>
 </div>
 
-<h2>The five decisions, in order</h2>
+<h2>Two contradictions between the transcripts and the code</h2>
+
+<div class="card bad">
+<p class="lead"><strong>1. A central RAG would dissolve the privacy claim.</strong></p>
+<p>One transcript considers "central RAG compilation and jurisdiction-specific hosting". Everything built assumes the opposite: the vault is on the owner's device, in browser IndexedDB or a local JSONL daemon, and the byte-identical answer is meaningful precisely because nothing central ever sees the data. A central index is not a deployment detail, it is a different product with a different promise. Decide it before anything else is built on the current foundation.</p>
+</div>
+
+<div class="card bad">
+<p class="lead"><strong>2. The system protects the holder, not the asker.</strong></p>
+<p><code>types.ts:131</code> puts <code>from: Identity</code> in the query envelope and <code>main.ts:452</code> renders the asker's name to the person being asked. The guarantee is one-directional by construction.</p>
+<p>For apartments that is fine, since looking for a flat is not shameful. But the high-trust situations that matter most, separation, job loss, illness, financial trouble, leaving an abusive relationship, invert it: <strong>there the need itself is the stigmatising thing and the asker is the vulnerable party.</strong> Serving those requires an ask that is anonymous to the holder while still accountable to the network, which is a different mechanism and a harder one.</p>
+</div>
+
+<div class="card warn">
+<p><strong>Two more from the transcripts with no counterpart in the build.</strong> Anti-exfiltration and anti-distillation are named as requirements and have no implementation; they are the same problem as the aggregate leak across many queries over time, which is research rather than engineering. And the exit strategy, interoperability and forkability including "selling part of the business while keeping the network open", is a commitment that nothing in the architecture currently honours or blocks.</p>
+</div>
+
+<h2>Supply comes from transitions, not from generosity</h2>
+<div class="card good">
+<p class="lead">The supply side for apartments is people <strong>subletting</strong> or <strong>moving out early</strong>.</p>
+<p>They are not being generous. They are solving their own problem: Kaution back, Ablöse recovered, a clean Übergabe, and not being processed through a landlord's applicant casting. A Nachmieter from a trusted network is worth more to the leaver than to the seeker.</p>
+<p>That generalises. A life transition is a burst of demand and a burst of supply at the same time, it is time-boxed, which gives every record a natural expiry and solves staleness, and it is exactly what people do not post publicly. <strong>Moving out generates a whole bundle at once</strong>: the flat, the furniture that cannot be moved, the appliances, the plants, the parking spot, the Genossenschaft position, and the neighbourhood know-how.</p>
+</div>
+
+<h2>Which situations, and who is exposed in each</h2>
+<p>High trust plus real significance. The column that decides the architecture is the third one: in some of these the person who <em>has</em> something is exposed, and in others it is the person who <em>needs</em> something.</p>
+
+<div class="scroll"><table>
+<thead><tr><th>Situation</th><th>Supply it creates</th><th>Vulnerable party</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr><td>Death in the family, Verlassenschaft</td><td>an entire household, under grief and time pressure</td><td>holder</td><td><span class="tag t-keep">build now</span> needs no new architecture</td></tr>
+<tr><td>Separation and divorce</td><td>one household becomes two, shared items surplus</td><td>both, weaker party more exposed</td><td>goods side fits, the conflict itself does not</td></tr>
+<tr><td>Moving out and moving in</td><td>flat, furniture that cannot move, appliances, plants, parking spot, Genossenschaft position, know-how</td><td>holder</td><td><span class="tag t-keep">fits as built</span></td></tr>
+<tr><td>Befristung ending, subletting</td><td>the flat itself, on a known date</td><td>both</td><td><span class="tag t-keep">build now</span> roughly half of Vienna private rentals are fixed-term</td></tr>
+<tr><td>Illness, disability, care equipment</td><td>Pflegebett, Rollstuhl, Rollator, short-lived per user</td><td><strong>asker</strong></td><td><span class="tag t-defer">needs anonymous asking</span></td></tr>
+<tr><td>Job loss, financial trouble</td><td>little; almost pure demand</td><td><strong>asker</strong></td><td><span class="tag t-defer">needs anonymous asking</span></td></tr>
+<tr><td>Migration, asylum, Erasmus</td><td>know-how rather than objects</td><td><strong>asker</strong>, severe for asylum</td><td>different resource type, separate module</td></tr>
+<tr><td>Baby arriving, then outgrown</td><td>equipment, on a two-year cycle</td><td>holder, mild</td><td>already well served commercially, weak differentiation</td></tr>
+<tr><td>Renovation, Sanierung</td><td>temporary displacement, tools, storage</td><td>holder, low stakes</td><td>fits</td></tr>
+<tr><td>Retirement, downsizing</td><td>large, slow</td><td>holder, mild</td><td>fits</td></tr>
+<tr><td>Leaving an abusive relationship</td><td>none; pure, urgent demand</td><td><strong>asker</strong>, physical danger</td><td><span class="tag t-kill">current design is unsafe here</span></td></tr>
+</tbody>
+</table></div>
+
+<div class="card bad">
+<p class="lead"><strong>The pattern: supply comes from holders, and the deepest need comes from askers.</strong></p>
+<p>Every situation where the system already works is one where the exposed person is the one holding something. Every situation where the need is most acute is one where the exposed person is the one asking. The design protects exactly the half that is easier to protect.</p>
+<p><strong>Leaving an abusive relationship is where this stops being an abstraction.</strong> A named ask, delivered to a network that may overlap with the person being left, is not a missing feature. It is a hazard. That case is deliberately held back until anonymous asking exists and has been attacked on a lower-stakes case first.</p>
+</div>
+
+<h2>The three to build after apartments</h2>
+<div class="cards2">
+<div class="card good"><h3>1 · Verlassenschaft</h3><p>Needs nothing architecturally. What it needs is a referral channel into funeral homes, Notare and the Entrümpelung firms that currently charge for this.</p></div>
+<div class="card good"><h3>2 · Befristung ending</h3><p>Needs lease-end-date targeting, not new privacy technology. The volume is large and the timing is knowable in advance, which is what a registry wants.</p></div>
+<div class="card warn"><h3>3 · Care equipment</h3><p>Chosen <em>because</em> it is harder. Rotes Kreuz already lends this equipment cheaply, so access is not the bottleneck. <strong>Disclosure is.</strong> That makes it the cleanest real-world test of whether protecting the asker is worth anything.</p></div>
+</div>
+
+<div class="card">
+<p><strong>The cheapest first step toward anonymous asking</strong>, if it is wanted: suppress the asker's name at <code>main.ts:452</code> and <code>483</code> for templates flagged sensitive, while keeping the underlying identity intact for accountability. That is a small, reversible change and it is enough to pilot the question before anything zero-knowledge is attempted. The full version is a graph-membership proof, showing "inside your network within N hops" without naming who, plus an accountability record openable only through an abuse process, plus batched delivery so a request cannot be correlated with an event.</p>
+<p>What it costs, honestly: fishing, harassment, an untraceable bad actor, and the loss of the social pressure that a recognised name provides. That pressure is a large part of why anyone answers at all.</p>
+</div>
+
+<h2>The decisions, in order</h2>
 <ol>
+<li><strong>Local-first or central RAG.</strong> These are two different products. Everything built assumes the first.</li>
+<li><strong>Does the asker need protecting too?</strong> One-directional serves apartments. The situations worth serving after apartments invert the vulnerability.</li>
 <li><strong>Measure before deciding the apartment focus.</strong> Export five real Vienna groups, run the existing matcher over all five templates, count hits, distinct authors, and human-rated actionable leads per month. Hours of work. Do not tune k before this exists.</li>
 <li><strong>Which codebase is the trunk?</strong> Browser demo or rebiosys daemon. Everything downstream waits on this.</li>
 <li><strong>Does the k floor cover single-holder matches, or only aggregates?</strong> This decides whether the desires registry is buildable as specified.</li>
