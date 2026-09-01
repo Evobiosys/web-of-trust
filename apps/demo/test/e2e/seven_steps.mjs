@@ -132,7 +132,7 @@ const run = async () => {
   ok('Nora never sees the excluded 1-on-1 content', !/nachbarhaus/i.test(r1.text))
 
   // ---- The privacy claim: decline and no-match look the same -------------
-  console.log('\nThe claim  decline and no-match are indistinguishable to Nora')
+  console.log('\nThe claim  decline and below-k are indistinguishable to Nora')
   const nora2 = await openDevice(browser, 'Nora')
   const marlene2 = await freshMarlene(browser)
   const q2 = await askAs(nora2.page, /Wohnung|Wohnraum|frei/i)
@@ -141,13 +141,15 @@ const run = async () => {
 
   const nora3 = await openDevice(browser, 'Nora')
   const marlene3 = await freshMarlene(browser)
-  // A template the seeded corpus has nothing for.
+  // NOTE: this is a BELOW-K case, not a no-match case. The corpus does contain
+  // on-topic content for this template; it stays under the anonymity floor of 7.
+  // That is the point: below-k and no-match must be indistinguishable.
   const q3 = await askAs(nora3.page, /Arzt|Kassenarzt|Handwerk|Betreuung/i)
   const a3 = await answerAs(marlene3.page, q3, 'share')
   const r3 = await readAnswer(nora3.page, a3.payload)
 
   ok('declined answer reads as "no answer"', !r2.shared)
-  ok('no-match answer reads as "no answer"', !r3.shared)
+  ok('below-k answer reads as "no answer"', !r3.shared)
   ok('both answer payloads are the same length',
     a2.payload.length === a3.payload.length,
     `${a2.payload.length} vs ${a3.payload.length}`)
@@ -155,7 +157,7 @@ const run = async () => {
     a1.payload.length === a2.payload.length,
     `shared ${a1.payload.length} vs nothing ${a2.payload.length}`)
   const strip = (s) => s.replace(/\s+/g, ' ').trim()
-  ok('Nora sees an identical screen for decline and no-match',
+  ok('Nora sees an identical screen for decline and below-k',
     strip(r2.text) === strip(r3.text),
     strip(r2.text).slice(0, 100) + ' || ' + strip(r3.text).slice(0, 100))
 
@@ -187,6 +189,26 @@ const run = async () => {
     aDecline.payload === aEmpty.payload,
     `${String(aDecline.payload).slice(0, 48)}... vs ${String(aEmpty.payload).slice(0, 48)}...`)
 
+  // Below-k against no-match, same question, byte for byte. This is the third
+  // "nothing" reason and it is the one the runbook's Kassenarzt beat leans on,
+  // so it gets its own proof rather than riding on the housing one.
+  const noraC = await openDevice(browser, 'Nora')
+  const qC = await askAs(noraC.page, /Arzt|Kassenarzt|Handwerk|Betreuung/i)
+
+  const mBelowK = await freshMarlene(browser)          // group ON: hits, but under the floor
+  const aBelowK = await answerAs(mBelowK.page, qC, 'share')
+
+  const mNone = await freshMarlene(browser)            // group OFF: genuinely nothing
+  await mNone.page.getByRole('button', { name: /^Meine Chats/ }).click()
+  await mNone.page.locator('.thread').filter({ hasText: /Grätzl/i })
+    .locator('input[type=checkbox]').uncheck()
+  await mNone.page.getByRole('button', { name: /^Zurück$/ }).first().click()
+  const aNone = await answerAs(mNone.page, qC, 'share')
+
+  ok('below-k and no-match are BYTE IDENTICAL for the same question',
+    aBelowK.payload === aNone.payload,
+    `${String(aBelowK.payload).slice(0, 48)}... vs ${String(aNone.payload).slice(0, 48)}...`)
+
   // ---- The opt-out actually gates ---------------------------------------
   console.log('\nThe opt-out  including the 1-on-1 chat changes the result')
   const nora4 = await openDevice(browser, 'Nora')
@@ -203,7 +225,7 @@ const run = async () => {
 
   // ---- No page errors anywhere -------------------------------------------
   const allErrs = [nora, marlene, nora2, marlene2, nora3, marlene3, nora4, marlene4,
-    noraB, mDecline, mEmpty].flatMap((d) => d.errs)
+    noraB, mDecline, mEmpty, noraC, mBelowK, mNone].flatMap((d) => d.errs)
   ok('no uncaught page errors', allErrs.length === 0, allErrs.slice(0, 3).join(' | '))
 
   await browser.close()

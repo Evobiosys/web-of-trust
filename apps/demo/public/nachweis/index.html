@@ -34,8 +34,8 @@ ul{color:var(--dim);padding-left:20px;margin:0 0 14px}
 li{margin-bottom:7px}
 code{background:var(--card);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:13px}
 .files{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px}
-.files a{display:block;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;text-decoration:none;color:var(--ink);font-size:14px}
-.files a span{display:block;color:var(--faint);font-size:12.5px;margin-top:3px}
+.files div{display:block;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;text-decoration:none;color:var(--ink);font-size:14px}
+.files div span{display:block;color:var(--faint);font-size:12.5px;margin-top:3px}
 footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);color:var(--faint);font-size:13px}
 </style>
 </head>
@@ -64,27 +64,29 @@ footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);color:v
 <div><span class="p">PASS</span><span>Nora sees a shared answer</span></div>
 <div><span class="p">PASS</span><span>Nora sees the flat message</span></div>
 <div><span class="p">PASS</span><span>Nora never sees the excluded 1-on-1 content</span></div>
-<span class="g">Der Kern: Ablehnung und Nichts sind ununterscheidbar</span>
+<span class="g">Der Kern: Ablehnung und Unter-der-Schwelle sind ununterscheidbar</span>
 <div><span class="p">PASS</span><span>declined answer reads as "no answer"</span></div>
-<div><span class="p">PASS</span><span>no-match answer reads as "no answer"</span></div>
+<div><span class="p">PASS</span><span>below-k answer reads as "no answer"</span></div>
 <div><span class="p">PASS</span><span>both answer payloads are the same length</span></div>
 <div><span class="p">PASS</span><span>both payloads are the same length as a shared one</span></div>
-<div><span class="p">PASS</span><span>Nora sees an identical screen for decline and no-match</span></div>
+<div><span class="p">PASS</span><span>Nora sees an identical screen for decline and below-k</span></div>
 <span class="g">Byte-Identität, gleiche Frage, echte Oberfläche</span>
 <div><span class="p">PASS</span><span>the decline path really had a match to withhold</span></div>
 <div><span class="p">PASS</span><span>the no-match path really had nothing</span></div>
 <div><span class="p">PASS</span><span>decline and no-match are BYTE IDENTICAL for the same question</span></div>
+<div><span class="p">PASS</span><span>below-k and no-match are BYTE IDENTICAL for the same question</span></div>
 <span class="g">Der Ausschluss von Einzelchats greift wirklich</span>
 <div><span class="p">PASS</span><span>with the 1-on-1 included, its content becomes matchable</span></div>
 <div><span class="p">PASS</span><span>no uncaught page errors</span></div>
 </div>
-<p class="mono">21 von 21. Dazu 193 Unit-Tests, Typecheck sauber.</p>
+<p class="mono">22 von 22. Dazu 193 Unit-Tests, Typecheck sauber.</p>
 
 <h2>Was diese drei Zeilen bedeuten</h2>
 <div class="note ok-note">
 <p><b>„decoys are not the top hit“.</b> Im eingespielten Chatverlauf liegen eine Ferienwohnung im Salzkammergut, ein Angebot Wohnungen zu putzen und ein WG-Zimmer wenige Zeilen neben dem echten Hinweis. Der Abgleich stellt die Herklotzgasse über alle drei. Eine Demo, die vor zwei Menschen die falsche Nachricht findet, ist schlimmer als eine, die nichts findet.</p>
 <p><b>„decline and no-match are BYTE IDENTICAL for the same question“.</b> Kein Unit-Test mit fixiertem Schlüssel, sondern zwei echte Geräte auf dieselbe Frage: eines lehnt mit einem echten Fund in der Hand ab, das andere hat tatsächlich nichts. Beide senden dieselbe Zeichenkette.</p>
 <p><b>„Nora never sees the excluded 1-on-1 content“, gefolgt von „with the 1-on-1 included, its content becomes matchable“.</b> Der Schalter ist in beide Richtungen belastbar. Nur so weiß man, dass er überhaupt verdrahtet ist.</p>
+<p>Es gibt drei Gr&uuml;nde f&uuml;r &bdquo;keine Antwort&ldquo;: nichts gefunden, unter der Anonymit&auml;tsschwelle, oder bewusst abgelehnt. Alle drei sind hier gegeneinander gepr&uuml;ft, nicht nur zwei. Der vierte Grund, blockiert, ist im Unit-Test abgedeckt, weil die Oberfl&auml;che noch keine Blockier-Geste hat.</p>
 </div>
 
 <h2>Die Bildschirme</h2>
@@ -111,14 +113,14 @@ footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);color:v
 
 <h2>Was heute Nacht sonst entstand</h2>
 <div class="files">
-<a href="#">DEMO-RUNBOOK.md<span>Der Ablauf, nummeriert, mit Ausweg pro Schritt und 60-Sekunden-Reset</span></a>
-<a href="#">05-chat-group-information.md<span>17 Kategorien, die nur in Chatgruppen zirkulieren, Wiener Quellen, fünf Fragenvorlagen</span></a>
-<a href="#">06-messages.md<span>Nachrichtenverläufe sicher abfragen: Recht, Nutzungsbedingungen, DSGVO Art. 20, lokale Modelle</span></a>
-<a href="#">04-permission-model.md<span>Community wird Network, benutzerbestimmte Stufen, Vertrauensgraph</span></a>
-<a href="#">stub/trust-graph.html<span>Lauffähiger Stub des Vertrauensgraphen</span></a>
-<a href="#">07-packaging.md<span>APK ohne App Store, und warum es das für iOS nicht gibt</span></a>
-<a href="#">03-closing-questions.md<span>Die Fragen für nachher, und die eine für vorher</span></a>
-<a href="#">RESULT-REPORT.md<span>Was gilt, was sich geändert hat, was überholt ist, was offen bleibt</span></a>
+<div>DEMO-RUNBOOK.md<span>Der Ablauf, nummeriert, mit Ausweg pro Schritt und 60-Sekunden-Reset</span></div>
+<div>05-chat-group-information.md<span>17 Kategorien, die nur in Chatgruppen zirkulieren, Wiener Quellen, fünf Fragenvorlagen</span></div>
+<div>06-messages.md<span>Nachrichtenverläufe sicher abfragen: Recht, Nutzungsbedingungen, DSGVO Art. 20, lokale Modelle</span></div>
+<div>04-permission-model.md<span>Community wird Network, benutzerbestimmte Stufen, Vertrauensgraph</span></div>
+<div>stub/trust-graph.html<span>Lauffähiger Stub des Vertrauensgraphen</span></div>
+<div>07-packaging.md<span>APK ohne App Store, und warum es das für iOS nicht gibt</span></div>
+<div>03-closing-questions.md<span>Die Fragen für nachher, und die eine für vorher</span></div>
+<div>RESULT-REPORT.md<span>Was gilt, was sich geändert hat, was überholt ist, was offen bleibt</span></div>
 </div>
 <p class="mono" style="margin-top:14px">Alle unter <code>web-of-trust/overnight/</code> im Repo. Zweig <code>demo-2026-08-31</code>.</p>
 
