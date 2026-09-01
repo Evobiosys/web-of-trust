@@ -59,7 +59,13 @@ function makeHit(i: number): MatchHit {
 }
 
 function makeMatch(hitCount: number, aboveThreshold: boolean): MatchResult {
-  return { hits: Array.from({ length: hitCount }, (_, i) => makeHit(i)), aboveThreshold }
+  const hits = Array.from({ length: hitCount }, (_, i) => makeHit(i))
+  // The gate never recomputes the floor; it trusts what the matcher decided.
+  // distinctAuthors is carried only so the shape is honest, and is deliberately
+  // NOT what aboveThreshold is derived from here: these tests drive the gate
+  // directly, including states a real matcher would not produce.
+  const distinctAuthors = new Set(hits.map((h) => h.message.author)).size
+  return { hits, distinctAuthors, aboveThreshold }
 }
 
 const FIXED_IV = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])

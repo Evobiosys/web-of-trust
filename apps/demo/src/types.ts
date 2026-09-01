@@ -66,7 +66,16 @@ export interface QueryTemplate {
   excludeTerms: string[]
   /** Minimum score for a message to count as a candidate hit. */
   minScore: number
-  /** Minimum number of candidate messages before anything may be offered. */
+  /**
+   * Minimum number of DISTINCT AUTHORS who must have said something matching
+   * before anything may be offered.
+   *
+   * Authors, not messages. Counting messages does not anonymise anybody: seven
+   * messages from one neighbour clear a floor of seven and all seven are hers,
+   * so the floor that is supposed to protect the most exposed person in the
+   * chat protects nobody. Enforced by match/lexical.ts and asserted in
+   * test/match_kanon.test.ts.
+   */
   kThreshold: number
   sensitivity: Sensitivity
   ttlSeconds: number
@@ -88,7 +97,12 @@ export interface MatchHit {
 
 export interface MatchResult {
   hits: MatchHit[]
-  /** True when hits.length >= template.kThreshold. */
+  /**
+   * How many DISTINCT people wrote the hits, counting only hits that clear the
+   * relevance bar. This is the number the anonymity floor is compared against.
+   */
+  distinctAuthors: number
+  /** True when distinctAuthors >= template.kThreshold. */
   aboveThreshold: boolean
 }
 

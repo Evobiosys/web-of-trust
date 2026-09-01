@@ -68,6 +68,12 @@ function termFires(term: PreparedTerm, ctx: MessageContext): boolean {
   return false
 }
 
+/**
+ * Only hits scoring at least this fraction of the top hit count toward the
+ * anonymity floor. Keeps incidental matches from buying down the protection.
+ */
+const K_RELEVANCE_BAND = 0.5
+
 const MATCH_TERM_WEIGHT = 1
 const BOOST_TERM_WEIGHT = 2
 
@@ -144,5 +150,23 @@ export function matchTemplate(template: QueryTemplate, threads: ChatThread[]): M
     return a.messageIndex - b.messageIndex
   })
 
-  return { hits, aboveThreshold: hits.length >= template.kThreshold }
+  // The anonymity floor counts DISTINCT AUTHORS, never messages.
+  //
+  // Counting messages does not anonymise anyone: seven messages from one
+  // neighbour clear a floor of seven, and every one of them is hers. The floor
+  // exists so that what is offered cannot be traced back to a single person,
+  // which only distinct voices can provide.
+  //
+  // Only hits at or above the relevance band count toward the floor. Otherwise
+  // incidental noise, which a template with a low minScore produces plenty of,
+  // silently buys down the protection.
+  const top = hits.length ? hits[0].score : 0
+  const floorBand = top * K_RELEVANCE_BAND
+  const authors = new Set<string>()
+  for (const h of hits) {
+    if (h.score >= floorBand) authors.add(h.message.author.trim().toLowerCase())
+  }
+  const distinctAuthors = authors.size
+
+  return { hits, distinctAuthors, aboveThreshold: distinctAuthors >= template.kThreshold }
 }

@@ -424,8 +424,10 @@ async function scanQuery(): Promise<void> {
  * noise, and noise in that list makes the whole thing look careless.
  *
  * This narrows only what is previewed and shared. It deliberately does NOT
- * touch `aboveThreshold`, because that is the anonymity decision and it is made
- * on the full candidate set.
+ * touch `aboveThreshold` or `distinctAuthors`, because those are the anonymity
+ * decision, and that decision is made by the matcher over its own relevance
+ * band. Narrowing what is shared must never narrow the floor that protects the
+ * people who wrote it.
  */
 const RELEVANCE_BAND = 0.5
 const MAX_SHARED = 3
@@ -452,7 +454,7 @@ async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
     el('p', {}, [el('span', { class: 'spin' }), document.createTextNode(' ' + t('checking'))]),
   ]))
 
-  let match: MatchResult = { hits: [], aboveThreshold: false }
+  let match: MatchResult = { hits: [], distinctAuthors: 0, aboveThreshold: false }
   if (tpl) match = prune(matchTemplate(tpl, threadsInScope(s)))
   await settleAt(t0, GATE_BUDGET_MS)
 
