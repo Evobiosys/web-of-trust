@@ -15,8 +15,8 @@ export function YouScreen({ nav }: { nav: Nav }) {
   const { open } = useSheet();
 
   const name = state.me?.name ?? "You";
-  const cacao = state.visibleOffers.find((o) => o.id === "cacao");
-  const cacaoExtended = (cacao?.extendedVia?.length ?? 0) > 0;
+  const boxes = state.visibleOffers.find((o) => o.id === "boxes");
+  const boxesExtended = (boxes?.extendedVia?.length ?? 0) > 0;
   const speakers = state.visibleOffers.find((o) => o.id === "speakers");
   const speakersLent = speakers?.state === "lent";
 
@@ -56,8 +56,8 @@ export function YouScreen({ nav }: { nav: Nav }) {
             <Card>
               <h3>What you offer</h3>
               <p className="mt-2 flex items-center justify-between gap-2">
-                Ceremonial cacao (1kg blocks)
-                <span className={CHIP}>Available{cacaoExtended ? " · via Rafa too" : ""}</span>
+                Moving boxes (20, flat-packed)
+                <span className={CHIP}>Available{boxesExtended ? " · via Rafa too" : ""}</span>
               </p>
               <Btn
                 variant="ghost"
@@ -110,7 +110,7 @@ export function YouScreen({ nav }: { nav: Nav }) {
                   <div>
                     <SheetTitle>Held for a later pass</SheetTitle>
                     <SheetMeta>
-                      Tags will let you group your people (#dj, #facilitator…) and grant sharing
+                      Tags will let you group your people (#neighbour, #organizer…) and grant sharing
                       permissions to a whole tag at once — atomic underneath, bulk on top. Spec stub:
                       docs/70.
                     </SheetMeta>

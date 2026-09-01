@@ -94,7 +94,7 @@ export function HostScreen({ close }: { close: () => void }) {
           <div className="my-3.5 rounded-xl bg-gradient-to-br from-mint/12 to-electric/12 p-3.5 text-[13.5px] leading-relaxed">
             {tier === "public" ? (
               <>
-                <b>Open doors.</b> Anyone in Buenos Aires can find this.
+                <b>Open doors.</b> Anyone in Vienna can find this.
               </>
             ) : state.reach ? (
               <>

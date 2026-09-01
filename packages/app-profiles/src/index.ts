@@ -6,8 +6,8 @@ import type { AppProfile } from "./types.js";
 
 export type { AppProfile, MobileSkin, SuggestionGroup } from "./types.js";
 
-/** All shipped app profiles, ecstatic first (it is also the fallback). */
-export const ALL_PROFILES: AppProfile[] = [ecstaticProfile, housingProfile, familyProfile, businessProfile];
+/** All shipped app profiles, housing first (it is also the fallback). */
+export const ALL_PROFILES: AppProfile[] = [housingProfile, ecstaticProfile, familyProfile, businessProfile];
 
 const PROFILES_BY_ID: Record<AppProfile["id"], AppProfile> = {
   ecstatic: ecstaticProfile,
@@ -18,7 +18,7 @@ const PROFILES_BY_ID: Record<AppProfile["id"], AppProfile> = {
 
 /** Looks up a profile by id (case-sensitive, exact match against the
  * `AppProfile["id"]` union). Any unknown or missing id falls back to
- * `ecstatic`. */
+ * `housing`. */
 export function getProfile(id: string): AppProfile {
-  return PROFILES_BY_ID[id as AppProfile["id"]] ?? ecstaticProfile;
+  return PROFILES_BY_ID[id as AppProfile["id"]] ?? housingProfile;
 }

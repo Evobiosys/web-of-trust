@@ -72,8 +72,8 @@ async function main(): Promise<void> {
   const stateDir = mkdtempSync(join(tmpdir(), "alpha-smoke-"));
   const [annaPort, benPort] = [await freePort(), await freePort()];
   const personas: PersonaConfig[] = [
-    { key: "anna", name: "Anna", port: annaPort, app: "ecstatic" },
-    { key: "ben", name: "Ben", port: benPort, app: "ecstatic" },
+    { key: "anna", name: "Anna", port: annaPort, app: "housing" },
+    { key: "ben", name: "Ben", port: benPort, app: "housing" },
   ];
 
   console.log("[smoke] booting 2 personas on 127.0.0.1 via bootPersonas()...");

@@ -55,10 +55,15 @@ describe("profiles", () => {
     }
   });
 
-  it("getProfile falls back to ecstatic for unknown or empty ids", () => {
-    expect(getProfile("bogus").id).toBe("ecstatic");
-    expect(getProfile("").id).toBe("ecstatic");
-    expect(getProfile("Housing").id).toBe("ecstatic"); // case-sensitive, not fuzzy
+  it("getProfile falls back to housing for unknown or empty ids", () => {
+    expect(getProfile("bogus").id).toBe("housing");
+    expect(getProfile("").id).toBe("housing");
+    expect(getProfile("Ecstatic").id).toBe("housing"); // case-sensitive, not fuzzy
+  });
+
+  it("ecstatic profile is still retrievable by id (demoted, not removed)", () => {
+    expect(getProfile("ecstatic").id).toBe("ecstatic");
+    expect(ALL_PROFILES.map((p) => p.id)).toContain("ecstatic");
   });
 
   it("ecstatic: dark theme, trusted/ask_each_time, hides only audit", () => {

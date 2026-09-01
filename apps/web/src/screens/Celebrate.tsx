@@ -82,8 +82,8 @@ export function CelebrateScreen({ goDiscover }: { goDiscover: () => void }) {
         <h2 className="text-5xl font-medium drop-shadow-[0_2px_12px_rgba(0,0,0,0.35)]">Woven.</h2>
         <p className="mt-4 max-w-sm text-[15px] leading-relaxed drop-shadow-[0_1px_6px_rgba(0,0,0,0.3)]">
           {confirmedLevel === "contact"
-            ? `You and ${peerName} now hold each other’s cards — contacts, met at Ecstatic Dance Palermo. Deeper rooms open as you grow closer.`
-            : `You and ${peerName} now hold each other’s thread — ${label}s, at Ecstatic Dance Palermo. Their circle’s Moon Ceremony just opened to you.`}
+            ? `You and ${peerName} now hold each other’s cards — contacts, met at Nachbarschaftsfest Yppenplatz. Deeper rooms open as you grow closer.`
+            : `You and ${peerName} now hold each other’s thread — ${label}s, at Nachbarschaftsfest Yppenplatz. Their building’s Hausversammlung just opened to you.`}
         </p>
 
         <div className="mt-8 flex w-full max-w-xs flex-col items-stretch gap-2.5">

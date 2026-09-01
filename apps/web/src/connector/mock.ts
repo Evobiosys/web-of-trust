@@ -47,10 +47,10 @@ interface Person {
 }
 
 const PEOPLE: Record<string, Person> = {
-  lucia: { id: "lucia", name: "Lucía", metContext: "Biodanza — Casa Luna · May", offer: "speakers" },
-  rafa: { id: "rafa", name: "Rafa", metContext: "Ecstatic Dance Palermo · June" },
-  tomas: { id: "tomas", name: "Tomás", metContext: "Contact Improv Jam · June" },
-  maria: { id: "maria", name: "Maria", metContext: "Ecstatic Dance Palermo · today" },
+  lucia: { id: "lucia", name: "Lucía", metContext: "Wohnungsbörse Neubau · May", offer: "speakers" },
+  rafa: { id: "rafa", name: "Rafa", metContext: "Nachbarschaftsfest Yppenplatz · June" },
+  tomas: { id: "tomas", name: "Tomás", metContext: "Sperrmüll-Tauschbörse · June" },
+  maria: { id: "maria", name: "Maria", metContext: "Nachbarschaftsfest Yppenplatz · today" },
   bruno: { id: "bruno", name: "Bruno" },
   sofia: { id: "sofia", name: "Sofía" },
   nico: { id: "nico", name: "Nico" },
@@ -94,16 +94,16 @@ export class MockConnector implements Connector {
     edge({ a: "maria", b: "nico" }),
   ];
   private events: EventRecord[] = [
-    { id: "palermo", name: "Ecstatic Dance Palermo", meta: "Sun 11:00 · Parque Tres de Febrero · with DJ Aluna", tier: "public", steps: 2, hostIds: ["maria"], kind: "ecstatic" },
-    { id: "casaluna", name: "Biodanza — Casa Luna", meta: "Tue 19:00 · Villa Crespo · facilitated by Clara", tier: "public", steps: 2, hostIds: ["lucia"], kind: "biodanza" },
-    { id: "cijam", name: "Contact Improv Jam", meta: "Thu 20:30 · Espacio Cielo · linked ecosystem", tier: "public", steps: 2, hostIds: [], kind: "contact-improv", linked: true },
-    { id: "cacaohang", name: "Cacao & Movement Hangout", meta: "Sat 16:00 · Verde Café · community hangout", tier: "public", steps: 2, hostIds: [], kind: "hangout" },
-    { id: "moon", name: "Moon Ceremony", meta: "Fri 23:00 · location shared with your web · hosted by Maria's circle", tier: "friends", steps: 2, hostIds: ["maria"], kind: "ceremony", reachedVia: "Maria", locationGated: true },
+    { id: "yppenplatz", name: "Nachbarschaftsfest Yppenplatz", meta: "Sun 11:00 · Yppenplatz · Ottakring", tier: "public", steps: 2, hostIds: ["maria"], kind: "other" },
+    { id: "wohnboerse", name: "Wohnungsbörse Neubau", meta: "Tue 19:00 · Amerlinghaus · organized by Clara", tier: "public", steps: 2, hostIds: ["lucia"], kind: "other" },
+    { id: "sperrmuell", name: "Sperrmüll-Tauschbörse", meta: "Thu 20:30 · Hof, Josefstadt · linked network", tier: "public", steps: 2, hostIds: [], kind: "other", linked: true },
+    { id: "kaffeehang", name: "Kaffee & Nachbarschaft", meta: "Sat 16:00 · Café Sperlhof · community hangout", tier: "public", steps: 2, hostIds: [], kind: "hangout" },
+    { id: "hausversammlung", name: "Hausversammlung", meta: "Fri 19:00 · location shared with your web · hosted by Maria's building", tier: "friends", steps: 2, hostIds: ["maria"], kind: "other", reachedVia: "Maria", locationGated: true },
   ];
   private offers: Offer[] = [
-    { id: "speakers", item: "PA speakers (pair)", description: "Warm full-range pair, battery option — carried them to fifty dance floors.", ownerId: "lucia", tier: "friends", state: "available" },
-    { id: "djtable", item: "DJ table + mixer", description: "Folding table, 4-channel mixer, cabling included.", ownerId: "rafa", tier: "friends", state: "available" },
-    { id: "cacao", item: "Ceremonial cacao (1kg blocks)", description: "Your own offering to the web.", ownerId: ME, tier: "friends", state: "available", mine: true },
+    { id: "speakers", item: "PA speakers (pair)", description: "Warm full-range pair, battery option — great for courtyard parties and building get-togethers.", ownerId: "lucia", tier: "friends", state: "available" },
+    { id: "handcart", item: "Folding hand cart", description: "Sturdy folding cart with rubber wheels — good for hauling boxes up a few flights.", ownerId: "rafa", tier: "friends", state: "available" },
+    { id: "boxes", item: "Moving boxes (20, flat-packed)", description: "Your own offering to the web.", ownerId: ME, tier: "friends", state: "available", mine: true },
     { id: "projector", item: "A projector", description: "Bright enough for outdoor night projections.", identityWithheld: true, viaId: "maria", tier: "friends", state: "available" },
   ];
   private activity: ActivityItem[] = [];
@@ -121,9 +121,9 @@ export class MockConnector implements Connector {
     status: "open",
   };
   private hostForm: HostForm = {
-    name: "Sunset Rooftop Dance",
+    name: "Rooftop Neighbourhood BBQ",
     when: "Sat 18:30",
-    where: "Roof of Casa Verde — shared on arrival",
+    where: "Dachterrasse, Haus 14 — shared on arrival",
     tier: "friends",
     steps: 2,
   };
@@ -325,8 +325,8 @@ export class MockConnector implements Connector {
       this.pushActivity({
         kind: "extension_approval",
         who: "Rafa",
-        icon: "🍫",
-        text: "wants his web to know about your cacao. Share the offer one ring further, through him?",
+        icon: "📦",
+        text: "wants his web to know about your moving boxes. Share the offer one ring further, through him?",
         subtext: "You still approve every borrower.",
         anchor: "RES-6",
         actions: [
@@ -420,7 +420,7 @@ export class MockConnector implements Connector {
             b: personId,
             levelAtoB: level,
             levelBtoA: level,
-            context: { eventName: "Ecstatic Dance Palermo", date: new Date().toISOString().slice(0, 10) },
+            context: { eventName: "Nachbarschaftsfest Yppenplatz", date: new Date().toISOString().slice(0, 10) },
           })
         );
         if (!this.threads.some((t) => t.personId === personId)) {
@@ -482,8 +482,8 @@ export class MockConnector implements Connector {
       const item = this.activity.find((a) => a.id === itemId);
       if (!item || item.done) return;
       if (actionId === "share_ext") {
-        this.offer("cacao").extendedVia = ["rafa"];
-        this.resolveActivity(itemId, "Shared ✓ — your cacao now reaches Rafa's web through him. Withdraw anytime.");
+        this.offer("boxes").extendedVia = ["rafa"];
+        this.resolveActivity(itemId, "Shared ✓ — your moving boxes now reach Rafa's web through him. Withdraw anytime.");
       } else if (actionId === "keep_close") {
         this.resolveActivity(itemId, "Kept close. Rafa sees a gentle no.");
       } else if (actionId.startsWith("return:")) {
@@ -581,12 +581,12 @@ export class MockConnector implements Connector {
       const f = this.hostForm;
       this.events.unshift({
         id: `mine${++this.seq}`,
-        name: f.name || "Sunset Rooftop Dance",
+        name: f.name || "Rooftop Neighbourhood BBQ",
         meta: `${f.when} · ${f.where} · you host this`,
         tier: f.tier,
         steps: f.steps,
         hostIds: [ME],
-        kind: "ecstatic",
+        kind: "other",
         mine: true,
       });
       this.emit();

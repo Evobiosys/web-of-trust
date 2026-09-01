@@ -76,7 +76,7 @@ function QrCard({ payload }: { payload: HandshakePayload | null }) {
 }
 
 const GRANT_ROWS: { key: keyof Grant; label: string }[] = [
-  { key: "contextLimit", label: "Ecstatic-dance context only — widen later if you choose" },
+  { key: "contextLimit", label: "This neighbourhood context only — widen later if you choose" },
   { key: "offersVisible", label: "May see my offers at their level" },
   { key: "secondRingVisible", label: "May see my second ring (people who consent)" },
 ];
@@ -228,7 +228,7 @@ export function MeetScreen() {
           </div>
           <h2 className="mt-3 text-2xl font-medium">{peerName}</h2>
           <div className="mt-2 rounded-full border border-white/20 bg-white/12 px-3 py-1 text-xs text-mist">
-            ☀ Ecstatic Dance Palermo · today
+            ☀ Nachbarschaftsfest Yppenplatz · today
           </div>
           <p className="mt-3 text-[13.5px] text-mist/85">Is this the person in front of you?</p>
 

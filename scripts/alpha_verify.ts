@@ -108,9 +108,9 @@ async function main(): Promise<void> {
   const stateDir = mkdtempSync(join(tmpdir(), "alpha-verify-"));
   const [pa, pb, pc] = [await freePort(), await freePort(), await freePort()];
   const personas: PersonaConfig[] = [
-    { key: "alice", name: "Alice", port: pa, app: "ecstatic" },
-    { key: "bob", name: "Bob", port: pb, app: "ecstatic" },
-    { key: "carol", name: "Carol", port: pc, app: "ecstatic" },
+    { key: "alice", name: "Alice", port: pa, app: "housing" },
+    { key: "bob", name: "Bob", port: pb, app: "housing" },
+    { key: "carol", name: "Carol", port: pc, app: "housing" },
   ];
 
   section("BOOT — 3 personas, TRANSPORT=didcomm, 127.0.0.1, skipTrustSeed");

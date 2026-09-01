@@ -19,7 +19,7 @@ import {
 
 const PRIVATE_CARD = "bg-gradient-to-br from-[#F6FBF8] to-[#F0F6FB] border-l-[3px] border-mint";
 
-const CHIPS = ["This week", "Ecstatic Dance", "Biodanza", "Contact Improv", "Hangouts"];
+const CHIPS = ["This week", "Flat viewings", "Neighbourhood", "Moving help", "Hangouts"];
 
 const MAP_CAPTION = "The city at night. Each light is a gathering; threads are your people between them.";
 const LIST_CAPTION = "Public events in your city. What your web opens, appears here too — quietly.";
@@ -43,8 +43,8 @@ export function DiscoverScreen({ nav }: { nav: Nav }) {
       <div>
         <SheetTitle>Offers live inside the web</SheetTitle>
         <SheetMeta>
-          Speakers, DJ tables, cacao, venues — shared between people who have actually met. Join to
-          see what your people offer.
+          Speakers, hand carts, moving boxes, rooms — shared between people who have actually met.
+          Join to see what your people offer.
         </SheetMeta>
       </div>
     );
@@ -52,7 +52,7 @@ export function DiscoverScreen({ nav }: { nav: Nav }) {
 
   return (
     <div className="flex h-full flex-col">
-      <Hdr title="Discover" right={<span>Buenos Aires ▾</span>} />
+      <Hdr title="Discover" right={<span>Vienna ▾</span>} />
 
       <div className="flex-1 overflow-y-auto px-4 pb-28">
         <Anchor id="DIS-1">

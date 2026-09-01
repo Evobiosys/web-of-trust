@@ -17,8 +17,8 @@ pnpm alpha
 ```
 
 Wait for `alpha environment ready.` in the terminal. It prints one join URL +
-QR per persona (Jakob, Mira, Theo, Nora on the `ecstatic` app; Lena, Finn on
-the `housing` app — see `alpha/personas.json`). Each friend:
+QR per persona (all six — Jakob, Mira, Theo, Nora, Lena, Finn — run the
+`housing` app — see `alpha/personas.json`). Each friend:
 
 1. Scans their QR with their phone's camera app (or opens the printed URL
    directly if the QR didn't render — see Troubleshooting).
@@ -33,7 +33,7 @@ that no listener is left behind on the ports it used.
 
 ## What to try
 
-- **Housing ask** — as Lena or Finn (the `housing`-app personas), post a
+- **Housing ask** — as any persona (all six run the `housing` app), post a
   housing request and watch it reach the others.
 - **Gathering / offer publish** — from the Host screen, publish a gathering or
   an offer at the `trusted` tier; it should show up for everyone else as a

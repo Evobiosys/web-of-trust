@@ -1,8 +1,8 @@
 [
-  { "key": "jakob", "name": "Jakob", "port": 4101, "app": "ecstatic" },
-  { "key": "mira", "name": "Mira", "port": 4102, "app": "ecstatic" },
-  { "key": "theo", "name": "Theo", "port": 4103, "app": "ecstatic" },
-  { "key": "nora", "name": "Nora", "port": 4104, "app": "ecstatic" },
+  { "key": "jakob", "name": "Jakob", "port": 4101, "app": "housing" },
+  { "key": "mira", "name": "Mira", "port": 4102, "app": "housing" },
+  { "key": "theo", "name": "Theo", "port": 4103, "app": "housing" },
+  { "key": "nora", "name": "Nora", "port": 4104, "app": "housing" },
   { "key": "lena", "name": "Lena", "port": 4105, "app": "housing" },
   { "key": "finn", "name": "Finn", "port": 4106, "app": "housing" }
 ]

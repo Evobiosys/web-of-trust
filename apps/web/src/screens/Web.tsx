@@ -104,7 +104,7 @@ export function WebScreen() {
           </PathBox>
         )}
         <Anchor id="PLC-2">
-          <TagChips tags={["#ecstatic", "#dj", "#facilitator"]} />
+          <TagChips tags={["#neighbour", "#handy", "#organizer"]} />
         </Anchor>
         <div className="mt-3 flex flex-col gap-2">
           <Btn variant="electric" className="w-full" onClick={() => openThread(p.id, p.name)}>
@@ -411,11 +411,11 @@ export function WebScreen() {
         <SheetTitle>{p.name}</SheetTitle>
         <SheetMeta>{p.metContext}</SheetMeta>
         <PathBox>
-          <b>Their card</b> — What {p.name} chooses to share with you: how to reach them, where they
-          dance, what they offer. Updates itself when they change it.
+          <b>Their card</b> — What {p.name} chooses to share with you: how to reach them, what's
+          going on nearby, what they offer. Updates itself when they change it.
         </PathBox>
         <Anchor id="PLC-2">
-          <TagChips tags={["#ecstatic"]} />
+          <TagChips tags={["#neighbour"]} />
         </Anchor>
         <div className="mt-3 flex flex-col gap-2">
           <Btn variant="electric" className="w-full" onClick={() => openThread(p.id, p.name)}>

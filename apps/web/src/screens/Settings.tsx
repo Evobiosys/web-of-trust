@@ -50,7 +50,7 @@ export function SettingsScreen({ close }: { close: () => void }) {
           <Card>
             <h3>Read the source</h3>
             <p className="mt-1 text-ink-soft">
-              Every line of this prototype is open — git.myceli.al · consensual/ecstatic-world.
+              Every line of this prototype is open — git.myceli.al · consensual/resource-web.
             </p>
           </Card>
         </Anchor>

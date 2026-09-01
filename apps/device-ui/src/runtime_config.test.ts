@@ -37,7 +37,7 @@ describe("getRuntimeConfig", () => {
     const getRuntimeConfig = await loadGetRuntimeConfig();
     const config = getRuntimeConfig();
     expect(config.agentUrl).toBe("http://localhost:4101");
-    expect(config.profile.id).toBe("ecstatic");
+    expect(config.profile.id).toBe("housing");
     expect(config.personaKey).toBe("anna");
   });
 
@@ -48,7 +48,7 @@ describe("getRuntimeConfig", () => {
     const config = getRuntimeConfig();
     expect(config.agentUrl).toBe("http://env-agent:9999");
     expect(config.personaKey).toBe("ben");
-    expect(config.profile.id).toBe("ecstatic"); // no app env fallback per brief
+    expect(config.profile.id).toBe("housing"); // no app env fallback per brief
   });
 
   it("localStorage (persisted from an earlier query load) overrides env", async () => {
@@ -109,14 +109,14 @@ describe("getRuntimeConfig", () => {
     vi.stubEnv("VITE_PERSONA", "ben");
     const config = getRuntimeConfig();
     expect(config.agentUrl).toBe("http://query-agent:7777"); // from storage
-    expect(config.profile.id).toBe("ecstatic"); // default, nothing stored
+    expect(config.profile.id).toBe("housing"); // default, nothing stored
     expect(config.personaKey).toBe("ben"); // env fallback, nothing stored
   });
 
-  it("unknown app query param resolves to the ecstatic profile fallback", async () => {
+  it("unknown app query param resolves to the housing profile fallback", async () => {
     setLocation("?app=not-a-real-profile");
     const getRuntimeConfig = await loadGetRuntimeConfig();
     const config = getRuntimeConfig();
-    expect(config.profile.id).toBe("ecstatic");
+    expect(config.profile.id).toBe("housing");
   });
 });

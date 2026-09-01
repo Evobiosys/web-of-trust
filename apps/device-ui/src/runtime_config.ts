@@ -12,7 +12,7 @@ const STORAGE_KEYS = {
 
 const DEFAULTS = {
   agentUrl: "http://localhost:4101",
-  profileId: "ecstatic",
+  profileId: "housing",
   personaKey: "anna",
 } as const;
 
@@ -57,7 +57,7 @@ export interface RuntimeConfig {
  *
  * Precedence (highest first): URL query params (`?agent=…&app=…&persona=…`)
  * > localStorage > `VITE_AGENT_URL` / `VITE_PERSONA` env > hard defaults
- * (`http://localhost:4101`, `ecstatic`, `anna`).
+ * (`http://localhost:4101`, `housing`, `anna`).
  *
  * Any query param present on this load is persisted to localStorage so it
  * survives later loads that carry no query string (e.g. after a QR-code

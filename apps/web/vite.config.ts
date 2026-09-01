@@ -11,9 +11,9 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["icon.svg"],
       manifest: {
-        name: "Ecstatic World",
-        short_name: "Ecstatic",
-        description: "Meet on the floor. Weave your web. The world opens.",
+        name: "Roof",
+        short_name: "Roof",
+        description: "Meet your neighbours. Weave your web. Vienna opens up.",
         theme_color: "#3B1163",
         background_color: "#F2EBDC",
         display: "standalone",
