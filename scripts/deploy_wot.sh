@@ -8,6 +8,7 @@
 #   app.idea2.site/wot/demo1/  chat-group query, QR only     (apps/demo)
 #   app.idea2.site/wot/demo4/  full app mockup               (demos/app-mockup.html)
 #   app.idea2.site/wot/demo5/  gating prototype              (demos/gating-prototype.html)
+#   app.idea2.site/wot/app/    mobile-UI LAN alpha client    (apps/mobile-ui)
 #
 # questhub.eco stays under the hood: it hosts the relay process and nothing
 # user-facing. app.idea2.site proxies /relay/* to it so the demo pages talk to
@@ -60,11 +61,18 @@ push_page() {
 echo "building demo1 (base /wot/demo1/)"
 ( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo1/ npx vite build >/dev/null )
 
+# mobile-ui takes its base on the CLI (no base in its vite.config). It used to
+# be built with --base=/wot-app/ and served from questhub.eco; those absolute
+# asset paths are why it could not simply be re-routed onto idea2.
+echo "building the mobile-ui app (base /wot/app/)"
+( cd "$REPO/apps/mobile-ui" && npx vite build --base=/wot/app/ >/dev/null )
+
 echo "pushing"
 push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo1"
 push_dir  "$REPO/apps/hub"                     "$REMOTE_APP/demo"
 push_page "$REPO/demos/app-mockup.html"        "$REMOTE_APP/demo4"
 push_page "$REPO/demos/gating-prototype.html"  "$REMOTE_APP/demo5"
+push_dir  "$REPO/apps/mobile-ui/dist"          "$REMOTE_APP/app"
 
 echo "--------"
 echo "verifying (a 200 for each, with AND without the trailing slash)"
@@ -78,6 +86,8 @@ for u in \
   "https://app.idea2.site/wot/demo1/nachweis/" \
   "https://app.idea2.site/wot/demo4/" \
   "https://app.idea2.site/wot/demo5/" \
+  "https://app.idea2.site/wot/app/" \
+  "https://app.idea2.site/wot/app" \
   "https://evobiosys.org/rebiosys/" ; do
   code=$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 20 "$u" || echo 000)
   printf '  %-46s %s\n' "$u" "$code"
