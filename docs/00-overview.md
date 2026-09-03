@@ -104,3 +104,7 @@ CONTRIBUTING.md's fence list and anchor `DIS-3`.
 | A backend implementer | 00 → 60-anchors → 20-data-contract → 30-architecture-decisions |
 | A UX collaborator | 00 → 10-ux-decisions → the mockup, with `#spec` on |
 | A community member | 50-community-explainer |
+
+For how far a query travels through the trust graph today (one hop, plus one
+narrow named second-hop relay) and what choices people want over that reach,
+see [`query-traversal.md`](./query-traversal.md).
