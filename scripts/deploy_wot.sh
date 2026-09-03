@@ -7,6 +7,8 @@
 #   app.idea2.site/wot/demo/   front door + demo overview    (apps/hub)
 #   app.idea2.site/wot/demo1/  chat-group query, QR only     (apps/demo)
 #   app.idea2.site/wot/demo2/  same, but over the relay       (apps/demo, VITE_WOT_MODE=relay)
+#   app.idea2.site/wot/demo3/  device to device, no server   (apps/demo, VITE_WOT_MODE=webrtc)
+#   app.idea2.site/wot/demo6/  the ladder, visible           (apps/demo, VITE_WOT_MODE=ladder)
 #   app.idea2.site/wot/demo4/  full app mockup               (demos/app-mockup.html)
 #   app.idea2.site/wot/demo5/  gating prototype              (demos/gating-prototype.html)
 #   app.idea2.site/wot/app/    mobile-UI LAN alpha client    (apps/mobile-ui)
@@ -72,6 +74,14 @@ push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo2"
 # mobile-ui takes its base on the CLI (no base in its vite.config). It used to
 # be built with --base=/wot-app/ and served from questhub.eco; those absolute
 # asset paths are why it could not simply be re-routed onto idea2.
+echo "building and pushing demo3 (base /wot/demo3/, direct device to device)"
+( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo3/ VITE_WOT_MODE=webrtc npx vite build >/dev/null )
+push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo3"
+
+echo "building and pushing demo6 (base /wot/demo6/, the ladder)"
+( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo6/ VITE_WOT_MODE=ladder npx vite build >/dev/null )
+push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo6"
+
 # mobile-ui imports @resource-web/app-profiles as a workspace package and
 # resolves it through that package's dist/, not its source. Skipping this build
 # silently ships whatever strings dist/ happened to hold: the first deploy after
@@ -101,6 +111,8 @@ for u in \
   "https://app.idea2.site/wot/demo1/nachweis/" \
   "https://app.idea2.site/wot/demo2/" \
   "https://app.idea2.site/wot/demo2" \
+  "https://app.idea2.site/wot/demo3/" \
+  "https://app.idea2.site/wot/demo6/" \
   "https://app.idea2.site/wot/demo4/" \
   "https://app.idea2.site/wot/demo5/" \
   "https://app.idea2.site/wot/app/" \
