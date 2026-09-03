@@ -8,12 +8,110 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Vertrauensnetz" />
-<link rel="manifest" href="./manifest.webmanifest" />
+<link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
 <title>Vertrauensnetz</title>
+<style>
+  /*
+   * Minimal inline styling for the pre-boot state. Inline on purpose: if the
+   * stylesheet is the thing that failed to load, this still renders.
+   */
+  html, body { margin: 0; background: #12161b; color: #e9eef4;
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+  @media (prefers-color-scheme: light) { html, body { background: #f4f6f8; color: #16202a; } }
+  #boot { padding: 24px; }
+  #boot h1 { font-size: 19px; margin: 0 0 10px; }
+  #boot p { margin: 0 0 12px; opacity: .75; font-size: 14.5px; }
+  #boot pre { white-space: pre-wrap; word-break: break-word; font-size: 12.5px;
+    border: 1px solid #55606c; border-radius: 10px; padding: 12px; opacity: .9; }
+</style>
 </head>
 <body>
-  <noscript>Diese Seite braucht JavaScript. / This page needs JavaScript.</noscript>
+  <noscript><div id="boot"><h1>Diese Seite braucht JavaScript.</h1><p>This page needs JavaScript.</p></div></noscript>
   <div id="app" aria-live="polite"></div>
+
+  <script>
+  /*
+   * The blank-page tripwire. A CLASSIC script, deliberately not a module, and
+   * deliberately before the app: it must run even when the module bundle is
+   * the thing that is broken.
+   *
+   * A demo that fails must say so on the device holding it. A black rectangle
+   * in someone's hand during a demo is the worst outcome available, and it is
+   * exactly what happened: opening the app without its trailing slash made
+   * every relative asset 404, so nothing executed and nothing was shown. The
+   * server answered 200 throughout, so it looked fine from every angle except
+   * the one that mattered.
+   *
+   * Three layers, cheapest first: an immediate "loading" paint so the page is
+   * never empty; error handlers that surface whatever threw; and a deadline
+   * that reports the silent case, where nothing threw because nothing ran.
+   */
+  (function () {
+    var app = document.getElementById('app')
+    var booted = false
+
+    function facts() {
+      function probe(f) { try { return f() } catch (e) { return 'blockiert' } }
+      return [
+        'url: ' + location.href,
+        'secureContext: ' + String(window.isSecureContext),
+        'indexedDB: ' + probe(function () { return window.indexedDB ? 'da' : 'fehlt' }),
+        'localStorage: ' + probe(function () { void localStorage.length; return 'da' }),
+        'ua: ' + navigator.userAgent,
+      ].join('\n')
+    }
+
+    function paint(heading, detail) {
+      if (booted) return
+      app.innerHTML = ''
+      var box = document.createElement('div')
+      box.id = 'boot'
+      var h = document.createElement('h1')
+      h.textContent = heading
+      var p = document.createElement('p')
+      p.textContent = 'Bitte diesen Text abfotografieren und weitergeben.'
+      var pre = document.createElement('pre')
+      pre.textContent = (detail ? detail + '\n' : '') + facts()
+      box.appendChild(h); box.appendChild(p); box.appendChild(pre)
+      app.appendChild(box)
+    }
+
+    paint.loading = function () {
+      var box = document.createElement('div')
+      box.id = 'boot'
+      var p = document.createElement('p')
+      p.textContent = 'Vertrauensnetz lädt …'
+      box.appendChild(p)
+      app.appendChild(box)
+    }
+    paint.loading()
+
+    // The app calls this as its first act, which both clears the loading text
+    // and disarms the deadline below.
+    window.__wotBooted = function () { booted = true }
+
+    window.addEventListener('error', function (e) {
+      // Resource errors (a 404 on the bundle) do not carry a message, but they
+      // do name the element that failed -- which is the whole diagnosis.
+      var target = e.target
+      if (target && target !== window && (target.src || target.href)) {
+        paint('Ein Teil der App wurde nicht geladen.', 'nicht ladbar: ' + (target.src || target.href))
+        return
+      }
+      paint('Die Demo konnte nicht starten.', String(e.message || e.error || 'unbekannter Fehler'))
+    }, true) // capture: resource errors do not bubble
+
+    window.addEventListener('unhandledrejection', function (e) {
+      paint('Die Demo konnte nicht starten.', String((e.reason && e.reason.message) || e.reason || 'unbekannt'))
+    })
+
+    setTimeout(function () {
+      paint('Die App wurde geladen, ist aber nicht gestartet.',
+        'Nach 6 Sekunden hat sich nichts gemeldet. Meist heißt das, dass das Programm selbst nicht abgerufen werden konnte.')
+    }, 6000)
+  })()
+  </script>
+
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

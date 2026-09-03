@@ -24,6 +24,8 @@ const stateWith = (p: Peer[]): DeviceState => ({
   me: { id: 'nora0000', displayName: 'Nora' },
   threads: [],
   peers: p,
+  profile: { displayName: 'Nora', bio: '', neighbourhood: '', languages: [] },
+  inventory: [],
 })
 
 describe('seeded pairing', () => {

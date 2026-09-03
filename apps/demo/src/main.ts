@@ -701,8 +701,22 @@ async function scanScreen(
 function registerWorker(): void {
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register(new URL('sw.js', document.baseURI).href).catch(() => undefined)
+    // BASE_URL, not document.baseURI: without a <base> tag baseURI is the page
+    // URL, so visiting the app without its trailing slash would resolve the
+    // worker one directory too high. Same class of bug as the relative asset
+    // paths that shipped a black page to a phone.
+    navigator.serviceWorker.register(import.meta.env.BASE_URL + 'sw.js').catch(() => undefined)
   })
+}
+
+/**
+ * Disarm the blank-page tripwire in index.html. Called as boot's first act:
+ * from here on the app owns what is on screen, so the tripwire's six-second
+ * deadline must not fire over a perfectly healthy demo.
+ */
+function markBooted(): void {
+  const w = window as Window & { __wotBooted?: () => void }
+  try { w.__wotBooted?.() } catch { /* the tripwire is a safety net, never a dependency */ }
 }
 
 /**
@@ -738,6 +752,7 @@ function bootFailed(err: unknown): void {
 }
 
 async function boot(): Promise<void> {
+  markBooted()
   registerWorker()
   initI18n()
   state = await loadState()
