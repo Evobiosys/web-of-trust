@@ -72,6 +72,14 @@ push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo2"
 # mobile-ui takes its base on the CLI (no base in its vite.config). It used to
 # be built with --base=/wot-app/ and served from questhub.eco; those absolute
 # asset paths are why it could not simply be re-routed onto idea2.
+# mobile-ui imports @resource-web/app-profiles as a workspace package and
+# resolves it through that package's dist/, not its source. Skipping this build
+# silently ships whatever strings dist/ happened to hold: the first deploy after
+# the copy rewrite still served "Wer hat ein Dach frei?" from a stale dist while
+# the source said otherwise, and nothing anywhere reported an error.
+echo "building the app-profiles package (mobile-ui reads its dist, not its source)"
+( cd "$REPO/packages/app-profiles" && npx tsc -p tsconfig.json >/dev/null )
+
 echo "building and pushing the mobile-ui app (base /wot/app/)"
 ( cd "$REPO/apps/mobile-ui" && npx vite build --base=/wot/app/ >/dev/null )
 push_dir  "$REPO/apps/mobile-ui/dist"          "$REMOTE_APP/app"
