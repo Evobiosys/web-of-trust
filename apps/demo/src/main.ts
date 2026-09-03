@@ -637,6 +637,38 @@ function registerWorker(): void {
   })
 }
 
+/**
+ * Last-resort error screen, built with raw DOM and inline styles on purpose:
+ * it must render even when the module that normally draws screens is the thing
+ * that failed. A demo that dies must say why on the device holding it — a
+ * black page in someone's hand is the worst possible failure mode.
+ */
+function bootFailed(err: unknown): void {
+  const app = document.getElementById('app')
+  if (!app) return
+  const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+  app.innerHTML = ''
+  const box = document.createElement('div')
+  box.setAttribute('style', 'padding:24px;font:15px/1.55 system-ui,sans-serif;color:#e9eef4')
+  const h = document.createElement('h1')
+  h.setAttribute('style', 'font-size:20px;margin:0 0 10px')
+  h.textContent = 'Die Demo konnte nicht starten.'
+  const p = document.createElement('p')
+  p.setAttribute('style', 'color:#9fb0c0;margin:0 0 14px')
+  p.textContent = 'Bitte diesen Text abfotografieren und weitergeben:'
+  const pre = document.createElement('pre')
+  pre.setAttribute('style', 'white-space:pre-wrap;word-break:break-word;background:#171d24;border:1px solid #28323d;border-radius:10px;padding:12px;font-size:12.5px;color:#e9eef4')
+  pre.textContent = [
+    detail,
+    `secureContext: ${String(window.isSecureContext)}`,
+    `indexedDB: ${(() => { try { return globalThis.indexedDB ? 'present' : 'absent' } catch { return 'blocked' } })()}`,
+    `localStorage: ${(() => { try { void localStorage.length; return 'present' } catch { return 'blocked' } })()}`,
+    `ua: ${navigator.userAgent}`,
+  ].join('\n')
+  box.append(h, p, pre)
+  app.appendChild(box)
+}
+
 async function boot(): Promise<void> {
   registerWorker()
   initI18n()
@@ -645,4 +677,7 @@ async function boot(): Promise<void> {
   render()
 }
 
-void boot()
+void boot().catch((err: unknown) => {
+  console.error('[boot] fatal', err)
+  bootFailed(err)
+})

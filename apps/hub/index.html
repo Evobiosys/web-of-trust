@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#12161b">
+<meta name="color-scheme" content="dark light">
+<title>Vertrauensnetz, Demos</title>
+<style>
+:root{
+  --bg:#0f1317;--card:#171d24;--card2:#1c232b;--line:#28323d;--ink:#e9eef4;--dim:#9fb0c0;
+  --faint:#6b7d8e;--ok:#6fbf8b;--warn:#e0a34a;--work:#7aa7d8;--radius:14px;color-scheme:dark
+}
+@media(prefers-color-scheme:light){
+  :root{--bg:#f4f6f8;--card:#fff;--card2:#f0f3f6;--line:#d3dce4;--ink:#16202a;--dim:#4d6070;
+        --faint:#7b8c9b;--ok:#2f7d52;--warn:#8a5a10;--work:#2c5c8f;color-scheme:light}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.6 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  -webkit-text-size-adjust:100%}
+.wrap{max-width:860px;margin:0 auto;padding:30px 18px 90px}
+h1{font-size:clamp(25px,6vw,34px);line-height:1.12;letter-spacing:-.02em;margin:0 0 6px}
+.sub{color:var(--dim);margin:0 0 8px}
+.stamp{color:var(--faint);font-size:13px;margin:0 0 30px}
+h2{font-size:12.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);
+  margin:38px 0 6px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+.lede{color:var(--dim);font-size:14.5px;margin:0 0 16px}
+a.card{display:block;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px 18px;margin:0 0 11px;text-decoration:none;color:inherit}
+a.card:hover{background:var(--card2);border-color:var(--faint)}
+div.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px 18px;margin:0 0 11px}
+.hd{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:5px}
+.nm{font-weight:650;font-size:16.5px;letter-spacing:-.01em}
+.tag{font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;
+  padding:2.5px 8px;border-radius:99px;white-space:nowrap}
+.t-live{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.t-work{background:color-mix(in srgb,var(--work) 20%,transparent);color:var(--work)}
+.t-old{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.ds{color:var(--dim);font-size:14.5px;margin:0}
+.url{color:var(--faint);font-size:12.5px;margin:7px 0 0;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
+.hero{border-left:3px solid var(--ok)}
+.note{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--warn);
+  border-radius:var(--radius);padding:15px 17px;margin:0 0 12px;font-size:14.5px;color:var(--dim)}
+.note b{color:var(--ink)}
+.note.good{border-left-color:var(--ok)}
+footer{margin-top:46px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--faint);font-size:13px}
+footer a{color:var(--faint)}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>Vertrauensnetz</h1>
+<p class="sub">Was willst du zeigen?</p>
+<p class="stamp">Übersicht aller gebauten Demos. Jede Kachel sagt, was sie wirklich kann.</p>
+
+<h2>Die zwei Handys</h2>
+<p class="lede">Der Kern: Nora fragt, Marlenes Gerät antwortet, und man kann der Antwort nicht ansehen,
+ob nichts da war oder ob nichts geteilt wurde.</p>
+
+<a class="card hero" href="https://idea2.site/wot-demo/">
+  <div class="hd"><span class="nm">A · Auge in Auge</span><span class="tag t-live">live</span></div>
+  <p class="ds">Frage und Antwort reisen ausschließlich als QR-Code. Kein Konto, keine Installation,
+  <b>kein Netzweg</b>. Zwei Handys, oder Laptop zeigt den Code und das Handy scannt.</p>
+  <p class="url">idea2.site/wot-demo/</p>
+</a>
+
+<div class="card">
+  <div class="hd"><span class="nm">B · Über questhub</span><span class="tag t-work">in Arbeit</span></div>
+  <p class="ds">Kopplung wie bei A, danach laufen Frage und Antwort über
+  <b>questhub.eco</b> als Zwischenlager. Der Server trägt nur Chiffrat: der Schlüssel entsteht
+  beim QR-Austausch im Raum, den der Server nie gesehen hat. Mit echten DIDs.</p>
+  <p class="url">Relay steht und ist geprüft: 106 ms Umlauf über wss.</p>
+</div>
+
+<div class="card">
+  <div class="hd"><span class="nm">D · Code am Laptop, Handy holt sich die App</span><span class="tag t-work">in Arbeit</span></div>
+  <p class="ds">Der Laptop zeigt einen Code mit Passwort. Das Handy scannt ihn, lädt die App
+  online und meldet sich damit an. Für Räume, in denen niemand vorher etwas installiert hat.</p>
+</div>
+
+<h2>Der Nachweis</h2>
+<a class="card" href="https://idea2.site/wot-demo/nachweis/">
+  <div class="hd"><span class="nm">Was wirklich ausgeführt wurde</span><span class="tag t-live">live</span></div>
+  <p class="ds">22 von 22 Prüfungen gegen die echte Adresse, plus die Bildschirme. Zeigt auch,
+  was ehrlich noch offen ist.</p>
+  <p class="url">idea2.site/wot-demo/nachweis/</p>
+</a>
+
+<h2>Frühere Entwürfe</h2>
+<p class="lede">Gebaut, erreichbar, aber älter als die Demo oben.</p>
+
+<a class="card" href="https://idea2.site/web-of-trust/">
+  <div class="hd"><span class="nm">App-Mockup, ganze Oberfläche</span><span class="tag t-live">live</span></div>
+  <p class="ds">Die vollständige App als Klick-Mockup: Kreise, Angebote, Ausleihen, Chats.</p>
+  <p class="url">idea2.site/web-of-trust/</p>
+</a>
+
+<a class="card" href="https://evobiosys.org/web-of-trust/draft-prototype/">
+  <div class="hd"><span class="nm">Gating-Prototyp</span><span class="tag t-live">live</span></div>
+  <p class="ds">Wer darf was sehen: der Rechte-Aufbau als eigener Prototyp.</p>
+  <p class="url">evobiosys.org/web-of-trust/draft-prototype/</p>
+</a>
+
+<a class="card" href="https://evobiosys.org/rebiosys/">
+  <div class="hd"><span class="nm">Rebiosys</span><span class="tag t-live">live</span></div>
+  <p class="ds">Die Ressourcen-Teilen-Seite, mit echtem Relay und Einwilligungsleiter dahinter.</p>
+  <p class="url">evobiosys.org/rebiosys/</p>
+</a>
+
+<a class="card" href="https://questhub.eco/wot-app/">
+  <div class="hd"><span class="nm">Mobile-UI, LAN-Alpha</span><span class="tag t-old">alter Build</span></div>
+  <p class="ds">Der Client der Sechs-Personen-Alpha. Der veröffentlichte Build ist vom 18. Juli und
+  damit älter als der Quellstand. Zum Anschauen gut, nicht zum Vorführen.</p>
+  <p class="url">questhub.eco/wot-app/</p>
+</a>
+
+<h2>Bevor du losgehst</h2>
+<div class="note good">
+<p><b>Beide Handys auf mobile Daten, nicht WLAN.</b> Am 1. September um 01:02 lieferte der
+Heimrouter für <i>idea2.site</i> SERVFAIL, während jede andere Domain auflöste. Mobile Daten
+gehen daran vorbei.</p>
+<p><b>Helligkeit auf Maximum, Automatik aus.</b> Die ganze Demo ist eine Kamera, die einen
+Bildschirm liest. Das ist der häufigste Grund, warum es scheitert.</p>
+<p><b>Es geht auch ohne Kamera.</b> Jeder Code-Bildschirm hat „Code kopieren“, jeder
+Scan-Bildschirm ein Einfügefeld. Weniger magisch, funktioniert immer.</p>
+</div>
+
+<footer>
+Aufgebaut auf dem Vertrauensnetz-Prototyp. Der Ablauf zum Vorführen steht in
+<code>overnight/DEMO-RUNBOOK.md</code>.
+</footer>
+
+</div></body>
+</html>
