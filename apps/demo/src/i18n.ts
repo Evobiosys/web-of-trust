@@ -97,12 +97,13 @@ const S: Table = {
     en: 'The other device still shows nothing: in this mode nothing travels over a network, so it cannot know its code was read. Show your own code now so the other side can scan it. Then both of you are sure.',
   },
   // Said instead of connectedWith while the pairing came from the demo seed.
-  // "Vorgekoppelt" is deliberately a slightly odd word: it should make someone
-  // ask what it means, and the answer is the honest one.
-  seededWith:     { de: 'Vorgekoppelt mit', en: 'Pre-paired with' },
+  // Plain words only: an earlier draft said "vorgekoppelt", which is not a
+  // word anyone uses, and the disclosure is worthless if the reader has to
+  // decode it.
+  seededWith:     { de: 'Voreingestellt:', en: 'Pre-set:' },
   seededNote:     {
-    de: 'Für diese Demo voreingestellt. Diese Kopplung ist nicht im Raum entstanden. Über „Verbinden“ könnt ihr sie jetzt wirklich herstellen.',
-    en: 'Pre-set for this demo. This pairing was not created in the room. Use "Connect" to make it real.',
+    de: 'Diese Verbindung hat die Demo selbst eingetragen, damit ihr sofort loslegen könnt. Ihr habt einander noch keinen Code gezeigt. Wenn ihr das nachholen wollt: unter „Verbinden“ zeigt ein Gerät seinen Code, das andere scannt ihn.',
+    en: 'The demo entered this connection itself so you can start straight away. You have not shown each other a code yet. To do it for real: under "Connect", one device shows its code and the other scans it.',
   },
 
   // ask

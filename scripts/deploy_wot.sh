@@ -2,8 +2,9 @@
 #
 # Deploy the whole Vertrauensnetz surface to its canonical homes.
 #
-#   idea2.site/wot/            the project's own front door  (apps/wot-landing)
-#   app.idea2.site/wot/demo/   the demo overview             (apps/hub)
+#   idea2.site/web-of-trust/   the project's front door (server-side content)
+#   idea2.site/wot             302 -> /web-of-trust/
+#   app.idea2.site/wot/demo/   front door + demo overview    (apps/hub)
 #   app.idea2.site/wot/demo1/  chat-group query, QR only     (apps/demo)
 #   app.idea2.site/wot/demo4/  full app mockup               (demos/app-mockup.html)
 #   app.idea2.site/wot/demo5/  gating prototype              (demos/gating-prototype.html)
@@ -28,7 +29,6 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REMOTE_APP=/srv/questhub-static/app-idea2-wot
-REMOTE_LANDING=/srv/questhub-static/idea2-wot
 REF=/srv/questhub-static/wot-app   # a directory whose SELinux context is known good
 SSHENV=(env SSH_ASKPASS="$HOME/.ssh/questhub-jump-askpass" SSH_ASKPASS_REQUIRE=force DISPLAY=:0)
 
@@ -65,13 +65,11 @@ push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo1"
 push_dir  "$REPO/apps/hub"                     "$REMOTE_APP/demo"
 push_page "$REPO/demos/app-mockup.html"        "$REMOTE_APP/demo4"
 push_page "$REPO/demos/gating-prototype.html"  "$REMOTE_APP/demo5"
-push_dir  "$REPO/apps/wot-landing"             "$REMOTE_LANDING"
 
 echo "--------"
 echo "verifying (a 200 for each, with AND without the trailing slash)"
 fail=0
 for u in \
-  "https://idea2.site/wot/" \
   "https://idea2.site/wot" \
   "https://app.idea2.site/wot/demo/" \
   "https://app.idea2.site/wot/demo" \
