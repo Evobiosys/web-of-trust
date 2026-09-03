@@ -2,14 +2,21 @@
 
 Async, privacy-preserving resource sharing on a Web of Trust. Two-device sim (Anna asks, Ben owns), TypeScript end-to-end, containers via **podman** (`DOCKER ?= podman` in Makefile — docker absent on this host).
 
-## No push without explicit say-so
+## Publishing and licence
 
-**Never push to any remote in this repo without the owner's explicit, per-push permission —
-GitHub in particular.** Three remotes are configured: `github`, `ecstatic-world`, `jakobs-branch`.
-Committing locally is expected and fine at any time; pushing is not — ask first, every time, even
-if a prior push was approved. `github` already carries `alpha`, `cred-provider`, and `rebiosys`
-branches pushed before this rule existed; that history doesn't imply standing permission for new
-pushes.
+Committing and pushing this repo publicly is **fine and expected** — the owner wants the work in the
+open. Three remotes are configured: `github`, `ecstatic-world`, `jakobs-branch`.
+
+The licence rule, which is the thing that actually has to hold:
+
+- **This repo is AGPL-3.0-or-later**, because the owner leads it himself. Anything pushed publicly
+  from here must be under AGPL, never AMPL.
+- **A project the owner does not lead defaults to AMPL 1.0.** That is the standing default; AGPL is
+  the exception that applies when he is leading.
+- Anyone wanting terms outside AGPL is told to write to connect@japossert.com. Keep that route in
+  `NOTICE`; it exists so the owner learns who is building outside a copyleft/commons frame.
+
+Do not relicense either way without asking.
 
 ## Invariants (violating one = stop and flag)
 - **I1 Local sovereignty:** inventory never leaves the owner's device except local match results + post-consent item details.

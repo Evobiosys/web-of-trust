@@ -95,7 +95,23 @@ approves — becomes its own node connected to them.
 
 ## Licence
 
-AGPL-3.0-or-later — see [`LICENSE`](LICENSE) for the full text and [`NOTICE`](NOTICE) for what that
-means running this as a network service. The prior licence, AMPL 1.0, is kept for reference at
-[`LICENSE-AMPL-1.0`](LICENSE-AMPL-1.0) and no longer applies. Need terms outside AGPL copyleft?
-Reach out — see NOTICE for why that's the deliberate route rather than a commercial-licence page.
+**AGPL-3.0-or-later**, because this project is led by its author. See [`LICENSE`](LICENSE) for the
+full text and [`NOTICE`](NOTICE) for what that means when you run it as a network service.
+
+The rule behind that choice, so it does not have to be re-decided each time:
+
+- A project the author leads himself ships **AGPL-3.0-or-later**. He is the one carrying it, so it
+  can be fully open, and anyone who needs terms outside copyleft can just ask him.
+- A project he does not lead defaults to **AMPL 1.0** instead. That text is kept at
+  [`LICENSE-AMPL-1.0`](LICENSE-AMPL-1.0) and no longer governs this repository.
+
+Need terms outside AGPL copyleft? Write to **connect@japossert.com**. That route is deliberate: the
+point is to know who is building on this outside a copyleft or commons frame, and to have that
+conversation directly. See [`NOTICE`](NOTICE).
+
+## Where this lives
+
+Published under the **evobiosys** organisation for now. Not because the project belongs to
+EvoBioSys in the long run, and not under a personal account either: it is waiting on a name of its
+own. Once that name exists, it gets its own organisation and moves there. Treat the current
+location as a placeholder, not as the project identity.
