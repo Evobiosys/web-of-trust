@@ -1,5 +1,16 @@
 /// <reference types="vite/client" />
 
+/**
+ * Build-time override for the relay origin (relay.ts). Unset in normal
+ * deployment -- the relay has no CORS headers, so the real default is
+ * "wherever this page is being served from" (location.origin), which is
+ * questhub.eco once deployed there. This exists for local development
+ * against a different relay instance.
+ */
+interface ImportMetaEnv {
+  readonly VITE_RELAY_ORIGIN?: string
+}
+
 declare module '*?raw' {
   const content: string
   export default content
