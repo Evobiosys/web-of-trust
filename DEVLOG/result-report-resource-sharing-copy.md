@@ -172,6 +172,14 @@ side effect of a copy task; flagging here so it can be triaged
 (add a `state.guest` check to `renderOffers`/`offerSheet`, or reconsider
 `discoverDefault` for guests specifically) as its own piece of work.
 
+One more of the same shape, smaller: `housing.mobile.hostFabLabel` is
+"＋ Offer housing", but tapping it opens `host.js`'s form, which is titled
+"Host a gathering" and prefilled with the renamed "Courtyard BBQ" — a label
+promising a housing listing that opens a party-hosting form instead. Also
+pre-existing (present since `hostFabLabel` was added for `?app=housing`),
+also now on the default path. Left as-is for the same reason as the
+guest-gating item above; noting it here rather than fixing it silently.
+
 ## Tests / typecheck
 
 Building `packages/protocol`, `packages/transport`, `packages/agent-daemon`,
