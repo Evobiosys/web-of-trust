@@ -5,7 +5,9 @@ import {
   encryptEnvelope,
   parseOuterWire,
 } from '../src/relay'
+import { decide } from '../src/gate'
 import { derivePairKey, randomBytes, seal, toB64u } from '../src/crypto'
+import type { MatchHit, MatchResult, QueryTemplate } from '../src/types'
 import type { AnswerEnvelope, QueryEnvelope } from '../src/types'
 
 function makeQuery(qid = 'qid-abc12345'): QueryEnvelope {
@@ -143,5 +145,110 @@ describe('encryptEnvelope / decryptEnvelope', () => {
     framed.set(ciphertext, iv.length)
 
     expect(await decryptEnvelope(toB64u(framed), pairKey)).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The privacy invariant, at the layer the RELAY actually sees.
+//
+// gate.ts's byte-identical padding (ANSWER_BODY_LEN) guarantees the AnswerEnvelope
+// itself is the same shape regardless of outcome, for a fixed qid. That is not
+// automatically true one layer further out, on the wire the relay actually
+// observes: encryptEnvelope() wraps that envelope under a FRESH RANDOM IV on
+// every call (by design -- reusing an AES-GCM IV under one key is a real
+// confidentiality break, not a test inconvenience, see relay.ts's module doc
+// and the "produces a different IV... every call" test above). So the exact
+// ciphertext bytes on the relay's wire are NEVER identical between two sends,
+// on purpose, even for two byte-identical plaintexts.
+//
+// What the relay CAN still learn, and what must therefore stay constant
+// across outcomes, is LENGTH: if a `shared` answer's OuterWire payload were
+// even one byte longer or shorter than a `no-match`/`below-k`/`declined`/
+// `blocked` one, the relay operator could distinguish "she had something"
+// from "she had nothing" without ever decrypting a single byte. This test
+// proves that does not happen: it drives all five gate.decide() outcomes for
+// ONE fixed query, encrypts each resulting AnswerEnvelope exactly as
+// relay.ts's send() does, and asserts every resulting OuterWire (and its
+// payload field) has the identical byte length.
+// ---------------------------------------------------------------------------
+
+describe('wire-level indistinguishability: what the RELAY sees', () => {
+  function makeTemplate(): QueryTemplate {
+    return {
+      id: 'tmpl-housing-1',
+      version: 1,
+      category: 'housing',
+      title: { de: 'Wohnung', en: 'Housing' },
+      question: { de: 'Suchst du eine Wohnung?', en: 'Looking for housing?' },
+      matchTerms: ['wohnung'],
+      boostTerms: ['dringend'],
+      excludeTerms: ['suche'],
+      minScore: 1,
+      kThreshold: 2,
+      sensitivity: 'medium',
+      ttlSeconds: 3600,
+    }
+  }
+
+  function makeHit(i: number): MatchHit {
+    return {
+      threadId: `thread-${i}`,
+      threadTitle: `Gruppe ${i}`,
+      messageIndex: i,
+      message: {
+        ts: '2026-08-15T10:00:00Z',
+        author: `author-${i}`,
+        text: `Nachricht ${i}: Wohnung frei ab September, 2 Zimmer, ruhige Lage.`,
+        system: false,
+      },
+      score: 5,
+      terms: ['wohnung'],
+    }
+  }
+
+  function makeMatch(hitCount: number, aboveThreshold: boolean): MatchResult {
+    const hits = Array.from({ length: hitCount }, (_, i) => makeHit(i))
+    return { hits, distinctAuthors: hits.length, aboveThreshold }
+  }
+
+  it('the OuterWire payload length (and the whole wire length) is identical across shared / declined / below-k / no-match / blocked, for the same question', async () => {
+    const query = makeQuery('qid-fixed-relay-0001')
+    const template = makeTemplate()
+    const pairKey = await derivePairKey('nonce-a', 'nonce-b')
+    const toDid = 'did:peer:2.Vasker.Easker.Sasker'
+    const fromDid = 'did:peer:2.Vholder.Eholder.Sholder'
+
+    const cases: { label: string; match: MatchResult; consent: boolean; blocked: boolean }[] = [
+      { label: 'shared',    match: makeMatch(3, true),  consent: true,  blocked: false },
+      { label: 'declined',  match: makeMatch(3, true),  consent: false, blocked: false },
+      { label: 'below-k',   match: makeMatch(1, false), consent: true,  blocked: false },
+      { label: 'no-match',  match: makeMatch(0, false),  consent: true,  blocked: false },
+      { label: 'blocked',   match: makeMatch(3, true),  consent: true,  blocked: true },
+    ]
+
+    const wires = await Promise.all(cases.map(async ({ match, consent, blocked }) => {
+      const { envelope } = await decide({ query, template, match, consent, blocked, key: pairKey })
+      const payload = await encryptEnvelope(envelope, pairKey)
+      const outer = buildOuterWire(toDid, fromDid, payload)
+      return { payload, outer }
+    }))
+
+    const payloadLengths = wires.map((w) => w.payload.length)
+    const outerLengths = wires.map((w) => w.outer.length)
+
+    for (let i = 1; i < cases.length; i++) {
+      expect(payloadLengths[i], `payload length: ${cases[i].label} vs ${cases[0].label}`).toBe(payloadLengths[0])
+      expect(outerLengths[i], `outer wire length: ${cases[i].label} vs ${cases[0].label}`).toBe(outerLengths[0])
+    }
+
+    // Every OuterWire's `to`/`from` are the peer DIDs -- constant by
+    // construction, never a function of the gate's decision. Asserted
+    // explicitly so a future refactor that threaded outcome into routing
+    // would fail loudly here, not silently in production.
+    for (const { outer } of wires) {
+      const parsed = parseOuterWire(outer)
+      expect(parsed?.to).toBe(toDid)
+      expect(parsed?.from).toBe(fromDid)
+    }
   })
 })

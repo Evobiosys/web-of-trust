@@ -13,9 +13,14 @@ import { TEMPLATES, getTemplate } from './data/templates'
 import { decide, interpret, settleAt, GATE_BUDGET_MS } from './gate'
 import { derivePairKey, randomId } from './crypto'
 import { encodeForQr, decodeFromQr } from './wire'
+import type { Envelope } from './wire'
 import { SEED_DIRECT_IOS } from './data/seed_direct'
 import seedGroupRaw from './data/seed-wien-wohnen.txt?raw'
 import type { ChatThread, QueryEnvelope, AnswerEnvelope, MatchResult, QueryTemplate } from './types'
+import { wotMode } from './mode'
+import { createRelayChannel } from './relay'
+import type { RelayChannel, RelayStatus } from './relay'
+import { ensureRelayIdentity } from './relay_identity'
 
 // ---------------------------------------------------------------------------
 // shell
@@ -28,9 +33,154 @@ let releaseWake: () => void = () => {}
 type Screen = 'start' | 'home' | 'chats' | 'profile' | 'inventory' | 'connect' | 'ask' | 'answer'
 let screen: Screen = 'start'
 
+// ---------------------------------------------------------------------------
+// relay mode: session, status, and the in-flight query/answer this device is
+// waiting on. All of this is inert (never touched) when wotMode() === 'qr',
+// which is demo 1's exact, unchanged default -- see mode.ts.
+// ---------------------------------------------------------------------------
+
+let relayChannel: RelayChannel | null = null
+let relayStatus: RelayStatus = 'connecting'
+let relayStatusAt = 0
+/** The badge currently on screen, if any -- see mountRelayStatusBadge(). Reset
+ *  by shell() on every screen transition so a stale reference is never
+ *  written into a detached DOM node. */
+let relayStatusBadgeEl: HTMLElement | null = null
+/** Set by handleIncomingEnvelope() when a QueryEnvelope arrives before the
+ *  user has navigated to 'answer' themselves; screenAnswer() consumes it. */
+let pendingIncomingQuery: QueryEnvelope | null = null
+/** The one query this device is currently waiting on an answer for, if any. */
+let awaitingAnswer: { qid: string; resolve: (env: AnswerEnvelope) => void } | null = null
+
+function relayStatusText(): string {
+  const label =
+    relayStatus === 'connected' ? t('relayConnected')
+    : relayStatus === 'connecting' ? t('relayConnecting')
+    : t('relayDisconnected')
+  if (!relayStatusAt) return label
+  const time = new Date(relayStatusAt).toLocaleTimeString(getLang() === 'de' ? 'de-AT' : 'en-GB')
+  return `${label} (${t('relaySince')} ${time})`
+}
+
+/** Renders a live status line. Kept up to date by relayChannel's onStatus
+ *  callback DIRECTLY MUTATING this element's textContent -- never by calling
+ *  render() from a background event, which would tear down whatever the user
+ *  is currently doing (a camera stream, a QR code holding a wake lock). */
+function mountRelayStatusBadge(): HTMLElement {
+  const badge = el('p', { class: 'note' }, [relayStatusText()])
+  relayStatusBadgeEl = badge
+  return badge
+}
+
+function updateRelayStatusBadge(): void {
+  if (relayStatusBadgeEl) relayStatusBadgeEl.textContent = relayStatusText()
+}
+
+/** (Re-)registers the drain sink for the current peer's pair key. Must be
+ *  called again whenever that key can have changed -- a real connect
+ *  ceremony overwrites nonceSelf/noncePeer, and onEnvelope() only ever keeps
+ *  one registration (relay.ts), so a stale key here means inbound wires
+ *  silently fail to decrypt and are never acked. */
+async function registerRelaySink(): Promise<void> {
+  if (!relayChannel || !state) return
+  const peer = state.peers[0]
+  if (!peer) return
+  const key = await pairKey(peer)
+  relayChannel.onEnvelope(key, handleIncomingEnvelope)
+}
+
+/** Dispatches a decrypted, validated inbound envelope arriving from the
+ *  relay. Never called at all when wotMode() === 'qr' (no channel is ever
+ *  created there). */
+function handleIncomingEnvelope(env: Envelope, _fromDid: string): void {
+  if (env.t === 'answer') {
+    if (awaitingAnswer && env.qid === awaitingAnswer.qid) awaitingAnswer.resolve(env)
+    return
+  }
+  if (env.t === 'query') {
+    // Nothing here narrows this to the peer that is actually paired -- the
+    // demo pairs exactly one peer at a time (state.ts's Peer[0] convention),
+    // so any arriving query is by construction from that one peer.
+    pendingIncomingQuery = env
+    go('answer')
+    return
+  }
+  // A ConnectEnvelope never travels over the relay in this app -- pairing is
+  // QR-only (handover's Task 2/3 split) -- so this is unreachable in
+  // practice; ignored rather than asserted, matching wire.ts's "never throw
+  // on unexpected shape" posture.
+}
+
+/**
+ * Opens this device's relay drain connection, once. A no-op in qr mode
+ * (wotMode() !== 'relay') and a no-op if already initialised -- safe to call
+ * from both boot() (a returning session) and seedPersona() (a fresh one).
+ * Fire-and-forget on purpose: the caller does not await this, so the home
+ * screen renders immediately and the connection catches up in the
+ * background, its status reflected by the badge, never a blocking spinner.
+ */
+async function initRelaySession(): Promise<void> {
+  if (wotMode() !== 'relay' || !state || relayChannel) return
+  const identity = await ensureRelayIdentity(state)
+  const channel = createRelayChannel()
+  relayChannel = channel
+  channel.onStatus((status, at) => {
+    relayStatus = status
+    relayStatusAt = at
+    updateRelayStatusBadge()
+  })
+  await registerRelaySink()
+  try {
+    await channel.connect(identity)
+  } catch {
+    // The status badge already reflects this ('disconnected'); relay.ts's
+    // channel keeps retrying with backoff in the background regardless, and
+    // onStatus will report 'connected' the moment a later attempt succeeds.
+  }
+}
+
+/**
+ * Races a relay send against an inbound answer for `qid` and a timeout.
+ * `cancel()` tears down the wait without resolving -- used when the user
+ * backs out or switches to the QR fallback, so a late answer does not fire
+ * into a screen that has moved on.
+ */
+const RELAY_ANSWER_TIMEOUT_MS = 20_000
+
+function waitForAnswer(qid: string, timeoutMs: number): { promise: Promise<AnswerEnvelope | null>; cancel: () => void } {
+  let done = false
+  let resolveFn: (env: AnswerEnvelope | null) => void = () => {}
+  const promise = new Promise<AnswerEnvelope | null>((resolve) => { resolveFn = resolve })
+  const timer = setTimeout(() => {
+    if (done) return
+    done = true
+    if (awaitingAnswer?.qid === qid) awaitingAnswer = null
+    resolveFn(null)
+  }, timeoutMs)
+  awaitingAnswer = {
+    qid,
+    resolve: (env) => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      awaitingAnswer = null
+      resolveFn(env)
+    },
+  }
+  const cancel = (): void => {
+    if (done) return
+    done = true
+    clearTimeout(timer)
+    if (awaitingAnswer?.qid === qid) awaitingAnswer = null
+    resolveFn(null)
+  }
+  return { promise, cancel }
+}
+
 function shell(title: string, body: HTMLElement, opts: { back?: () => void } = {}): void {
   releaseWake()
   releaseWake = () => {}
+  relayStatusBadgeEl = null
   clear(root)
   const lang = getLang()
   const bar = el('div', { class: 'topbar' }, [
@@ -156,6 +306,7 @@ async function seedPersona(id: string, displayName: string, role: 'holder' | 'se
   }))
   state = { me: { id, displayName }, threads, peers, profile, inventory }
   await saveState(state)
+  void initRelaySession()
   go('home')
 }
 
@@ -318,9 +469,12 @@ function screenInventory(): void {
 function screenConnect(): void {
   const s = state as DeviceState
   const peer = s.peers[0]
+  const relay = wotMode() === 'relay'
   const body = el('div', {}, [
     el('h1', {}, [t('connectTitle')]),
     el('p', { class: 'lead' }, [t('connectLead')]),
+    relay ? el('p', { class: 'note' }, [t('relayExplain')]) : null,
+    relay ? el('div', { class: 'card' }, [mountRelayStatusBadge()]) : null,
     peer ? el('div', { class: 'card' }, [
       el('h3', {}, [peerStatusLine(peer)]),
       peer.seeded
@@ -342,7 +496,13 @@ function myNonce(): string {
 async function showMyConnectCode(): Promise<void> {
   const s = state as DeviceState
   const nonce = myNonce()
-  const payload = encodeForQr({ v: 1, t: 'connect', from: s.me, nonce })
+  // OPTIONAL, relay mode only (wire.ts's ConnectEnvelope.did doc comment):
+  // carries this device's did:peer:2 so the other side can address it over
+  // the relay once paired. Absent entirely in a qr-mode build -- the object
+  // literal below has no `did` key at all in that case, so encodeForQr()
+  // produces byte-identical output to demo 1's.
+  const did = wotMode() === 'relay' ? (await ensureRelayIdentity(s)).did : undefined
+  const payload = encodeForQr({ v: 1, t: 'connect', from: s.me, nonce, ...(did ? { did } : {}) })
   await showCodeScreen(t('showMyCode'), payload, t('connectLead'), () => go('connect'))
   // Remember our own nonce so a later scan can complete the pair.
   const p = s.peers[0]
@@ -371,8 +531,14 @@ async function scanConnectCode(): Promise<void> {
       connectedAt: Date.now(),
       blocked: false,
       seeded: false,
+      did: env.did,
     })
     await saveState(s)
+    // The pair key just changed (real nonces replace the seeded/placeholder
+    // ones), and relay.ts's onEnvelope keeps only one registration -- a
+    // stale key here means every inbound wire silently fails to decrypt and
+    // is never acked. No-op in qr mode (no channel exists).
+    await registerRelaySink()
     scanSucceeded(env.from.displayName)
     return { ok: true }
   }, () => go('connect'))
@@ -419,10 +585,14 @@ function screenAsk(): void {
   const s = state as DeviceState
   const lang = getLang()
   const peer = s.peers[0]
+  const relayReady = wotMode() === 'relay' && Boolean(peer?.did)
   const body = el('div', {}, [
     el('h1', {}, [t('askTitle')]),
     el('p', { class: 'lead' }, [t('askLead')]),
     !peer ? el('div', { class: 'err' }, [t('noConnection')]) : null,
+    peer && wotMode() === 'relay' && !relayReady
+      ? el('p', { class: 'note' }, [t('relayNoPeerDid')])
+      : null,
     ...TEMPLATES.map((tpl: QueryTemplate) =>
       el('div', { class: 'card' }, [
         el('h3', {}, [tpl.title[lang]]),
@@ -447,6 +617,14 @@ async function askWith(tpl: QueryTemplate): Promise<void> {
     templateId: tpl.id, templateVersion: tpl.version,
     qid: randomId(12), issuedAt: Date.now(),
   }
+  if (wotMode() === 'relay' && peer.did && relayChannel) {
+    await askOverRelay(tpl, q, peer)
+    return
+  }
+  await askViaQr(tpl, q, peer)
+}
+
+async function askViaQr(tpl: QueryTemplate, q: QueryEnvelope, peer: Peer): Promise<void> {
   const payload = encodeForQr(q)
   await showCodeScreen(tpl.title[getLang()], payload, t('showQueryHint'), () => go('ask'), {
     label: t('waitAnswer'),
@@ -465,6 +643,63 @@ async function scanAnswer(q: QueryEnvelope, peer: Peer): Promise<void> {
     screenResult(decoded, peer.displayName)
     return { ok: true }
   }, () => go('ask'))
+}
+
+// ---------------------------------------------------------------------------
+// ask over the relay -- sends the query, waits for the answer to arrive on
+// the drain, and never blocks silently: a status badge, a hard timeout, a
+// real error with retry, and the QR path one tap away at every step.
+// ---------------------------------------------------------------------------
+
+async function askOverRelay(tpl: QueryTemplate, q: QueryEnvelope, peer: Peer): Promise<void> {
+  const peerDid = peer.did
+  if (!peerDid || !relayChannel) { await askViaQr(tpl, q, peer); return }
+  const channel = relayChannel
+
+  const waiter = waitForAnswer(q.qid, RELAY_ANSWER_TIMEOUT_MS)
+  const body = el('div', {}, [
+    el('h1', {}, [tpl.title[getLang()]]),
+    el('p', { class: 'lead' }, ['„' + tpl.question[getLang()] + '“']),
+    el('div', { class: 'card' }, [
+      el('p', {}, [el('span', { class: 'spin' }), document.createTextNode(' ' + t('relayAskInFlight'))]),
+      mountRelayStatusBadge(),
+    ]),
+    el('button', { class: 'btn quiet', onclick: () => { waiter.cancel(); void askViaQr(tpl, q, peer) } }, [t('showQrInstead')]),
+    el('button', { class: 'btn quiet', onclick: () => { waiter.cancel(); go('ask') } }, [t('back')]),
+  ])
+  shell(t('navAsk'), body, { back: () => { waiter.cancel(); go('ask') } })
+
+  let sendErr: Error | null = null
+  const key = await pairKey(peer)
+  try {
+    await channel.send(peerDid, q, key)
+  } catch (err) {
+    sendErr = err instanceof Error ? err : new Error(String(err))
+  }
+
+  if (sendErr) {
+    waiter.cancel()
+    screenRelayAskError(t('relaySendFailed'), tpl, q, peer)
+    return
+  }
+
+  const env = await waiter.promise
+  if (!env) {
+    screenRelayAskError(t('relayTimeout'), tpl, q, peer)
+    return
+  }
+  const decoded = await interpret(env, key)
+  screenResult(decoded, peer.displayName)
+}
+
+function screenRelayAskError(msg: string, tpl: QueryTemplate, q: QueryEnvelope, peer: Peer): void {
+  const body = el('div', {}, [
+    el('div', { class: 'err' }, [msg]),
+    el('button', { class: 'btn primary', onclick: () => void askOverRelay(tpl, q, peer) }, [t('retry')]),
+    el('button', { class: 'btn quiet', onclick: () => void askViaQr(tpl, q, peer) }, [t('showQrInstead')]),
+    el('button', { class: 'btn quiet', onclick: () => go('ask') }, [t('back')]),
+  ])
+  shell(t('navAsk'), body, { back: () => go('ask') })
 }
 
 function screenResult(decoded: Awaited<ReturnType<typeof interpret>>, peerName: string): void {
@@ -491,10 +726,27 @@ function screenResult(decoded: Awaited<ReturnType<typeof interpret>>, peerName: 
 // ---------------------------------------------------------------------------
 
 function screenAnswer(): void {
+  // A query that arrived over the relay while the user was elsewhere jumps
+  // straight into the consent ceremony -- see handleIncomingEnvelope(). Read
+  // once and cleared immediately so a later re-render of this same screen
+  // (e.g. after go('answer') from somewhere else) does not replay it.
+  if (pendingIncomingQuery) {
+    const q = pendingIncomingQuery
+    pendingIncomingQuery = null
+    void runConsentCeremony(q)
+    return
+  }
+  const s = state as DeviceState
+  const peer = s.peers[0]
+  const relayReady = wotMode() === 'relay' && Boolean(peer?.did)
   const body = el('div', {}, [
     el('h1', {}, [t('answerTitle')]),
     el('p', { class: 'lead' }, [t('connectLead')]),
-    el('button', { class: 'btn primary', onclick: () => void scanQuery() }, [t('scanQuery')]),
+    relayReady ? el('div', { class: 'card' }, [el('p', {}, [t('relayWaitingQuery')]), mountRelayStatusBadge()]) : null,
+    wotMode() === 'relay' && !relayReady ? el('p', { class: 'note' }, [t('relayNoPeerDid')]) : null,
+    el('button', { class: 'btn primary', onclick: () => void scanQuery() }, [
+      relayReady ? t('scanInstead') : t('scanQuery'),
+    ]),
   ])
   shell(t('navAnswer'), body, { back: () => go('home') })
 }
@@ -625,8 +877,53 @@ async function emitAnswer(
     key,
   })
   await settleAt(t0, GATE_BUDGET_MS)
+
+  // The transport choice below never depends on `outcome`/`consent` -- only
+  // on whether we know a network address for this peer at all. Branching on
+  // the outcome here would reopen exactly the side channel gate.ts's byte
+  // padding exists to close (see gate.ts's module doc and this feature's
+  // wire-level test in relay.test.ts).
+  if (wotMode() === 'relay' && peer?.did && relayChannel) {
+    await sendAnswerOverRelay(envelope, peer, key)
+    return
+  }
   const payload = encodeForQr(envelope)
   await showCodeScreen(t('showAnswer'), payload, t('answerHint'), () => go('home'), undefined, t('identicalNote'))
+}
+
+async function sendAnswerOverRelay(envelope: AnswerEnvelope, peer: Peer, pairKeyForPeer: CryptoKey): Promise<void> {
+  const peerDid = peer.did as string
+  try {
+    await (relayChannel as RelayChannel).send(peerDid, envelope, pairKeyForPeer)
+  } catch {
+    // Delivery failed outright (network down, relay unreachable) -- this is
+    // a transport fact, not a content signal, and it is equally possible
+    // regardless of outcome. Fall back to the honest QR path rather than
+    // claiming a delivery that did not happen.
+    const payload = encodeForQr(envelope)
+    await showCodeScreen(
+      t('showAnswer'), payload,
+      t('relaySendFailed') + ' ' + t('answerHint'),
+      () => go('home'), undefined, t('identicalNote'),
+    )
+    return
+  }
+  // This confirmation screen is the SAME for every outcome -- it only ever
+  // says "sent", never what was sent or whether anything was found.
+  const body = el('div', {}, [
+    el('div', { class: 'outcome shared' }, [
+      el('div', { class: 'glyph' }, ['✓']),
+      el('b', {}, [t('relayAnswerSent')]),
+      el('span', {}, [t('relayAnswerSentSub')]),
+    ]),
+    el('p', {}, [t('identicalNote')]),
+    el('button', {
+      class: 'btn quiet',
+      onclick: () => void showCodeScreen(t('showAnswer'), encodeForQr(envelope), t('answerHint'), () => go('home'), undefined, t('identicalNote')),
+    }, [t('showQrInstead')]),
+    el('button', { class: 'btn', onclick: () => go('home') }, [t('done')]),
+  ])
+  shell(t('navAnswer'), body, { back: () => go('home') })
 }
 
 // ---------------------------------------------------------------------------
@@ -789,6 +1086,11 @@ async function boot(): Promise<void> {
   state = await loadState()
   screen = state ? 'home' : 'start'
   render()
+  // Fire-and-forget: a returning session (state already on disk) opens its
+  // relay drain in the background while the home screen renders immediately.
+  // A no-op in qr mode and a no-op when state is null (first visit --
+  // seedPersona() opens it once a persona is picked instead).
+  void initRelaySession()
 }
 
 void boot().catch((err: unknown) => {

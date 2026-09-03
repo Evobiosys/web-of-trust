@@ -9,6 +9,17 @@
  */
 interface ImportMetaEnv {
   readonly VITE_RELAY_ORIGIN?: string
+  /**
+   * Build-time transport mode switch (mode.ts). `'relay'` turns on the
+   * network transport for query/answer; anything else, including unset,
+   * is `'qr'` -- demo 1's exact existing behaviour. Set at build time only:
+   *
+   *   VITE_WOT_MODE=relay WOT_BASE=/wot/demo2/ npx vite build
+   *
+   * never at runtime, so demo 1's build (which never sets this) cannot pick
+   * up relay code paths by surprise.
+   */
+  readonly VITE_WOT_MODE?: string
 }
 
 declare module '*?raw' {

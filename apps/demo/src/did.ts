@@ -133,8 +133,10 @@ export function signChallenge(identity: Identity, nonceB64u: string): string {
 /** On-disk shape for `db.ts`. Secret keys as base64url (alpha plaintext --
  *  same tradeoff did_identity.ts documents for its own on-disk format; a
  *  production build must move this behind a non-exportable key or an
- *  OS-backed credential store). */
-interface SerializedIdentityV1 {
+ *  OS-backed credential store). Exported so `state.ts` can type the field
+ *  it persists this into (`DeviceState.relayIdentity`) without duplicating
+ *  the shape. */
+export interface SerializedIdentityV1 {
   version: 1
   did: string
   serviceEndpoint: string

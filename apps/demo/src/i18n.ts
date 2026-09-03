@@ -141,6 +141,42 @@ const S: Table = {
   fromChat:       { de: 'aus', en: 'from' },
 
   // camera
+  // relay mode: connection status, waiting states, errors
+  relayConnecting: { de: 'Verbindet…', en: 'Connecting…' },
+  relayConnected:  { de: 'Verbunden', en: 'Connected' },
+  relayDisconnected: { de: 'Getrennt', en: 'Disconnected' },
+  relaySince:      { de: 'seit', en: 'since' },
+  relayNoPeerDid:  {
+    de: 'Ihr habt noch keine Verbindung übers Netz. Tauscht zuerst die Codes unter „Verbinden“.',
+    en: 'You do not have a network connection yet. Exchange codes under "Connect" first.',
+  },
+  relayGoConnect:  { de: 'Zu „Verbinden“', en: 'Go to "Connect"' },
+  relayAskInFlight: { de: 'Frage unterwegs…', en: 'Question on its way…' },
+  relayWaitingQuery: { de: 'Warte auf eine Frage übers Netz…', en: 'Waiting for a question over the network…' },
+  relayAnswerSent: { de: 'Antwort gesendet', en: 'Answer sent' },
+  relayAnswerSentSub: {
+    de: 'Die Antwort ist unterwegs zum fragenden Gerät.',
+    en: 'The answer is on its way to the asking device.',
+  },
+  relayTimeout:    {
+    de: 'Keine Antwort übers Netz. Der Relay ist entweder nicht erreichbar, oder die Gegenseite hat noch nicht reagiert.',
+    en: 'No answer over the network. Either the relay is unreachable, or the other side has not responded yet.',
+  },
+  relaySendFailed: { de: 'Senden über das Netz ist fehlgeschlagen.', en: 'Sending over the network failed.' },
+  retry:           { de: 'Erneut versuchen', en: 'Retry' },
+  showQrInstead:   { de: 'Code stattdessen zeigen', en: 'Show code instead' },
+  scanInstead:     { de: 'Code stattdessen scannen', en: 'Scan code instead' },
+  // The one place this app names what the relay does and does not learn.
+  // Three clauses, all of them load-bearing: it cannot read the content
+  // (the key never crossed the relay); it DOES see who talks to whom and
+  // when (traffic metadata, not nothing); and the pairing itself is not an
+  // authenticated exchange, so anyone who saw both connect-codes could
+  // compute the same key. Dropping any one of the three overclaims.
+  relayExplain:    {
+    de: 'Fragen und Antworten laufen jetzt über einen Vermittlungsserver statt über den Code. Er kann den Inhalt nicht lesen: der Schlüssel dafür wurde nur beim Verbinden zwischen euren Geräten ausgetauscht, nie an ihn geschickt. Er sieht aber, wer mit wem und wann etwas schickt. Und: das Verbinden selbst ist nicht gegenseitig geprüft, wer beide Codes beim Verbinden gesehen hat, könnte denselben Schlüssel berechnen.',
+    en: 'Questions and answers now travel through a relay server instead of the code. It cannot read the content: the key for that was only exchanged between your devices while connecting, never sent to it. It does see who sends something to whom, and when. And: the connection itself is not mutually verified, anyone who saw both codes while you connected could compute the same key.',
+  },
+
   camAsk:         { de: 'Kamera erlauben', en: 'Allow camera' },
   camDenied:      { de: 'Ohne Kamera geht das Scannen nicht. Du kannst den Code auch als Text übertragen.',
                     en: 'Scanning needs the camera. You can also transfer the code as text.' },
