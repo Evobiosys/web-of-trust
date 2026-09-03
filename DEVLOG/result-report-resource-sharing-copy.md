@@ -127,6 +127,21 @@ Three corrections made after re-reviewing the change against the real app
 - **Ran `npx vite build`** (not just `tsc`/`vitest`) since `index.html` was
   edited directly and jsdom parses more forgivingly than a real build. Built
   clean — the `<details>` insertion is well-formed.
+- **The same drift, once more, in the genre chips.** `housingProfile.mobile
+  .offerChips` was still `["Room free", "Couch", "Short stay", "Longer
+  stay"]` — couch-surfing filter labels that would have sat right above the
+  renamed Gatherings list (Nachbarschaftsfest Yppenplatz, Reparatur-Café
+  Ottakring, …) one tap from the default landing screen. `skin.test.js` and
+  `profiles.test.ts` both passed on that value because they check that the
+  override fires, not that it fits the content underneath it — the same gap
+  that let the heading drift. Removed the override entirely: mobile-ui's own
+  shared neutral fallback ("Flat viewings / Neighbourhood / Moving help /
+  Hangouts", already literal in `index.html` and already what `family`/
+  `business` fall through to) fits this profile's Discover content at least
+  as well, so there was nothing left for housing to override. Re-pinned
+  `skin.test.js`'s "swaps the genre chips" test to assert the fall-through
+  instead, and `profiles.test.ts`'s housing mobile-skin test to assert
+  `offerChips` is `undefined`.
 
 ## Verified, not fixed: a guest can already act on real offers under the new default
 

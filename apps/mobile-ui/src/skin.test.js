@@ -55,11 +55,11 @@ describe("applySkin", () => {
       expect(el("offersWrap").style.display).not.toBe("none");
     });
 
-    it("swaps the genre chips for housing chips, keeping the This-week filter chip", () => {
+    it("leaves the genre chips at mobile-ui's shared neutral default (no housing-specific override)", () => {
       mount();
       applySkin(getProfile("housing"));
       const chips = Array.from(el("discover").querySelectorAll(".chips .chip")).map((c) => c.textContent);
-      expect(chips).toEqual(["This week", "Room free", "Couch", "Short stay", "Longer stay"]);
+      expect(chips).toEqual(["This week", "Flat viewings", "Neighbourhood", "Moving help", "Hangouts"]);
     });
 
     it("relabels the Host FAB", () => {

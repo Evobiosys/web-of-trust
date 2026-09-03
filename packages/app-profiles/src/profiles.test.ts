@@ -108,10 +108,12 @@ describe("profiles", () => {
     expect(m?.offerChips).toEqual(["Ecstatic Dance", "Biodanza", "Contact Improv", "Hangouts"]);
   });
 
-  it("housing: mobile skin defaults Discover to Offers with housing chips and FAB label", () => {
+  it("housing: mobile skin defaults Discover to Offers with a FAB label, no genre-chip override", () => {
     const m = getProfile("housing").mobile;
     expect(m?.discoverDefault).toBe("offers");
-    expect(m?.offerChips).toEqual(["Room free", "Couch", "Short stay", "Longer stay"]);
+    // No offerChips: mobile-ui's own shared neutral chips already fit this
+    // profile's Discover content (see housing.ts's comment).
+    expect(m?.offerChips).toBeUndefined();
     expect(m?.hostFabLabel).toBe("＋ Offer housing");
     // English-only override for mobile-ui, which has no language toggle
     // (unlike device-ui/apps/web, which read `heading` directly) — must not
