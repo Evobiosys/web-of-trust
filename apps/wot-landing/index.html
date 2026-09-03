@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#12161b">
+<meta name="color-scheme" content="dark light">
+<title>Vertrauensnetz</title>
+<style>
+:root{--bg:#0f1317;--card:#171d24;--card2:#1c232b;--line:#28323d;--ink:#e9eef4;
+      --dim:#9fb0c0;--faint:#6b7d8e;--ok:#6fbf8b;--radius:14px;color-scheme:dark}
+@media(prefers-color-scheme:light){
+  :root{--bg:#f4f6f8;--card:#fff;--card2:#f0f3f6;--line:#d3dce4;--ink:#16202a;
+        --dim:#4d6070;--faint:#7b8c9b;--ok:#2f7d52;color-scheme:light}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.62 -apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  -webkit-text-size-adjust:100%}
+.wrap{max-width:660px;margin:0 auto;padding:44px 20px 90px}
+h1{font-size:clamp(28px,7vw,40px);line-height:1.08;letter-spacing:-.025em;margin:0 0 12px}
+.lede{font-size:clamp(17px,3.4vw,19px);color:var(--ink);margin:0 0 10px}
+p{color:var(--dim);margin:0 0 16px}
+h2{font-size:12.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);
+  margin:40px 0 14px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+a.cta{display:block;background:var(--ok);color:#06120b;text-decoration:none;font-weight:700;
+  text-align:center;padding:17px;border-radius:var(--radius);margin:26px 0 10px;font-size:17px}
+@media(prefers-color-scheme:light){a.cta{color:#fff}}
+a.card{display:block;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--radius);padding:15px 17px;margin:0 0 10px;text-decoration:none;color:inherit}
+a.card:hover{background:var(--card2);border-color:var(--faint)}
+a.card b{display:block;font-size:16px;margin-bottom:3px}
+a.card span{color:var(--dim);font-size:14.5px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+  color:var(--faint);text-align:center;margin:0 0 4px}
+footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);
+  color:var(--faint);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+
+<h1>Vertrauensnetz</h1>
+<p class="lede">Frag die Leute, die du kennst, ohne ihnen zu zeigen, was du suchst,
+und ohne dass sie zeigen müssen, was sie haben.</p>
+<p>Vieles, was man wirklich braucht, steht nirgends im Netz. Es steht in einer
+Chatgruppe, in der jemand sitzt, den du kennst. Das Vertrauensnetz macht genau
+diese Frage stellbar, ohne dass jemand seine Nachrichten hergeben muss.</p>
+
+<a class="cta" href="https://app.idea2.site/wot/demo/">Die Demos ansehen</a>
+<p class="mono">app.idea2.site/wot/demo</p>
+
+<h2>Wie es funktioniert</h2>
+<a class="card" href="https://app.idea2.site/wot/demo1/">
+  <b>Der Abgleich passiert auf ihrem Gerät</b>
+  <span>Deine Frage geht hin, ihre Nachrichten bleiben, wo sie sind.</span>
+</a>
+<a class="card" href="https://app.idea2.site/wot/demo1/">
+  <b>Sie sieht zuerst, was geteilt würde</b>
+  <span>Danach entscheidet sie. Nicht davor, und nicht die App für sie.</span>
+</a>
+<a class="card" href="https://app.idea2.site/wot/demo1/nachweis/">
+  <b>„Keine Antwort“ sagt nichts aus</b>
+  <span>Nichts gefunden, unter der Schwelle, oder bewusst abgelehnt: derselbe Code, Byte für Byte. Nachgewiesen, nicht behauptet.</span>
+</a>
+
+<footer>
+Ein Prototyp, kein Produkt. Was er kann und was noch offen ist, steht offen auf
+der <a href="https://app.idea2.site/wot/demo1/nachweis/" style="color:var(--faint)">Nachweisseite</a>.
+</footer>
+
+</div></body>
+</html>
