@@ -102,8 +102,10 @@ describe("profiles", () => {
 
   // --- task-7: optional `mobile` skin field (additive; device-ui ignores it) ---
 
-  it("ecstatic has no `mobile` overrides — mobile-ui's shipped default IS this skin", () => {
-    expect(getProfile("ecstatic").mobile).toBeUndefined();
+  it("ecstatic: mobile skin keeps its own onboarding heading and genre chips", () => {
+    const m = getProfile("ecstatic").mobile;
+    expect(m?.onboardingHeading).toBe("Step onto the floor");
+    expect(m?.offerChips).toEqual(["Ecstatic Dance", "Biodanza", "Contact Improv", "Hangouts"]);
   });
 
   it("housing: mobile skin defaults Discover to Offers with housing chips and FAB label", () => {

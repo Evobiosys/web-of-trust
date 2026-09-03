@@ -154,12 +154,12 @@ export function renderIntros() {
 function personSheet(n, ring) {
   let html = '<div class="grab"></div><div data-anchor="WEB-2"><h3>' + n.n + "</h3></div>";
   if (ring === 1) {
-    const ctxLine = n.ctx || "Ecstatic Dance Palermo · June";
+    const ctxLine = n.ctx || "Nachbarschaftsfest Yppenplatz · June";
     html +=
       '<div class="meta">' + (n.lvl || levelLabel()) + " · met at " + ctxLine + "</div>" +
       '<div class="path">You ⟷ <b>' + n.n + '</b><br><span style="color:var(--ink-soft)">Connected in person, confirmed both ways — you hold each other’s thread.</span></div>' +
       (n.offer ? '<div class="path" style="border-left-color:var(--mint)"><b>◉ Offers ' + n.offer + "</b> — see it under Discover → Offers.</div>" : "") +
-      '<div class="tagchips" data-anchor="PLC-2"><span class="tagchip">#ecstatic</span><span class="tagchip">#dj</span><span class="tagchip">#facilitator</span><span class="tagchip">＋ tag</span></div>' +
+      '<div class="tagchips" data-anchor="PLC-2"><span class="tagchip">#neighbour</span><span class="tagchip">#fixer</span><span class="tagchip">#childcare</span><span class="tagchip">＋ tag</span></div>' +
       '<button class="btn btn-electric" id="sheetMsg" data-mid="' + n.id + '" data-mn="' + n.n + '">Message</button>' +
       '<button class="btn btn-ghost">Open their card</button>' +
       '<button class="btn btn-ghost">Vouch for something they do</button>' +
@@ -199,8 +199,8 @@ export function renderPeople() {
       openSheet(
         '<div class="grab"></div><div data-anchor="PPL-2"><h3>' + p.n + "</h3>" +
           '<div class="meta">' + p.c + "</div>" +
-          '<div class="path"><b>Their card</b><br><span style="color:var(--ink-soft)">What ' + p.n + " chooses to share with you: how to reach them, where they dance, what they offer. Updates itself when they change it.</span></div>" +
-          '<div class="tagchips" data-anchor="PLC-2"><span class="tagchip">#ecstatic</span><span class="tagchip">＋ tag</span></div>' +
+          '<div class="path"><b>Their card</b><br><span style="color:var(--ink-soft)">What ' + p.n + " chooses to share with you: how to reach them, what they're into, what they offer. Updates itself when they change it.</span></div>" +
+          '<div class="tagchips" data-anchor="PLC-2"><span class="tagchip">#neighbour</span><span class="tagchip">＋ tag</span></div>' +
           '<button class="btn btn-electric" id="sheetMsg" data-mid="' + p.id + '" data-mn="' + p.n + '">Message</button>' +
           '<button class="btn btn-ghost">Grow this connection</button>' +
           (p.s === "out" ? '<button class="btn btn-ghost">Waiting for ' + p.n + " to confirm</button>" : "") +

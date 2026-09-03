@@ -1,5 +1,5 @@
 // @ts-check
-// Onboarding: welcome → (quick | advanced verse/server) → name → the floor.
+// Onboarding: welcome → (quick | advanced verse/server) → name → the web.
 // Guest mode is the logged-out public browse.
 
 import { $ } from "../dom.js";
@@ -83,7 +83,7 @@ export function onb(step) {
   } else {
     el.innerHTML =
       '<span class="eyebrow">Almost there</span>' +
-      "<h2>What do people call you on the floor?</h2>" +
+      "<h2>What do people call you?</h2>" +
       '<input class="name-input" id="nameIn" value="Zach" maxlength="16" aria-label="Your name">' +
       '<div class="actions"><button class="btn btn-coral" id="onbDone">Enter</button>' +
       '<button class="btn btn-ghost" id="onbBack2">Back</button></div>';
@@ -112,7 +112,7 @@ export function guestMode() {
   state.guest = true;
   $("tabs").style.display = "none";
   $("joinBar").classList.add("on");
-  showCoach("Browsing as a guest — the public floor only");
+  showCoach("Browsing as a guest. Public listings only");
   ctx.show("discover");
 }
 

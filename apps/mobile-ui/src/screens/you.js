@@ -8,13 +8,13 @@ import { openSheet } from "../sheet.js";
 
 export function renderYou() {
   const s = ctx.api.getState();
-  const cacao = s.offers.find((o) => o.id === "cacao");
+  const drill = s.offers.find((o) => o.id === "drill");
   const speakers = s.offers.find((o) => o.id === "speakers");
-  const mineState = cacao && cacao.state === "available" ? "Available" : cacao ? cacao.state : "Available";
+  const mineState = drill && drill.state === "available" ? "Available" : drill ? drill.state : "Available";
   $("youOffers").innerHTML =
     "<h3>What you offer</h3>" +
-    '<p style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px">Ceremonial cacao (1kg blocks)' +
-    '<span class="res-chip">' + mineState + (cacao && cacao.extended ? " · via Rafa too" : "") + "</span></p>" +
+    '<p style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px">Cordless drill + bit set' +
+    '<span class="res-chip">' + mineState + (drill && drill.extended ? " · via Rafa too" : "") + "</span></p>" +
     '<button class="btn btn-ghost btn-sm" id="addRes" style="margin-top:10px;padding-left:0">＋ Offer something</button>';
   $("youBorrowed").innerHTML =
     "<h3>Borrowed by you</h3>" +

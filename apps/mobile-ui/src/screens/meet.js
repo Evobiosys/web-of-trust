@@ -1,7 +1,7 @@
 // @ts-check
 // The ceremony (cosmic register): share composer → scan → confirm → weaving,
 // then the celebration. addTrust creates the Maria edge; the level decides
-// whether the Moon Ceremony opens.
+// whether the Courtyard Supper opens.
 
 import QRCode from "qrcode";
 import { $ } from "../dom.js";
@@ -109,8 +109,8 @@ function tryBarcodeScan() {
 
 /**
  * Pull an honest "met at <place>" clause out of a pendingMeet's ctxLabel.
- * Fixture's ctxLabel is shaped "☀ Ecstatic Dance Palermo · today" — a real
- * place + date. Live's default (api_client_live.js resolveCard) is the
+ * Fixture's ctxLabel is shaped "☀ Nachbarschaftsfest Yppenplatz · today" — a
+ * real place + date. Live's default (api_client_live.js resolveCard) is the
  * generic "☀ Met just now" — no place, so the met-at clause is omitted
  * rather than inventing one (I1).
  * @param {any} pm
@@ -199,13 +199,13 @@ export function renderCeremony(step) {
       '<button class="adv-link" id="advBtn" data-anchor="CER-2">' + (state.adv ? "Hide advanced" : "Advanced: what they may reach") + "</button>" +
       (state.adv
         ? '<div class="perm-panel" data-anchor="CER-2">' +
-          '<button class="perm-row' + (state.permCtx ? "" : " off") + '" data-p="permCtx">Ecstatic-dance context only — widen later if you choose<span class="tog">' + (state.permCtx ? "On" : "Off") + "</span></button>" +
+          '<button class="perm-row' + (state.permCtx ? "" : " off") + '" data-p="permCtx">This meeting’s context only. Widen later if you choose<span class="tog">' + (state.permCtx ? "On" : "Off") + "</span></button>" +
           '<button class="perm-row' + (state.permOffers ? "" : " off") + '" data-p="permOffers">May see my offers at their level<span class="tog">' + (state.permOffers ? "On" : "Off") + "</span></button>" +
           '<button class="perm-row' + (state.permRing ? "" : " off") + '" data-p="permRing">May see my second ring (people who consent)<span class="tog">' + (state.permRing ? "On" : "Off") + "</span></button>" +
           '<p style="font-size:11px;color:#A78CC9;margin:4px 2px 0">Skippable — everything here can be adjusted per person, later.</p>' +
           "</div>"
         : "") +
-      '<p class="offline-note">Works with no signal. The floor doesn’t need wifi.</p>' +
+      '<p class="offline-note">Works with no signal. Meeting in person doesn’t need wifi.</p>' +
       // Task 2 (QR-onboarding): a SEPARATE affordance from the person-to-person
       // card exchange above — this one is for bringing a brand-new device (no
       // persona yet) into the web. Kept behind a <details> disclosure so it
@@ -328,22 +328,22 @@ export function renderCeremony(step) {
       const opens = state.unlocked;
       renderList();
       // The bag is the only source of truth for what actually opened: fixture
-      // always carries a privateEvent (Moon Ceremony); live carries none yet
-      // (I1 — never promise content that isn't really there).
+      // always carries a privateEvent (Courtyard Supper); live carries none
+      // yet (I1 — never promise content that isn't really there).
       const newlyOpened = opens && !!ctx.api.getState().privateEvent;
       const place = meetPlace(pm);
       const base = opens
         ? "You and " + pm.display + " now hold each other’s thread — " + levelLabel().toLowerCase() + "s" + (place ? ", at " + place : "") + "."
         : "You and " + pm.display + " now hold each other’s cards — contacts" + (place ? ", met at " + place : "") + ".";
       const tail = newlyOpened
-        ? " Their circle’s Moon Ceremony just opened to you."
+        ? " Their building’s Courtyard Supper just opened to you."
         : " Deeper rooms open as you grow closer.";
       $("celebText").textContent = base + tail;
       $("seeOpened").style.display = newlyOpened ? "" : "none";
       ctx.show("celebrate");
       confetti();
       // "Now check Discover" is generically true whenever a level actually
-      // unlocked. The Contact-level coach line named the Moon Ceremony by
+      // unlocked. The Contact-level coach line named the Courtyard Supper by
       // name — fine in fixture (it's real there), invented in live (I1), so
       // gate the wording on the bag actually carrying gated content at all.
       const hasGatedContent = !!ctx.api.getState().privateEvent;
@@ -351,7 +351,7 @@ export function renderCeremony(step) {
         opens
           ? "Now check <b>Discover</b> and <b>Your Web</b>"
           : hasGatedContent
-            ? "“Contact” doesn’t open the Moon Ceremony — levels have teeth"
+            ? "“Contact” doesn’t open the Courtyard Supper. Levels have teeth"
             : "“Contact” keeps things light — grow the level anytime to open more"
       );
     }, reduced ? 500 : 2100);

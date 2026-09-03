@@ -5,12 +5,18 @@
 // (main.js) calls applySkin(profile) once, after bootApp() wires the DOM
 // but before the first screen renders.
 //
-// The ecstatic profile is deliberately a structural no-op everywhere below
-// (every branch is gated on `profile.id !== "ecstatic"` or an explicit
-// `profile.mobile.*` field being present) — mobile-ui's shipped appearance
-// *is* the ecstatic skin, not something derived from AppProfile.theme (which
-// was tuned for device-ui's independent dark-mode design system and would
-// wreck this cream-and-violet phone mockup if applied literally).
+// mobile-ui's shipped default is `housing` (see runtime_config.js's
+// DEFAULTS.appId) — a bare load with no ?app= param lands on the neutral
+// Vienna resource-sharing frame, not the ecstatic-dance one. ecstatic keeps
+// its own onboarding heading and genre chips via explicit `profile.mobile.*`
+// fields (see packages/app-profiles/src/ecstatic.ts), the same mechanism any
+// other profile uses — not a special case. Every branch below that has no
+// matching `profile.mobile.*` field (or, for the CSS vars, no matching
+// TAILWIND_HEX entry) leaves mobile-ui's own stylesheet/markup in charge,
+// which is why ecstatic's dark fuchsia/zinc theme still renders correctly
+// here without an inline :root override (that theme was tuned for
+// device-ui's independent dark-mode design system and would wreck this
+// cream-and-violet phone mockup if applied literally).
 
 import { $ } from "./dom.js";
 import { state } from "./store.js";
@@ -36,7 +42,6 @@ function tailwindHex(token) {
   return /** @type {Record<string, string>} */ (TAILWIND_HEX)[token];
 }
 
-const DEFAULT_ONBOARDING_HEADING = "Step onto the floor";
 const DEFAULT_CELEBRATE_WORD = "Woven.";
 const DEFAULT_HOST_FAB_LABEL = "＋ Host";
 
@@ -45,8 +50,11 @@ const DEFAULT_HOST_FAB_LABEL = "＋ Host";
  * swapped by a skin. */
 const GENRE_CHIP_COUNT = 4;
 
-/** @type {string} */
-let currentOnboardingHeading = DEFAULT_ONBOARDING_HEADING;
+/** Pre-applySkin fallback. main.js always calls applySkin before the
+ * welcome screen ever renders, so this value should never actually reach a
+ * user; it exists only so the module has a defined string to start from.
+ * @type {string} */
+let currentOnboardingHeading = "Welcome";
 
 /** The onboarding welcome heading for the currently applied skin. Read by
  * screens/onboarding.js when it renders the "welcome" step, since that step
@@ -58,7 +66,6 @@ export function onboardingHeading() {
 
 /** @param {AppProfile} profile */
 function applyCssVars(profile) {
-  if (profile.id === "ecstatic") return; // structural no-op: see file header
   const root = document.documentElement;
   const accentHex = tailwindHex(profile.theme.accent);
   const bgHex = tailwindHex(profile.theme.bg);
@@ -68,14 +75,13 @@ function applyCssVars(profile) {
 
 /** @param {AppProfile} profile */
 function applyBrandHeader(profile) {
-  if (profile.id === "ecstatic") return; // structural no-op: see file header
   const h1 = document.querySelector(".page-head h1");
-  if (h1) h1.textContent = `${profile.brandName} — the trust prototype, in your hand`;
+  if (h1) h1.textContent = `${profile.brandName} · the trust prototype, in your hand`;
 }
 
 /** @param {AppProfile} profile */
 function applyOnboardingHeading(profile) {
-  currentOnboardingHeading = profile.id === "ecstatic" ? DEFAULT_ONBOARDING_HEADING : profile.heading;
+  currentOnboardingHeading = profile.mobile?.onboardingHeading ?? profile.heading;
 }
 
 /** @param {AppProfile} profile */

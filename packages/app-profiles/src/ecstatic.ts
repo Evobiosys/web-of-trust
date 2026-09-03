@@ -1,9 +1,11 @@
 import type { AppProfile } from "./types.js";
 
-/** Dark, dance-floor skin for the ecstatic-dance community. Matches the
- * synchrolabs walking-skeleton dark aesthetic (near-black bg, near-white
- * text, one warm accent). No `mobile` field: this is mobile-ui's shipped
- * default appearance, not a derived skin — see task-7 report. */
+/** Dark, dance-floor skin for the ecstatic-dance community at ecstatic.world.
+ * Matches the synchrolabs walking-skeleton dark aesthetic (near-black bg,
+ * near-white text, one warm accent). Demoted from mobile-ui's shipped default
+ * (that is `housing` now, see apps/mobile-ui's runtime_config.js) but kept
+ * retrievable by id, with its own onboarding heading and genre chips, for the
+ * audience it was written for. */
 export const ecstaticProfile: AppProfile = {
   id: "ecstatic",
   brandName: "Ecstatic World",
@@ -59,4 +61,8 @@ export const ecstaticProfile: AppProfile = {
     { label: "I can drive", stewardText: "I can offer a ride to/from the dance" },
     { label: "I have a sound system", stewardText: "I have a sound system I can lend for events" },
   ],
+  mobile: {
+    onboardingHeading: "Step onto the floor",
+    offerChips: ["Ecstatic Dance", "Biodanza", "Contact Improv", "Hangouts"],
+  },
 };

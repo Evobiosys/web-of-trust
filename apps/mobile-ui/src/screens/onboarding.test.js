@@ -3,6 +3,8 @@ import { describe, it, expect } from "vitest";
 import { mount } from "../test/harness.js";
 import { onb } from "./onboarding.js";
 import { state } from "../store.js";
+import { applySkin } from "../skin.js";
+import { getProfile } from "@resource-web/app-profiles";
 
 /** @param {string} id */
 const el = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
@@ -10,8 +12,11 @@ const el = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
 describe("onboarding + guest mode", () => {
   it("renders the welcome threshold with both signup paths", () => {
     mount();
+    // main.js always calls applySkin before the welcome screen first renders
+    // (mobile-ui's shipped default is housing, not ecstatic).
+    applySkin(getProfile("housing"));
     onb("welcome");
-    expect(el("onbInner").textContent).toContain("Step onto the floor");
+    expect(el("onbInner").textContent).toContain(getProfile("housing").heading);
     expect(el("onbInner").querySelector("#suQuick2")).toBeTruthy();
     expect(el("onbInner").querySelector("#onbLook")).toBeTruthy();
   });
@@ -24,7 +29,7 @@ describe("onboarding + guest mode", () => {
     expect(el("tabs").style.display).toBe("none");
     expect(el("joinBar").classList.contains("on")).toBe(true);
     expect(el("discover").classList.contains("on")).toBe(true);
-    // guest browse shows the public-floor join pitch (DIS-5)
+    // guest browse shows the public-listings join pitch (DIS-5)
     expect(el("listWrap").querySelector('[data-anchor="DIS-5"]')).toBeTruthy();
   });
 
@@ -45,10 +50,11 @@ describe("onboarding + guest mode", () => {
 
   it("guest can rejoin via the join bar", () => {
     mount();
+    applySkin(getProfile("housing"));
     onb("welcome");
     el("onbLook").click();
     el("joinBtn").click();
     expect(el("onb").classList.contains("on")).toBe(true);
-    expect(el("onbInner").textContent).toContain("Step onto the floor");
+    expect(el("onbInner").textContent).toContain(getProfile("housing").heading);
   });
 });

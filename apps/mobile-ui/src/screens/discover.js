@@ -17,7 +17,7 @@ export function renderList() {
     pitch.className = "card private";
     pitch.setAttribute("data-anchor", "DIS-5");
     pitch.innerHTML =
-      "<h3>This is the public floor</h3>" +
+      "<h3>These are the public listings</h3>" +
       "<div class='meta'>Join the web of trust and more appears — private gatherings your friends open to you, " +
       "things to borrow from your people, and the people they hold. Built on real, in-person meetings.</div>";
     w.appendChild(pitch);
@@ -181,7 +181,7 @@ export function initDiscover() {
   };
   $("segOff").onclick = () => {
     if (state.guest) {
-      openSheet('<div class="grab"></div><h3>Offers live inside the web</h3><div class="meta">Speakers, DJ tables, cacao, venues — shared between people who have actually met. Join to see what your people offer.</div>');
+      openSheet('<div class="grab"></div><h3>Offers live inside the web</h3><div class="meta">Speakers, tools, a drill, a courtyard: shared between people who have actually met. Join to see what your people offer.</div>');
       return;
     }
     $("segOff").classList.add("on");

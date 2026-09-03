@@ -21,7 +21,7 @@ describe("discover", () => {
     ctx.show("discover");
     const cards = el("listWrap").querySelectorAll(".card");
     expect(cards.length).toBe(4); // EVENTS, no private until unlocked
-    expect(el("listWrap").textContent).toContain("Ecstatic Dance Palermo");
+    expect(el("listWrap").textContent).toContain("Nachbarschaftsfest Yppenplatz");
   });
 
   describe("borrow flow", () => {

@@ -27,7 +27,11 @@ const STORAGE_KEYS = {
 
 const DEFAULTS = {
   agentUrl: "http://localhost:4101",
-  appId: "ecstatic",
+  // The neutral Vienna resource-sharing frame is what a bare load (no
+  // ?app=) lands on — see DEVLOG/handover-resource-sharing-copy.md. Not
+  // "ecstatic": that skin is for ecstatic.world's own dance community and
+  // only shows up when someone explicitly asks for it via ?app=ecstatic.
+  appId: "housing",
   personaKey: "anna",
   // "fixture" keeps the designer's demo reachable by default; "live" wires the
   // real agent-daemon. The alpha build opts in with `?mode=live`.
@@ -102,7 +106,7 @@ export function clearConnectConfig() {
  * Resolves mobile-ui's runtime configuration.
  *
  * Precedence (highest first): URL query params (`?agent=…&app=…&persona=…`)
- * > localStorage > hard defaults (`http://localhost:4101`, `ecstatic`,
+ * > localStorage > hard defaults (`http://localhost:4101`, `housing`,
  * `anna`).
  *
  * Any query param present on this load is persisted to localStorage so it
