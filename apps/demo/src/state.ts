@@ -217,6 +217,14 @@ export function addInventoryItem(s: DeviceState, text: string): InventoryItem {
   return item
 }
 
+/**
+ * Reassigns `s.inventory` rather than mutating it in place (unlike
+ * `upsertPeer`/`addInventoryItem` above). Safe because every reader goes
+ * through `s` itself and `saveState(s)` persists the whole object -- but
+ * worth flagging as the one exception to this module's usual mutate-in-place
+ * style, in case a future caller ever holds a separate reference to the
+ * array.
+ */
 export function removeInventoryItem(s: DeviceState, id: string): void {
   s.inventory = s.inventory.filter((i) => i.id !== id)
 }

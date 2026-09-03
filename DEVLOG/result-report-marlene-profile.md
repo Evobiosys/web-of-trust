@@ -8,9 +8,9 @@ Branch: `feat/marlene-profile`. All work in `apps/demo/`, as instructed.
 - `Profile` type in `src/types.ts` (displayName, bio, neighbourhood, languages),
   added to `DeviceState`.
 - New screen "Mein Profil" (`src/screens/profile.ts`, thin wrapper
-  `screenProfile()` in `main.ts`), reachable from home. All four fields
-  editable in place, same no-draft-state pattern as the existing chats
-  screen. Editing the display name also updates `me.displayName` (topbar and
+  `screenProfile()` in `main.ts`), reachable from home. All four fields are
+  written to be editable in place, same no-draft-state pattern as the
+  existing chats screen. Editing the display name also updates `me.displayName` (topbar and
   connect ceremony both read `me`; two names on screen at once would look
   like a bug mid-demo) and triggers a rerender; the other three fields save
   without a full rerender, to avoid any risk to in-progress field focus.
@@ -61,12 +61,15 @@ mid-consent-ceremony, not caught by `bootFailed()`.
 
 ## Tests
 
-- `test/inventory_match.test.ts` (5 tests): entry matches a template like a
+- `test/inventory_match.test.ts` (6 tests): entry matches a template like a
   chat message; excluded entry is unmatchable and re-including it restores
   matchability (both directions, mirroring the existing 1-on-1 opt-out
-  test); new entry defaults to included; the seeded Hausverwaltung entry
-  fires the real `TEMPLATES` array, not a local stub; one person's chat
-  message + inventory entry count as one distinct author, not two.
+  test); new entry defaults to included; the seeded T1-matching entry fires
+  the real `TEMPLATES` array, not a local stub; the add-entry **placeholder**
+  text (the operator's live-demo script, separate copy from the seed) also
+  fires T1, so a future copy-edit to either one alone cannot silently kill
+  the "type it, then find it" beat; one person's chat message + inventory
+  entry count as one distinct author, not two.
 - `test/state_defaults.test.ts` (1 test): a legacy on-disk record (written
   directly via `kvSet`, bypassing `loadState()`'s own cache so the
   normalization path is actually exercised) comes back with empty
@@ -84,9 +87,19 @@ mid-consent-ceremony, not caught by `bootFailed()`.
 ## Test counts
 
 - Before: 199 tests (11 files), all green.
-- After: 209 tests (14 files), all green. `npx tsc --noEmit -p tsconfig.json`
+- After: 210 tests (14 files), all green. `npx tsc --noEmit -p tsconfig.json`
   clean. `npx vite build` succeeds.
 - No existing test was edited.
+
+**What this does NOT cover**: the two new screens (`src/screens/profile.ts`,
+`src/screens/inventory.ts`) are type-checked and bundled but never rendered
+or clicked — there is no DOM/browser test in this suite (matches the
+project's existing test style; every test here runs in plain Node). The 210
+tests pin the invariants (matching, k-anonymity, consent), not the UI. Before
+the Vienna demo, smoke-test on an actual phone: (a) add an entry on "Was ich
+habe" and confirm it appears included by default, (b) toggle it off and back
+on, (c) remove it, (d) edit the display name on "Mein Profil" and confirm
+the topbar picks it up.
 
 ## Exact `main.ts` lines touched (for the merge)
 
@@ -119,3 +132,14 @@ drop inventory out of matching.
   of that path shut.
 - No inline text-edit for an existing inventory entry (add / toggle /
   remove only). Not asked for; editing text is remove-and-re-add for now.
+- `pnpm-lock.yaml` was NOT committed. This worktree had no `node_modules`
+  at all when I started; running `pnpm install --filter @ew/demo...` to
+  get `tsc`/`vitest` working also regenerated an unrelated, pre-existing
+  lockfile drift in `apps/mobile-ui` (a dependency listed under
+  `devDependencies` that should be under `dependencies`). Since the
+  handover scopes this work to `apps/demo/`, I reverted that lockfile
+  change rather than fold in an unrelated fix. Whoever merges this will
+  need to run `pnpm install --filter @ew/demo...` (or a full `pnpm
+  install`) before `tsc`/`vitest` will run here, and will see the same
+  lockfile diff regenerate — that's expected, not something this branch
+  introduced.

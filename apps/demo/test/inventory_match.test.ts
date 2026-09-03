@@ -87,17 +87,37 @@ describe('inventory entries matched via threadsInScope + matchTemplate', () => {
     // Demo-critical: "she types a line, the room sees that line found." This
     // pins the specific seed entry (state.ts PERSONAS) against the actual
     // shipped template, so a future edit to either one that breaks the demo
-    // beat fails loudly here instead of live in Vienna.
+    // beat fails loudly here instead of live in Vienna. Located by the
+    // phrase the test actually depends on ('Wohnung frei', T1's matchTerm),
+    // not by an incidental word like "Hausverwaltung" that a copy-edit could
+    // drop without touching what makes the entry fire.
     const { PERSONAS } = await import('../src/state')
     const { TEMPLATES } = await import('../src/data/templates')
     const marlene = PERSONAS.find((p) => p.id === 'marlene0')!
-    const seedText = marlene.inventorySeed.find((e) => e.text.includes('Hausverwaltung'))!.text
-    const s = baseState({ inventory: [entry(seedText, true)] })
+    const seed = marlene.inventorySeed.find((e) => e.text.includes('Wohnung frei'))
+    expect(seed).toBeDefined()
+    const s = baseState({ inventory: [entry(seed!.text, true)] })
     const t1 = TEMPLATES.find((tpl) => tpl.id === 'wot.vienna.housing.flat_pre_listing')!
     const result = matchTemplate(t1, threadsInScope(s))
     expect(result.hits.length).toBeGreaterThan(0)
     expect(result.hits.some((h) => h.threadId.startsWith('inv:'))).toBe(true)
     expect(result.aboveThreshold).toBe(true) // T1's demo kThreshold is 1
+  })
+
+  it('the add-entry placeholder (what someone actually types live) also fires T1', async () => {
+    // The seed proves the shipped example works; this proves the OTHER copy
+    // that matters -- the placeholder in screens/inventory.ts, which is the
+    // operator's live-demo script -- fires the same template. Without this,
+    // a future copy-edit to the placeholder alone (the seed test would not
+    // catch that) could silently kill the "type it, then find it" beat.
+    const { t } = await import('../src/i18n')
+    const { TEMPLATES } = await import('../src/data/templates')
+    const placeholder = t('inventoryPh').replace(/^z\.\s*B\.\s*/i, '')
+    const s = baseState({ inventory: [entry(placeholder, true)] })
+    const t1 = TEMPLATES.find((tpl) => tpl.id === 'wot.vienna.housing.flat_pre_listing')!
+    const result = matchTemplate(t1, threadsInScope(s))
+    expect(result.hits.length).toBeGreaterThan(0)
+    expect(result.aboveThreshold).toBe(true)
   })
 
   it('one distinct author across a chat message and an inventory entry counts once, not twice', () => {
