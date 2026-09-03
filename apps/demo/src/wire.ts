@@ -34,7 +34,14 @@ function isIdentity(v: unknown): v is { id: string; displayName: string } {
 function parseConnect(o: Record<string, unknown>): ConnectEnvelope | null {
   if (!isIdentity(o.from)) return null
   if (!isNonEmptyString(o.nonce)) return null
-  return { v: WIRE_VERSION, t: 'connect', from: o.from, nonce: o.nonce }
+  // `did` is OPTIONAL (relay mode only, see types.ts's doc comment) -- absent
+  // entirely is fine (a demo-1/qr-mode code). But if the KEY is present at
+  // all, it must be a non-empty string or the whole envelope is rejected,
+  // same strictness as every other field here: a malformed-but-present field
+  // is a sign of tampering or a version skew, not something to silently drop.
+  if ('did' in o && !isNonEmptyString(o.did)) return null
+  const did = isNonEmptyString(o.did) ? o.did : undefined
+  return { v: WIRE_VERSION, t: 'connect', from: o.from, nonce: o.nonce, ...(did ? { did } : {}) }
 }
 
 function parseQuery(o: Record<string, unknown>): QueryEnvelope | null {

@@ -149,9 +149,33 @@ const ANSWER: AnswerEnvelope = {
   body: toB64u(randomBytes(540)),
 }
 
+const CONNECT_WITH_DID: ConnectEnvelope = {
+  ...CONNECT,
+  did: 'did:peer:2.Vz6Mkabc.Ez6LSabc.SeyJ0IjoiZG0ifQ',
+}
+
 describe('encodeForQr / decodeFromQr round trip', () => {
   it('round-trips a ConnectEnvelope', () => {
     expect(decodeFromQr(encodeForQr(CONNECT))).toEqual(CONNECT)
+  })
+
+  it('round-trips a ConnectEnvelope carrying the optional did field', () => {
+    expect(decodeFromQr(encodeForQr(CONNECT_WITH_DID))).toEqual(CONNECT_WITH_DID)
+  })
+
+  it('a ConnectEnvelope with no did field parses with did left undefined (demo-1/qr-mode code)', () => {
+    const decoded = decodeFromQr(encodeForQr(CONNECT))
+    expect(decoded).not.toBeNull()
+    expect((decoded as ConnectEnvelope).did).toBeUndefined()
+    expect('did' in (decoded as ConnectEnvelope)).toBe(false)
+  })
+
+  it('rejects a ConnectEnvelope whose did field is present but malformed', () => {
+    const badTypes = [123, '', null, {}, []]
+    for (const bad of badTypes) {
+      const raw = JSON.stringify({ v: 1, t: 'connect', from: CONNECT.from, nonce: CONNECT.nonce, did: bad })
+      expect(decodeFromQr(raw)).toBeNull()
+    }
   })
 
   it('round-trips a QueryEnvelope', () => {

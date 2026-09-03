@@ -181,6 +181,8 @@ interface DrainFrame {
   reason?: unknown
 }
 
+export type RelayStatus = 'connecting' | 'connected' | 'disconnected'
+
 export interface RelayChannelOptions {
   /** Overrides the resolved relay origin outright (highest priority -- see {@link resolveRelayOrigin}). Mainly for the e2e script and tests. */
   relayOrigin?: string
@@ -244,6 +246,18 @@ export interface RelayChannel {
    * file header).
    */
   onEnvelope(pairKey: CryptoKey, cb: (envelope: Envelope, fromDid: string) => void): void
+  /**
+   * Registers a callback for connection status changes: `'connecting'` when
+   * a drain attempt (first or a reconnect) starts, `'connected'` on
+   * `auth_ok`, `'disconnected'` when the socket closes. `connect()`'s
+   * returned Promise only ever tells a caller about the FIRST attempt (see
+   * its doc comment) -- this is what a UI needs to reflect what actually
+   * happens after that, including every silent-in-the-background reconnect.
+   * Fires with `Date.now()` alongside the status so a caller can show "seit
+   * HH:MM:SS" rather than a bare state name. Only one registration is kept,
+   * matching `onEnvelope`'s convention.
+   */
+  onStatus(cb: (status: RelayStatus, at: number) => void): void
   /** Closes the drain connection and stops reconnecting. Safe to call even if `connect()` was never called. */
   close(): void
 }
@@ -297,6 +311,11 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
   let backoff = reconnectBaseMs
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let sink: { pairKey: CryptoKey; cb: (envelope: Envelope, fromDid: string) => void } | null = null
+  let statusCb: ((status: RelayStatus, at: number) => void) | null = null
+
+  function emitStatus(status: RelayStatus): void {
+    statusCb?.(status, Date.now())
+  }
 
   /**
    * Decrypt+parse one drained wire and, only on success, hand it to the
@@ -354,6 +373,7 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
       }
       if (msg.type === 'auth_ok') {
         backoff = reconnectBaseMs // healthy again -- reset the backoff
+        emitStatus('connected')
         settleFirstAttempt(null)
         return
       }
@@ -382,6 +402,7 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
 
     socket.addEventListener('close', () => {
       ws = null;
+      emitStatus('disconnected')
       settleFirstAttempt(new Error('RelayChannel.connect: connection closed before authentication completed'))
       scheduleReconnect(currentIdentity)
     })
@@ -396,6 +417,7 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
     backoff = Math.min(backoff * 2, reconnectMaxMs)
     const timer = setTimeout(() => {
       reconnectTimer = null
+      emitStatus('connecting')
       openSocket(currentIdentity)
     }, delay)
     unrefTimer(timer) // never keep a process alive solely for a relay drain retry
@@ -411,6 +433,7 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
     identity = newIdentity
     stopped = false
     backoff = reconnectBaseMs
+    emitStatus('connecting')
 
     return new Promise((resolve, reject) => {
       let settled = false
@@ -464,21 +487,34 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
     sink = { pairKey, cb }
   }
 
+  function onStatus(cb: (status: RelayStatus, at: number) => void): void {
+    statusCb = cb
+  }
+
   function close(): void {
+    const wasActive = !stopped
     stopped = true
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
     }
     if (ws) {
+      // The socket's own 'close' listener fires from this (synchronously or
+      // on the next tick, per runtime), and emits 'disconnected' there --
+      // see that listener above. Nothing more to do in that branch.
       try {
         ws.close()
       } catch {
         // already closing
       }
       ws = null
+    } else if (wasActive) {
+      // No live socket (e.g. mid-backoff, waiting on reconnectTimer): no
+      // 'close' event will ever fire for this call, so emit directly or a
+      // status listener would be stuck on whatever it last saw.
+      emitStatus('disconnected')
     }
   }
 
-  return { connect, send, onEnvelope, close }
+  return { connect, send, onEnvelope, onStatus, close }
 }

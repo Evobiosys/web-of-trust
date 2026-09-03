@@ -5,6 +5,7 @@
 import type { ChatThread, Identity, InventoryItem, Profile } from './types'
 import { kvGet, kvSet, kvClear } from './db'
 import { randomId } from './crypto'
+import type { SerializedIdentityV1 } from './did'
 
 export interface Peer {
   id: string
@@ -14,6 +15,19 @@ export interface Peer {
   noncePeer: string
   connectedAt: number
   blocked: boolean
+  /**
+   * The peer's did:peer:2 (did.ts), relay mode only. Present ONLY after a
+   * real connect ceremony carried it (see wire.ts's ConnectEnvelope.did and
+   * main.ts's scanConnectCode) -- a SEEDED pairing never has one, because
+   * the seed is a fixed nonce pair chosen before either device existed,
+   * while a did:peer:2 is minted fresh, at random, per device, per boot.
+   * There is no value that could be pre-seeded here without lying about a
+   * ceremony that did not happen. relay.ts's `send()` needs this to address
+   * the peer; its absence is the precondition that routes the relay-mode UI
+   * to the QR pairing screen instead of attempting a network send -- see
+   * main.ts's `relayReady()`.
+   */
+  did?: string
   /**
    * True while this pairing came from the demo seed rather than from a QR
    * ceremony two people actually performed.
@@ -33,6 +47,15 @@ export interface DeviceState {
   peers: Peer[]
   profile: Profile
   inventory: InventoryItem[]
+  /**
+   * This device's did:peer:2 identity (did.ts), relay mode only. Minted
+   * lazily on first need (relay_identity.ts's `ensureRelayIdentity`), not on
+   * every `seedPersona()` call, so a qr-mode build never touches did.ts at
+   * all. Absent in every state saved before this field existed and in any
+   * qr-mode session -- `withDefaults` does not need to backfill it, callers
+   * mint on demand.
+   */
+  relayIdentity?: SerializedIdentityV1
 }
 
 /** Exported so test/state_defaults.test.ts can write a legacy-shaped record

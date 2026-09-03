@@ -173,6 +173,15 @@ export interface ConnectEnvelope {
   from: Identity
   /** Random, binds the pair. */
   nonce: string
+  /**
+   * OPTIONAL: sender's did:peer:2 (did.ts), present only in relay-mode
+   * builds (mode.ts). A demo-1 (qr-mode) connect code never carries this
+   * field, and `decodeFromQr` must still parse a code that lacks it -- the
+   * whole point of making it optional is that qr-mode's wire is unchanged.
+   * The peer's did is how relay.ts's `send()` addresses them once paired;
+   * see state.ts's `Peer.did`.
+   */
+  did?: string
 }
 
 /** QR 2: B asks. Carries the template id and the nonce, never free text. */
