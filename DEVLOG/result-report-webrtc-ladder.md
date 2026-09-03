@@ -1,7 +1,8 @@
 # Result report — demo 3 (webrtc) and demo 6 (ladder)
 
-Worktree: `../wt-webrtc`, branch `feat/webrtc-ladder`. Not pushed (asked, per the
-handover). Not committed either until you say go — see the end of this report.
+Worktree: `../wt-webrtc`, branch `feat/webrtc-ladder`. Committed locally
+(commit `156f6c9`), matching the handover's "commit locally" instruction.
+**Not pushed** — the handover said to ask first.
 
 ## 1. The feasibility gate, done first, with real numbers
 
@@ -193,8 +194,7 @@ rung added.
 
 ## ❗ Decisions needed
 
-- This worktree's changes are **not yet committed**. Say go and I'll commit
-  locally (not push, per the handover).
+- Push `feat/webrtc-ladder`? Not done yet — the handover said to ask first.
 - Real-device testing (two phones on the same Wi-Fi) is the recommended next
   step before demo 3 goes in front of anyone — want me to write a short
   manual test script for that, or will you run it yourself?
