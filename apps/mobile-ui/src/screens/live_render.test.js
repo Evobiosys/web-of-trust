@@ -127,15 +127,15 @@ describe("live mode renders every screen without throwing", () => {
 
     const text = el("celebText").textContent || "";
     // Live has no privateEvent (I1) — nothing fabricated, nothing promised open.
-    expect(text).not.toContain("Ecstatic Dance Palermo");
-    expect(text).not.toContain("Moon Ceremony");
+    expect(text).not.toContain("Nachbarschaftsfest Yppenplatz");
+    expect(text).not.toContain("Courtyard Supper");
     expect(text).toContain("Deeper rooms open as you grow closer.");
     expect(el("seeOpened").style.display).toBe("none");
     // Pronouns: the weaving step must not assume a gender for the peer.
     expect(el("cerInner").textContent).not.toContain(" her phone");
   });
 
-  it("Finding 2: live Contact-level celebration + coach chip never name the fixture-only Moon Ceremony", async () => {
+  it("Finding 2: live Contact-level celebration + coach chip never name the fixture-only Courtyard Supper", async () => {
     const ctx = bootApp({ mode: "live", agentUrl: "http://localhost:4101" });
     ctx.api.start();
     await settle();
@@ -150,8 +150,8 @@ describe("live mode renders every screen without throwing", () => {
     await new Promise((r) => setTimeout(r, 600));
     await settle();
 
-    expect(el("celebText").textContent).not.toContain("Moon Ceremony");
-    expect(el("coachText").innerHTML).not.toContain("Moon Ceremony");
+    expect(el("celebText").textContent).not.toContain("Courtyard Supper");
+    expect(el("coachText").innerHTML).not.toContain("Courtyard Supper");
     expect(el("seeOpened").style.display).toBe("none");
   });
 });

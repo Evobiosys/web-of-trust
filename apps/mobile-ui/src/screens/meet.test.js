@@ -35,7 +35,7 @@ describe("meet ceremony", () => {
     expect(el("cerInner").querySelector("#qr")).toBeTruthy();
   });
 
-  it("walks scan → confirm → weaving → celebration and creates the Maria edge (Friend opens the Moon Ceremony)", () => {
+  it("walks scan → confirm → weaving → celebration and creates the Maria edge (Friend opens the Courtyard Supper)", () => {
     const ctx = mount();
     ctx.show("meet");
 
@@ -62,12 +62,12 @@ describe("meet ceremony", () => {
 
     // celebration screen is showing with the opened copy
     expect(el("celebrate").classList.contains("on")).toBe(true);
-    expect(el("celebText").textContent).toContain("Moon Ceremony");
+    expect(el("celebText").textContent).toContain("Courtyard Supper");
 
-    // "See what opened" → the private Moon Ceremony now appears in Discover
+    // "See what opened" → the private Courtyard Supper now appears in Discover
     el("seeOpened").click();
     expect(el("discover").classList.contains("on")).toBe(true);
-    expect(el("listWrap").textContent).toContain("Moon Ceremony");
+    expect(el("listWrap").textContent).toContain("Courtyard Supper");
   });
 
   it("Contact level does NOT open gated content", () => {
@@ -125,7 +125,7 @@ describe("meet ceremony — origin's connect-URL QR (Task 2, no camera)", () => 
       "Let someone new in — they point their camera here and become their own node in your web."
     );
 
-    const expected = buildConnectUrl(window.location.origin, card, "ecstatic");
+    const expected = buildConnectUrl(window.location.origin, card, "housing"); // mobile-ui's shipped default (runtime_config.js)
     expect(expected).not.toBeNull();
     expect(el("connectLinkText").textContent).toBe(expected);
     expect(String(expected)).not.toContain("persona=");
@@ -147,7 +147,7 @@ describe("meet ceremony — origin's connect-URL QR (Task 2, no camera)", () => 
     await settle();
 
     el("copyConnectBtn").click();
-    const expected = buildConnectUrl(window.location.origin, card, "ecstatic");
+    const expected = buildConnectUrl(window.location.origin, card, "housing"); // mobile-ui's shipped default (runtime_config.js)
     expect(writeText).toHaveBeenCalledWith(expected);
   });
 });

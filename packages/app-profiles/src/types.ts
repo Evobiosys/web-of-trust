@@ -19,14 +19,19 @@ export interface SuggestionGroup {
  * Mobile-ui-specific skin knobs, additive on top of the shared AppProfile
  * shape (task-7). Optional throughout so device-ui (which ignores this
  * field entirely) is unaffected. Absent/undefined fields mean "mobile-ui's
- * existing default behavior" — the ecstatic profile ships with no `mobile`
- * field for exactly that reason.
+ * generic fallback for that knob" (see skin.js's DEFAULT_* constants and
+ * literal index.html markup). mobile-ui's shipped default is the `housing`
+ * profile, not `ecstatic` (see apps/mobile-ui's runtime_config.js); ecstatic
+ * keeps its own wording by setting `onboardingHeading` and `offerChips`
+ * explicitly here, the same mechanism any other profile would use.
  */
 export interface MobileSkin {
   /** Which Discover segment is active by default. Undefined = today's default (gatherings). */
   discoverDefault?: "gatherings" | "offers";
   /** Replaces the four genre chips under Discover (the "This week" filter chip is untouched). */
   offerChips?: string[];
+  /** Replaces the onboarding welcome screen's centered heading. Undefined = fall back to `heading` above. */
+  onboardingHeading?: string;
   /** Replaces the Discover screen's "＋ Host" FAB label. */
   hostFabLabel?: string;
   /** Replaces the Meet ceremony's default offered trust level (otherwise "Contact"). */

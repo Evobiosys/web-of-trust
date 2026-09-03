@@ -39,7 +39,7 @@ function updateReach() {
   const r = $("reach");
   const s = ctx.api.getState();
   if (hostState.vis === "pub") {
-    r.innerHTML = "<b>Open doors.</b> Anyone in Buenos Aires can find this.";
+    r.innerHTML = "<b>Open doors.</b> Anyone in Vienna can find this.";
     return;
   }
   const names = (s.reachNames[hostState.vis] || []).slice();
@@ -55,9 +55,9 @@ export function renderHost() {
   const f = $("hostForm");
   f.innerHTML =
     '<div data-anchor="HST-1">' +
-    '<div class="fld"><label>Name</label><input id="hn" value="Sunset Rooftop Dance"></div>' +
+    '<div class="fld"><label>Name</label><input id="hn" value="Courtyard BBQ"></div>' +
     '<div class="fld"><label>When</label><input id="hw" value="Sat 18:30"></div>' +
-    '<div class="fld"><label>Where</label><input id="hp" value="Roof of Casa Verde — shared on arrival"></div>' +
+    '<div class="fld"><label>Where</label><input id="hp" value="Shared courtyard, details on arrival"></div>' +
     "</div>" +
     '<div data-anchor="HST-2">' +
     '<p class="eyebrow" style="margin:16px 0 8px">Who can see this?</p>' +
@@ -86,10 +86,10 @@ export function renderHost() {
     const hw = /** @type {HTMLInputElement} */ ($("hw"));
     const hp = /** @type {HTMLInputElement} */ ($("hp"));
     ctx.api.publishListing({
-      t: hn.value || "Sunset Rooftop Dance",
-      m: (hw.value || "Sat 18:30") + " · " + (hp.value || "Casa Verde"),
+      t: hn.value || "Courtyard BBQ",
+      m: (hw.value || "Sat 18:30") + " · " + (hp.value || "the courtyard"),
       when: hw.value || "Sat 18:30",
-      where: hp.value || "Casa Verde",
+      where: hp.value || "the courtyard",
       vis: hostState.vis,
       steps: hostState.steps,
     });

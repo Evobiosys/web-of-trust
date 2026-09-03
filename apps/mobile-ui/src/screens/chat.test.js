@@ -19,7 +19,7 @@ describe("chat", () => {
     ctx.show("chat");
     expect(el("threadList").textContent).toContain("Lucía");
     expect(el("actList").textContent).toContain("Rafa");
-    expect(el("actList").textContent).toContain("cacao");
+    expect(el("actList").textContent).toContain("drill");
   });
 
   it("acting on the seeded activity resolves it (loanAction-free branch)", () => {

@@ -36,7 +36,7 @@ describe("getRuntimeConfig", () => {
     const getRuntimeConfig = await loadGetRuntimeConfig();
     const config = getRuntimeConfig();
     expect(config.agentUrl).toBe("http://localhost:4101");
-    expect(config.appId).toBe("ecstatic");
+    expect(config.appId).toBe("housing");
     expect(config.personaKey).toBe("anna");
   });
 
@@ -92,7 +92,7 @@ describe("getRuntimeConfig", () => {
     setLocation("");
     const config = getRuntimeConfig();
     expect(config.agentUrl).toBe("http://query-agent:7777"); // from storage
-    expect(config.appId).toBe("ecstatic"); // default, nothing stored
+    expect(config.appId).toBe("housing"); // default, nothing stored
     expect(config.personaKey).toBe("anna"); // default, nothing stored
   });
 });

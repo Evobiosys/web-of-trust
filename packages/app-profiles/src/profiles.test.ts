@@ -102,15 +102,24 @@ describe("profiles", () => {
 
   // --- task-7: optional `mobile` skin field (additive; device-ui ignores it) ---
 
-  it("ecstatic has no `mobile` overrides — mobile-ui's shipped default IS this skin", () => {
-    expect(getProfile("ecstatic").mobile).toBeUndefined();
+  it("ecstatic: mobile skin keeps its own onboarding heading and genre chips", () => {
+    const m = getProfile("ecstatic").mobile;
+    expect(m?.onboardingHeading).toBe("Step onto the floor");
+    expect(m?.offerChips).toEqual(["Ecstatic Dance", "Biodanza", "Contact Improv", "Hangouts"]);
   });
 
-  it("housing: mobile skin defaults Discover to Offers with housing chips and FAB label", () => {
+  it("housing: mobile skin defaults Discover to Offers with a FAB label, no genre-chip override", () => {
     const m = getProfile("housing").mobile;
     expect(m?.discoverDefault).toBe("offers");
-    expect(m?.offerChips).toEqual(["Room free", "Couch", "Short stay", "Longer stay"]);
+    // No offerChips: mobile-ui's own shared neutral chips already fit this
+    // profile's Discover content (see housing.ts's comment).
+    expect(m?.offerChips).toBeUndefined();
     expect(m?.hostFabLabel).toBe("＋ Offer housing");
+    // English-only override for mobile-ui, which has no language toggle
+    // (unlike device-ui/apps/web, which read `heading` directly) — must not
+    // equal the bilingual `heading` used elsewhere on this same profile.
+    expect(m?.onboardingHeading).toBeTruthy();
+    expect(m?.onboardingHeading).not.toBe(getProfile("housing").heading);
   });
 
   it("family: mobile skin defaults the Meet ceremony to Close friend", () => {

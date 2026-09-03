@@ -46,21 +46,21 @@ import { createLiveClient } from "./api_client_live.js";
 
 /** @type {EventCard[]} */
 const EVENTS_SEED = [
-  { t: "Ecstatic Dance Palermo", m: "Sun 11:00 · Parque Tres de Febrero · with DJ Aluna", b: "pub", bl: "Public" },
-  { t: "Biodanza — Casa Luna", m: "Tue 19:00 · Villa Crespo · facilitated by Clara", b: "pub", bl: "Public" },
-  { t: "Contact Improv Jam", m: "Thu 20:30 · Espacio Cielo · linked ecosystem", b: "link", bl: "Linked · CI" },
-  { t: "Cacao & Movement Hangout", m: "Sat 16:00 · Verde Café · community hangout", b: "hang", bl: "Hangout" },
+  { t: "Nachbarschaftsfest Yppenplatz", m: "Sun 11:00 · Yppenplatz · street stalls and a shared table", b: "pub", bl: "Public" },
+  { t: "Reparatur-Café Ottakring", m: "Tue 19:00 · Pfarrsaal, Wielandgasse · fix what’s broken, borrow what you need", b: "pub", bl: "Public" },
+  { t: "Sperrmüll-Tauschbörse", m: "Thu 20:30 · Hof, Herbststraße · pass it on before the truck comes", b: "link", bl: "Linked · via a friend" },
+  { t: "Kaffee und Nachbarschaft", m: "Sat 16:00 · Café am Yppenplatz · community hangout", b: "hang", bl: "Hangout" },
 ];
 
 /** @type {EventCard} */
-const PRIVATE_EVENT_SEED = { t: "Moon Ceremony", m: "Fri 23:00 · location shared with your web · hosted by Maria’s circle", b: "priv", bl: "Private · your web" };
+const PRIVATE_EVENT_SEED = { t: "Courtyard Supper", m: "Fri 20:00 · courtyard shared with your web · hosted by Maria’s Stiege", b: "priv", bl: "Private · your web" };
 
 /** @type {Offer[]} */
 const OFFERS_SEED = [
-  { id: "speakers", t: "PA speakers (pair)", d: "Warm full-range pair, battery option — carried them to fifty dance floors.", owner: "Lucía", ownerId: "lucia", tier: "Friends", state: "available" },
-  { id: "djtable", t: "DJ table + mixer", d: "Folding table, 4-channel mixer, cabling included.", owner: "Rafa", ownerId: "rafa", tier: "Friends", state: "available" },
-  { id: "cacao", t: "Ceremonial cacao (1kg blocks)", d: "Your own offering to the web.", owner: "You", mine: true, tier: "Friends", state: "available" },
-  { id: "venue", t: "Garden venue (up to 40)", d: "Quiet garden with a wooden deck — mornings and sunsets.", owner: "Sofía", ownerId: "sofia", tier: "Friends", via: "Maria", needsWeb: true, state: "available" },
+  { id: "speakers", t: "PA speakers (pair)", d: "Warm full-range pair, battery option. Good for a courtyard party or a moving-in bash.", owner: "Lucía", ownerId: "lucia", tier: "Friends", state: "available" },
+  { id: "djtable", t: "Folding table + hand truck", d: "Sturdy folding table plus a two-wheel hand truck, straps included. Handy for a Hoffest or moving day.", owner: "Rafa", ownerId: "rafa", tier: "Friends", state: "available" },
+  { id: "drill", t: "Cordless drill + bit set", d: "Your own offering to the web.", owner: "You", mine: true, tier: "Friends", state: "available" },
+  { id: "venue", t: "Shared courtyard (up to 40)", d: "Quiet inner courtyard with a wooden deck, mornings and evenings.", owner: "Sofía", ownerId: "sofia", tier: "Friends", via: "Maria", needsWeb: true, state: "available" },
 ];
 
 // Tier definitions + reach estimates are presentational catalog data, shared
@@ -89,15 +89,15 @@ export const REACH = {
 
 /** Ring-1 = people you've met (trust edges). @type {any[]} */
 const RING1_SEED = [
-  { id: "lucia", n: "Lucía", lvl: "Close friend", deg: 210, offer: "speakers", ctx: "Biodanza — Casa Luna · May" },
-  { id: "rafa", n: "Rafa", lvl: "Friend", deg: 330, ctx: "Ecstatic Dance Palermo · June" },
+  { id: "lucia", n: "Lucía", lvl: "Close friend", deg: 210, offer: "speakers", ctx: "Sperrmüll-Tauschbörse · May" },
+  { id: "rafa", n: "Rafa", lvl: "Friend", deg: 330, ctx: "Nachbarschaftsfest Yppenplatz · June" },
 ];
 /** Ring-2 = people/offers one hop out, always shown with their via-path. @type {any[]} */
 const RING2_SEED = [
   { id: "bruno", n: "Bruno", via: "Lucía", viaId: "lucia", deg: 235, asym: true },
 ];
 /** Maria joins ring-1 after the ceremony; her second ring appears with her. */
-const MARIA_RING1 = { id: "maria", n: "Maria", deg: 90, ctx: "Ecstatic Dance Palermo · today" };
+const MARIA_RING1 = { id: "maria", n: "Maria", deg: 90, ctx: "Nachbarschaftsfest Yppenplatz · today" };
 /** @type {any[]} */
 const MARIA_RING2 = [
   { id: "sofia", n: "Sofía", via: "Maria", viaId: "maria", deg: 55 },
@@ -107,11 +107,11 @@ const MARIA_RING2 = [
 
 /** People list rows. @type {any[]} */
 const PEOPLE_SEED = [
-  { id: "lucia", n: "Lucía", c: "Biodanza — Casa Luna · May", s: "mutual", sl: "Connected" },
-  { id: "rafa", n: "Rafa", c: "Ecstatic Dance Palermo · June", s: "mutual", sl: "Connected" },
-  { id: "tomas", n: "Tomás", c: "Contact Improv Jam · June", s: "out", sl: "Pending" },
+  { id: "lucia", n: "Lucía", c: "Sperrmüll-Tauschbörse · May", s: "mutual", sl: "Connected" },
+  { id: "rafa", n: "Rafa", c: "Nachbarschaftsfest Yppenplatz · June", s: "mutual", sl: "Connected" },
+  { id: "tomas", n: "Tomás", c: "Reparatur-Café Ottakring · June", s: "out", sl: "Pending" },
 ];
-const MARIA_PERSON = { id: "maria", n: "Maria", c: "Ecstatic Dance Palermo · today", s: "mutual", sl: "Connected" };
+const MARIA_PERSON = { id: "maria", n: "Maria", c: "Nachbarschaftsfest Yppenplatz · today", s: "mutual", sl: "Connected" };
 
 /** Names visible per tier (before Maria). @type {Record<string, string[]>} */
 const REACH_NAMES = { commons: ["Lucía", "Rafa", "Tomás", "Bruno"], friends: ["Lucía", "Rafa"], close: ["Lucía"] };
@@ -131,7 +131,7 @@ const FIXTURE_PENDING_MEET = {
   card: { peer: "maria", display: "Maria" },
   display: "Maria",
   initial: "M",
-  ctxLabel: "☀ Ecstatic Dance Palermo · today",
+  ctxLabel: "☀ Nachbarschaftsfest Yppenplatz · today",
 };
 
 /** @typedef {ReturnType<typeof createApiClient>} ApiClient */
@@ -168,7 +168,7 @@ function createFixtureClient(mode, agentUrl) {
   const offers = OFFERS_SEED.map((o) => ({ ...o }));
   /** @type {Record<string, Array<[string, string]>>} */
   const threads = {
-    lucia: [["them", "Bringing the speakers Sunday — can you carry the stands?"], ["me", "Claro! See you at the park 🌞"]],
+    lucia: [["them", "Bringing the speakers Sunday. Can you carry the stands?"], ["me", "Claro! See you at Yppenplatz 🌞"]],
     maria: [["them", "So good to meet you today ✨"]],
   };
 
@@ -317,15 +317,15 @@ function createFixtureClient(mode, agentUrl) {
     return Promise.resolve(null);
   }
 
-  /** Seed the onboarding activity (Rafa's RES-6 cacao extension request). */
+  /** Seed the onboarding activity (Rafa's RES-6 drill extension request). */
   function seed() {
     if (state.seeded) return;
     state.seeded = true;
     pushActivity({
-      icon: "🍫", who: "Rafa", anchor: "RES-6",
-      txt: "wants his web to know about your <b>cacao</b>. Share the offer one ring further, through him?<br><span style='font-size:12px;color:var(--ink-soft)'>You still approve every borrower.</span>",
+      icon: "🔧", who: "Rafa", anchor: "RES-6",
+      txt: "wants his web to know about your <b>drill</b>. Share the offer one ring further, through him?<br><span style='font-size:12px;color:var(--ink-soft)'>You still approve every borrower.</span>",
       actions: [
-        { label: "Share it", kind: "electric", fn: (it) => { const c = offerById("cacao"); if (c) c.extended = true; it.done = true; it.res = "Shared ✓ — your cacao now reaches Rafa’s web through him. Withdraw anytime."; notify(); } },
+        { label: "Share it", kind: "electric", fn: (it) => { const c = offerById("drill"); if (c) c.extended = true; it.done = true; it.res = "Shared ✓. Your drill now reaches Rafa’s web through him. Withdraw anytime."; notify(); } },
         { label: "Keep it close", kind: "ghost", fn: (it) => { it.done = true; it.res = "Kept close. Rafa sees a gentle no."; notify(); } },
       ],
     });
