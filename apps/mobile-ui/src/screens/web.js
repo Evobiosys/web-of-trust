@@ -199,7 +199,7 @@ export function renderPeople() {
       openSheet(
         '<div class="grab"></div><div data-anchor="PPL-2"><h3>' + p.n + "</h3>" +
           '<div class="meta">' + p.c + "</div>" +
-          '<div class="path"><b>Their card</b><br><span style="color:var(--ink-soft)">What ' + p.n + " chooses to share with you: how to reach them, what they're into, what they offer. Updates itself when they change it.</span></div>" +
+          '<div class="path"><b>Their card</b><br><span style="color:var(--ink-soft)">What ' + p.n + " chooses to share with you: how to reach them, what they’re into, what they offer. Updates itself when they change it.</span></div>" +
           '<div class="tagchips" data-anchor="PLC-2"><span class="tagchip">#neighbour</span><span class="tagchip">＋ tag</span></div>' +
           '<button class="btn btn-electric" id="sheetMsg" data-mid="' + p.id + '" data-mn="' + p.n + '">Message</button>' +
           '<button class="btn btn-ghost">Grow this connection</button>' +

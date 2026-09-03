@@ -55,5 +55,12 @@ export const housingProfile: AppProfile = {
     discoverDefault: "offers",
     offerChips: ["Room free", "Couch", "Short stay", "Longer stay"],
     hostFabLabel: "＋ Offer housing",
+    // English-only: mobile-ui has no language toggle (unlike device-ui and
+    // apps/web, where `heading` above is read directly), so the bilingual
+    // "Wer hat ein Dach frei? / Who has a roof to share?" would be the only
+    // German on an otherwise all-English screen. Doesn't touch `heading`
+    // itself — profiles.test.ts pins /Dach/ and /roof/i on it for the apps
+    // that do use it as-is.
+    onboardingHeading: "Ask the people you actually know.",
   },
 };

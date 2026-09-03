@@ -99,7 +99,7 @@ describe("applySkin", () => {
       mount();
       applySkin(getProfile("housing"));
       onb("welcome");
-      expect(el("onbInner").querySelector("h2")?.textContent).toBe(getProfile("housing").heading);
+      expect(el("onbInner").querySelector("h2")?.textContent).toBe(getProfile("housing").mobile?.onboardingHeading);
     });
 
     it("ecstatic keeps the original onboarding heading", () => {

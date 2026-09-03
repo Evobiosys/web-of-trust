@@ -16,7 +16,7 @@ describe("onboarding + guest mode", () => {
     // (mobile-ui's shipped default is housing, not ecstatic).
     applySkin(getProfile("housing"));
     onb("welcome");
-    expect(el("onbInner").textContent).toContain(getProfile("housing").heading);
+    expect(el("onbInner").textContent).toContain(getProfile("housing").mobile?.onboardingHeading);
     expect(el("onbInner").querySelector("#suQuick2")).toBeTruthy();
     expect(el("onbInner").querySelector("#onbLook")).toBeTruthy();
   });
@@ -55,6 +55,6 @@ describe("onboarding + guest mode", () => {
     el("onbLook").click();
     el("joinBtn").click();
     expect(el("onb").classList.contains("on")).toBe(true);
-    expect(el("onbInner").textContent).toContain(getProfile("housing").heading);
+    expect(el("onbInner").textContent).toContain(getProfile("housing").mobile?.onboardingHeading);
   });
 });

@@ -90,8 +90,8 @@ are test fixtures for the live-data code path, not app copy.
 Added a `<details>` block to the Settings screen (the existing "Read the
 source" verse card was the natural place — no new surface needed):
 
-> **Where this app's voice came from** *(collapsed by default)*
-> This app first opened with "Step onto the floor," written for the dancers
+> **Where this app’s voice came from** *(collapsed by default)*
+> This app first opened with “Step onto the floor,” written for the dancers
 > at ecstatic.world, who were the first to ask their own web for floor
 > space, a ride, a sound system to borrow. That way of asking a room for
 > what you need, honestly and person to person, is where this frame grew
@@ -101,6 +101,62 @@ No em dash, no apology, names what the framing gave rather than listing what
 changed. Verified it parses and renders correctly via a jsdom smoke check
 (not added as a formal test — it's static markup, nothing to wire up).
 
+## Follow-up after a second review pass
+
+Three corrections made after re-reviewing the change against the real app
+(not just the tests):
+
+- **The welcome heading was still wrong.** Flipping the default to `housing`
+  meant `applyOnboardingHeading` fell through to `housingProfile.heading`,
+  which is `"Wer hat ein Dach frei? / Who has a roof to share?"` — a
+  bilingual, couch-surfing-specific sentence written for device-ui/apps/web
+  (which have a language toggle). mobile-ui has no toggle and its Discover
+  screen now shows a drill, a hand truck and a Reparatur-Café, not just
+  rooms. Added `housingProfile.mobile.onboardingHeading = "Ask the people
+  you actually know."` — English-only, matches the resource-sharing register,
+  doesn't touch `housingProfile.heading` itself (still pinned by
+  `profiles.test.ts`'s `/Dach/`/`/roof/i` checks for the profiles that use it
+  directly). Re-pinned `onboarding.test.js` (×2) and `skin.test.js` to the
+  new `mobile.onboardingHeading` field instead of `heading`, and added a
+  `profiles.test.ts` assertion that the two stay distinct.
+- **Straight vs curly punctuation**, three spots in the new copy, to match
+  the file's existing convention elsewhere (`phone’s secure storage`,
+  `“Contact” doesn’t open…`): the honorary-mention block (straight `'s` and
+  `"…"` → curly `’s` and `“…”`), `web.js` (straight `they're` → curly
+  `they’re`), `api_client.js` (straight `what's` → curly `what’s`).
+- **Ran `npx vite build`** (not just `tsc`/`vitest`) since `index.html` was
+  edited directly and jsdom parses more forgivingly than a real build. Built
+  clean — the `<details>` insertion is well-formed.
+
+## Verified, not fixed: a guest can already act on real offers under the new default
+
+Flagging this rather than silently fixing it, since it's a behavior change
+outside what the handover asked for and touches `discover.js`'s guest-gating
+logic, not copy.
+
+`housingProfile.mobile.discoverDefault` is `"offers"` (pre-existing, not
+changed by this task). Under the old `ecstatic` default (no
+`discoverDefault` override), a bare load landed a guest on the Gatherings
+tab, where `renderList()` shows the "join to see more" pitch (DIS-5) and
+nothing is actionable. Under the new `housing` default, a bare load lands a
+guest directly on the Offers tab instead — and `renderOffers()` /
+`offerSheet()` in `discover.js` never check `state.guest` at all. I verified
+this directly (harness: `mount()` → `applySkin(getProfile("housing"))` →
+`onb("welcome")` → `guestMode()`): the guest sees all three real offers
+(PA speakers, folding table + hand truck, drill) immediately, and clicking
+one opens a sheet with a live "Ask to borrow" button (`ctx.api.requestBorrow()`),
+with no join-first gate anywhere in that path. The
+DIS-5 pitch still exists and still works, but a guest has to click back to
+"Gatherings" to see it; it's no longer what they see first.
+
+This gap already existed for anyone who explicitly loaded `?app=housing`
+before this change — this task didn't introduce the missing guest check, it
+just made the profile that has it the one most people hit by default. Left
+it alone rather than changing `discover.js`'s request-gating behavior as a
+side effect of a copy task; flagging here so it can be triaged
+(add a `state.guest` check to `renderOffers`/`offerSheet`, or reconsider
+`discoverDefault` for guests specifically) as its own piece of work.
+
 ## Tests / typecheck
 
 Building `packages/protocol`, `packages/transport`, `packages/agent-daemon`,
@@ -108,9 +164,12 @@ Building `packages/protocol`, `packages/transport`, `packages/agent-daemon`,
 worktree had no `dist/` yet after `pnpm install`).
 
 - `apps/mobile-ui`: `npx vitest run` → **75/75 passed**. `npx tsc --noEmit`
-  → clean.
-- `packages/app-profiles`: `npx vitest run` → **16/16 passed**. `npx tsc
-  --noEmit -p tsconfig.json` → clean.
+  → clean. `npx vite build` → clean (162 modules, no parse errors — checked
+  because `index.html` was hand-edited directly).
+- `packages/app-profiles`: `npx vitest run` → **16/16 passed** (extended the
+  existing housing mobile-skin test with two new assertions for
+  `onboardingHeading`, rather than a new `it()`). `npx tsc --noEmit -p
+  tsconfig.json` → clean.
 - No lint tooling is configured for either package (no eslint config in the
   repo, no `lint` script on either package) — nothing to run there.
 - `packages/ew-contract`'s typecheck failure (missing vitest module) is

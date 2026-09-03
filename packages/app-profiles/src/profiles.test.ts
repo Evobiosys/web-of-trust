@@ -113,6 +113,11 @@ describe("profiles", () => {
     expect(m?.discoverDefault).toBe("offers");
     expect(m?.offerChips).toEqual(["Room free", "Couch", "Short stay", "Longer stay"]);
     expect(m?.hostFabLabel).toBe("＋ Offer housing");
+    // English-only override for mobile-ui, which has no language toggle
+    // (unlike device-ui/apps/web, which read `heading` directly) — must not
+    // equal the bilingual `heading` used elsewhere on this same profile.
+    expect(m?.onboardingHeading).toBeTruthy();
+    expect(m?.onboardingHeading).not.toBe(getProfile("housing").heading);
   });
 
   it("family: mobile skin defaults the Meet ceremony to Close friend", () => {

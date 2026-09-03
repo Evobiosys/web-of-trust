@@ -47,7 +47,7 @@ import { createLiveClient } from "./api_client_live.js";
 /** @type {EventCard[]} */
 const EVENTS_SEED = [
   { t: "Nachbarschaftsfest Yppenplatz", m: "Sun 11:00 · Yppenplatz · street stalls and a shared table", b: "pub", bl: "Public" },
-  { t: "Reparatur-Café Ottakring", m: "Tue 19:00 · Pfarrsaal, Wielandgasse · fix what's broken, borrow what you need", b: "pub", bl: "Public" },
+  { t: "Reparatur-Café Ottakring", m: "Tue 19:00 · Pfarrsaal, Wielandgasse · fix what’s broken, borrow what you need", b: "pub", bl: "Public" },
   { t: "Sperrmüll-Tauschbörse", m: "Thu 20:30 · Hof, Herbststraße · pass it on before the truck comes", b: "link", bl: "Linked · via a friend" },
   { t: "Kaffee und Nachbarschaft", m: "Sat 16:00 · Café am Yppenplatz · community hangout", b: "hang", bl: "Hangout" },
 ];
