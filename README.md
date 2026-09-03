@@ -92,3 +92,10 @@ approves — becomes its own node connected to them.
 >
 > **v1 commitment:** actual zero-knowledge properties (asker learns only the aggregate, provably;
 > non-matching peers learn nothing). See [PRIVACY.md](PRIVACY.md).
+
+## Licence
+
+AGPL-3.0-or-later — see [`LICENSE`](LICENSE) for the full text and [`NOTICE`](NOTICE) for what that
+means running this as a network service. The prior licence, AMPL 1.0, is kept for reference at
+[`LICENSE-AMPL-1.0`](LICENSE-AMPL-1.0) and no longer applies. Need terms outside AGPL copyleft?
+Reach out — see NOTICE for why that's the deliberate route rather than a commercial-licence page.

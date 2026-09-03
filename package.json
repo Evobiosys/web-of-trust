@@ -2,6 +2,7 @@
   "name": "resource-web",
   "private": true,
   "version": "0.1.0",
+  "license": "AGPL-3.0-or-later",
   "description": "Async, privacy-preserving resource sharing on a Web of Trust — weekend sprint prototype",
   "scripts": {
     "build": "pnpm -r build",

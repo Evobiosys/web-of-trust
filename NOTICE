@@ -1,0 +1,33 @@
+Resource Web (Ecstatic World — Web of Trust)
+Copyright (c) 2026 Jakob Possert-Bienzle
+
+This work is licensed under the GNU Affero General Public License, version 3
+or (at your option) any later version — AGPL-3.0-or-later. The full text is
+in LICENSE.
+
+What that means in practice for this codebase: it is a network-facing
+service (an agent-daemon, transport, and UIs talking to it). If you run a
+modified version of this code and let other people interact with it over a
+network, the AGPL requires you to offer those users the corresponding
+source of your modified version. Copying, modifying, and self-hosting the
+unmodified code is unrestricted; the obligation is triggered by running a
+*modified* version as a network service for others.
+
+## Prior licence
+
+Earlier versions of this repository were released under the Adapted
+Modular Public License 1.0 (AMPL 1.0, an MPL-2.0-derived licence). That
+text is kept, unmodified, at LICENSE-AMPL-1.0 for reference and citation.
+It no longer applies to the current code; AGPL-3.0-or-later is the
+licence in force.
+
+## Outside AGPL terms
+
+If AGPL-3.0-or-later doesn't work for what you want to build — you need
+terms without the copyleft/network-source obligation, or something closer
+to AMPL — reach out and ask. This isn't a paywall dressed up as an
+invitation: it's deliberate. The point of asking is to find out who is
+building on this work outside a copyleft/commons frame, and to have that
+conversation directly rather than not knowing it's happening.
+
+Kontakt: <TODO: Jakob to fill in>

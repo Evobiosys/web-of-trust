@@ -2,6 +2,15 @@
 
 Async, privacy-preserving resource sharing on a Web of Trust. Two-device sim (Anna asks, Ben owns), TypeScript end-to-end, containers via **podman** (`DOCKER ?= podman` in Makefile — docker absent on this host).
 
+## No push without explicit say-so
+
+**Never push to any remote in this repo without the owner's explicit, per-push permission —
+GitHub in particular.** Three remotes are configured: `github`, `ecstatic-world`, `jakobs-branch`.
+Committing locally is expected and fine at any time; pushing is not — ask first, every time, even
+if a prior push was approved. `github` already carries `alpha`, `cred-provider`, and `rebiosys`
+branches pushed before this rule existed; that history doesn't imply standing permission for new
+pushes.
+
 ## Invariants (violating one = stop and flag)
 - **I1 Local sovereignty:** inventory never leaves the owner's device except local match results + post-consent item details.
 - **I2 Asker blindness:** asker-facing UI/API shows only request status, anonymous aggregate, post-consent room. Never per-peer identity/inventory/response state pre-consent.
