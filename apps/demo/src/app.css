@@ -228,6 +228,20 @@ video.scanner {
   margin-top: 22px;
 }
 
+/*
+ * The pre-paired disclosure. Visible enough that nobody can say it was hidden,
+ * quiet enough that it does not read as an error -- it is not one, it is the
+ * demo being honest about a shortcut it took on purpose.
+ */
+.seeded {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-faint);
+  border-left: 2px solid var(--warn);
+  padding: 2px 0 2px 10px;
+  margin: 8px 0 0;
+}
+
 .err {
   background: color-mix(in srgb, var(--warn) 16%, var(--bg-raised));
   border: 1px solid var(--warn);

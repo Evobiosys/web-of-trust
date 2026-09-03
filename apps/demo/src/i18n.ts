@@ -68,6 +68,14 @@ const S: Table = {
   scanTheirCode:  { de: 'Ihren Code scannen', en: 'Scan their code' },
   connectedWith:  { de: 'Verbunden mit', en: 'Connected with' },
   noConnection:   { de: 'Noch nicht verbunden.', en: 'Not connected yet.' },
+  // Said instead of connectedWith while the pairing came from the demo seed.
+  // "Vorgekoppelt" is deliberately a slightly odd word: it should make someone
+  // ask what it means, and the answer is the honest one.
+  seededWith:     { de: 'Vorgekoppelt mit', en: 'Pre-paired with' },
+  seededNote:     {
+    de: 'Für diese Demo voreingestellt. Diese Kopplung ist nicht im Raum entstanden. Über „Verbinden“ könnt ihr sie jetzt wirklich herstellen.',
+    en: 'Pre-set for this demo. This pairing was not created in the room. Use "Connect" to make it real.',
+  },
 
   // ask
   askTitle:       { de: 'Was möchtest du wissen?', en: 'What do you want to know?' },

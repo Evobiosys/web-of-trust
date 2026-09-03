@@ -120,6 +120,12 @@ async function seedPersona(id: string, displayName: string, role: 'holder' | 'se
   // part that matters. Both devices seed the same fixed nonce pair, so both
   // derive the same key with or without the ceremony, and re-running the
   // ceremony for real simply overwrites these with fresh nonces.
+  //
+  // `seeded: true` is what keeps this convenience from becoming a lie. Every
+  // screen that mentions the pairing reads this flag and says "vorgekoppelt
+  // für diese Demo" instead of "verbunden mit". An app whose whole pitch is
+  // that you can trust what it tells you cannot open by telling you something
+  // that is not so.
   const other = PERSONAS.find((p) => p.id !== id)
   const peers = other
     ? [{
@@ -129,6 +135,7 @@ async function seedPersona(id: string, displayName: string, role: 'holder' | 'se
         noncePeer: DEMO_NONCE[other.id] ?? randomId(16),
         connectedAt: Date.now(),
         blocked: false,
+        seeded: true,
       }]
     : []
   state = { me: { id, displayName }, threads, peers }
@@ -146,6 +153,20 @@ const DEMO_NONCE: Record<string, string> = {
 // home
 // ---------------------------------------------------------------------------
 
+/**
+ * The one sentence every screen uses to describe the pairing.
+ *
+ * Three states, three different sentences, and they must not blur into each
+ * other: no peer at all, a seeded peer (the demo put it there), and a peer two
+ * people actually created by holding phones up to each other. Centralised so a
+ * new screen cannot accidentally reintroduce the claim we just removed.
+ */
+function peerStatusLine(peer: Peer | undefined): string {
+  if (!peer) return t('noConnection')
+  if (peer.seeded) return t('seededWith') + ' ' + peer.displayName
+  return t('connectedWith') + ' ' + peer.displayName
+}
+
 function screenHome(): void {
   const s = state as DeviceState
   const peer = s.peers[0]
@@ -153,7 +174,8 @@ function screenHome(): void {
     el('h1', {}, [t('appName')]),
     el('div', { class: 'card' }, [
       el('h3', {}, [t('navConnect')]),
-      el('p', {}, [peer ? t('connectedWith') + ' ' + peer.displayName : t('noConnection')]),
+      el('p', {}, [peerStatusLine(peer)]),
+      peer?.seeded ? el('p', { class: 'seeded' }, [t('seededNote')]) : null,
       el('button', { class: 'btn', onclick: () => go('connect') }, [t('navConnect')]),
     ]),
     el('button', { class: 'btn primary', onclick: () => go('ask') }, [t('navAsk')]),
@@ -260,8 +282,10 @@ function screenConnect(): void {
     el('h1', {}, [t('connectTitle')]),
     el('p', { class: 'lead' }, [t('connectLead')]),
     peer ? el('div', { class: 'card' }, [
-      el('h3', {}, [t('connectedWith') + ' ' + peer.displayName]),
-      el('p', {}, [new Date(peer.connectedAt).toLocaleString(getLang() === 'de' ? 'de-AT' : 'en-GB')]),
+      el('h3', {}, [peerStatusLine(peer)]),
+      peer.seeded
+        ? el('p', { class: 'seeded' }, [t('seededNote')])
+        : el('p', {}, [new Date(peer.connectedAt).toLocaleString(getLang() === 'de' ? 'de-AT' : 'en-GB')]),
     ]) : null,
     el('button', { class: 'btn primary', onclick: () => void showMyConnectCode() }, [t('showMyCode')]),
     el('button', { class: 'btn', onclick: () => void scanConnectCode() }, [t('scanTheirCode')]),
@@ -296,6 +320,9 @@ async function scanConnectCode(): Promise<void> {
     const s = state as DeviceState
     const self = pendingSelfNonce ?? s.peers[0]?.nonceSelf ?? randomId(16)
     pendingSelfNonce = self
+    // A completed ceremony is the ONLY thing that clears `seeded`: two people
+    // exchanged codes in a room, so the app has finally earned the sentence
+    // "verbunden mit".
     upsertPeer(s, {
       id: env.from.id,
       displayName: env.from.displayName,
@@ -303,6 +330,7 @@ async function scanConnectCode(): Promise<void> {
       noncePeer: env.nonce,
       connectedAt: Date.now(),
       blocked: false,
+      seeded: false,
     })
     await saveState(s)
     go('connect')

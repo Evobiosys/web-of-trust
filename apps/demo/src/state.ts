@@ -13,6 +13,17 @@ export interface Peer {
   noncePeer: string
   connectedAt: number
   blocked: boolean
+  /**
+   * True while this pairing came from the demo seed rather than from a QR
+   * ceremony two people actually performed.
+   *
+   * The seeded pairing stays (a camera that misbehaves must not cost us the
+   * part of the demo that matters), but the UI must never render it as
+   * "Verbunden mit Marlene". Claiming a connection that did not happen is the
+   * one thing that would make everything else we say about this app suspect.
+   * Cleared the moment a real ceremony completes.
+   */
+  seeded?: boolean
 }
 
 export interface DeviceState {
@@ -88,9 +99,22 @@ export function findPeer(s: DeviceState, id: string): Peer | undefined {
   return s.peers.find((p) => p.id === id)
 }
 
-/** Upsert a peer, keeping the earliest connectedAt so the trust history stays honest. */
+/**
+ * Upsert a peer, keeping the earliest connectedAt so the trust history stays
+ * honest.
+ *
+ * One exception: replacing a SEEDED pairing. Its `connectedAt` is the moment
+ * the app was opened, not a moment two people met, so carrying it forward
+ * would backdate a real connection to a fictional one. A real ceremony
+ * overwriting a seeded peer therefore keeps its own timestamp -- the earliest
+ * *genuine* connection is still the one that survives.
+ */
 export function upsertPeer(s: DeviceState, p: Peer): void {
   const i = s.peers.findIndex((x) => x.id === p.id)
-  if (i >= 0) s.peers[i] = { ...p, connectedAt: s.peers[i].connectedAt }
-  else s.peers.push(p)
+  if (i >= 0) {
+    const prior = s.peers[i]
+    s.peers[i] = { ...p, connectedAt: prior.seeded ? p.connectedAt : prior.connectedAt }
+  } else {
+    s.peers.push(p)
+  }
 }
