@@ -30,6 +30,8 @@ const S: Table = {
 
   // nav
   navChats:       { de: 'Meine Chats', en: 'My chats' },
+  navProfile:     { de: 'Mein Profil', en: 'My profile' },
+  navInventory:   { de: 'Was ich habe', en: 'What I have' },
   navConnect:     { de: 'Verbinden', en: 'Connect' },
   navAsk:         { de: 'Fragen', en: 'Ask' },
   navAnswer:      { de: 'Anfrage beantworten', en: 'Answer a request' },
@@ -59,6 +61,24 @@ const S: Table = {
   kindDirect:     { de: 'Einzelchat', en: 'One-to-one' },
   importFailed:   { de: 'Diese Datei konnte nicht gelesen werden.', en: 'That file could not be read.' },
   importedOk:     { de: 'Importiert', en: 'Imported' },
+
+  // profile
+  profileLead:    { de: 'Dieses Profil bleibt auf deinem Gerät. Nichts davon geht an eine Anfrage, außer du stimmst im Moment der Anfrage ausdrücklich zu.',
+                    en: 'This profile stays on your device. None of it goes into a request unless you explicitly agree at the moment of the request.' },
+  profileName:    { de: 'Anzeigename', en: 'Display name' },
+  profileBio:     { de: 'Was mich ausmacht', en: 'About me' },
+  profileGraetzl: { de: 'Grätzl', en: 'Neighbourhood' },
+  profileLangs:   { de: 'Sprachen', en: 'Languages' },
+  profileLangsHint: { de: 'Kommagetrennt', en: 'Comma-separated' },
+
+  // inventory
+  inventoryLead:  { de: 'Dinge, die du hast, weißt oder anbieten kannst. Du trägst sie selbst ein, sie zählen bei Anfragen genauso wie deine Chats.',
+                    en: 'Things you have, know or can offer. You enter them yourself; they count in requests exactly like your chats.' },
+  inventoryEmpty: { de: 'Du hast noch nichts eingetragen.', en: "You haven't entered anything yet." },
+  inventoryPh:    { de: 'z. B. Ich krieg mit, wenn bei uns im Haus eine Wohnung frei wird',
+                    en: 'e.g. I hear about it when a flat in our building comes free' },
+  addEntry:       { de: 'Hinzufügen', en: 'Add' },
+  removeEntry:    { de: 'Entfernen', en: 'Remove' },
 
   // connect
   connectTitle:   { de: 'Verbinden', en: 'Connect' },

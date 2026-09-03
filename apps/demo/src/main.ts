@@ -5,6 +5,8 @@ import { renderQr, keepAwake } from './ui/qr'
 import { scanQr, cameraPlausible } from './ui/scanner'
 import { loadState, saveState, resetAll, threadsInScope, upsertPeer, PERSONAS } from './state'
 import type { DeviceState, Peer } from './state'
+import { renderProfile } from './screens/profile'
+import { renderInventory } from './screens/inventory'
 import { detectAndParse } from './parse/index'
 import { matchTemplate } from './match/lexical'
 import { TEMPLATES, getTemplate } from './data/templates'
@@ -23,7 +25,7 @@ const root = document.getElementById('app') as HTMLElement
 let state: DeviceState | null = null
 let releaseWake: () => void = () => {}
 
-type Screen = 'start' | 'home' | 'chats' | 'connect' | 'ask' | 'answer'
+type Screen = 'start' | 'home' | 'chats' | 'profile' | 'inventory' | 'connect' | 'ask' | 'answer'
 let screen: Screen = 'start'
 
 function shell(title: string, body: HTMLElement, opts: { back?: () => void } = {}): void {
@@ -57,7 +59,9 @@ function go(s: Screen): void { screen = s; render() }
 function render(): void {
   if (!state) return void screenStart()
   switch (screen) {
-    case 'chats':   return screenChats()
+    case 'chats':     return screenChats()
+    case 'profile':   return screenProfile()
+    case 'inventory': return screenInventory()
     case 'connect': return screenConnect()
     case 'ask':     return screenAsk()
     case 'answer':  return screenAnswer()
@@ -100,6 +104,7 @@ function screenStart(): void {
 }
 
 async function seedPersona(id: string, displayName: string, role: 'holder' | 'seeker'): Promise<void> {
+  const persona = PERSONAS.find((p) => p.id === id)
   const threads: ChatThread[] = []
   if (role === 'holder') {
     // The holder carries the neighbourhood group, and one direct chat that is
@@ -138,7 +143,18 @@ async function seedPersona(id: string, displayName: string, role: 'holder' | 'se
         seeded: true,
       }]
     : []
-  state = { me: { id, displayName }, threads, peers }
+  // Deep-copy the persona's seed profile/inventory rather than referencing
+  // PERSONAS directly: PERSONAS is a module-level constant, shared across
+  // every seedPersona() call (including a demo reset), and inventory rows
+  // get their own id/createdAt fresh each time rather than reusing the
+  // template's.
+  const profile = persona ? { ...persona.profile, languages: [...persona.profile.languages] } : { displayName, bio: '', neighbourhood: '', languages: [] }
+  const inventory = (persona?.inventorySeed ?? []).map((seed) => ({
+    ...seed,
+    id: randomId(8),
+    createdAt: new Date().toISOString(),
+  }))
+  state = { me: { id, displayName }, threads, peers, profile, inventory }
   await saveState(state)
   go('home')
 }
@@ -183,6 +199,10 @@ function screenHome(): void {
     el('button', { class: 'btn quiet', onclick: () => go('chats') }, [
       t('navChats') + ' (' + s.threads.length + ')',
     ]),
+    el('button', { class: 'btn quiet', onclick: () => go('inventory') }, [
+      t('navInventory') + ' (' + s.inventory.length + ')',
+    ]),
+    el('button', { class: 'btn quiet', onclick: () => go('profile') }, [t('navProfile')]),
     el('div', { class: 'note' }, [
       el('button', {
         class: 'btn danger',
@@ -269,6 +289,26 @@ async function onImport(input: HTMLInputElement): Promise<void> {
   }
   input.value = ''
   render()
+}
+
+// ---------------------------------------------------------------------------
+// profile and inventory: thin wrappers, real content lives in src/screens/
+// ---------------------------------------------------------------------------
+
+function screenProfile(): void {
+  const s = state as DeviceState
+  const body = renderProfile(
+    s,
+    () => void saveState(s),
+    () => { void saveState(s); render() /* topbar name may have changed */ },
+  )
+  shell(t('navProfile'), body, { back: () => go('home') })
+}
+
+function screenInventory(): void {
+  const s = state as DeviceState
+  const body = renderInventory(s, () => void saveState(s), () => go('inventory'))
+  shell(t('navInventory'), body, { back: () => go('home') })
 }
 
 // ---------------------------------------------------------------------------

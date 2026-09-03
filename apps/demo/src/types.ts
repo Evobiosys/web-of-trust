@@ -15,6 +15,13 @@ export type ChatSource =
   | 'signal-desktop'
   | 'telegram-json'
   | 'seed'
+  /**
+   * Not an import: a thread synthesized from an inventory entry she typed
+   * in herself. See state.ts's inventoryThreads(). Kept distinct from
+   * 'seed' so a source dump never mislabels her own words as demo fixture
+   * data.
+   */
+  | 'self'
 
 export interface ChatMessage {
   /** ISO-8601 local timestamp as parsed from the export. */
@@ -38,6 +45,47 @@ export interface ChatThread {
    * Whether this thread is in scope for queries.
    * Groups default to true, 1-on-1 threads default to FALSE: the user opts in
    * to direct conversations, never the other way round.
+   */
+  included: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Profile: who this person is, local to their own device
+// ---------------------------------------------------------------------------
+
+/**
+ * A person's own profile. Lives in DeviceState, same as `threads` and
+ * `inventory`, and is subject to the identical rule: nothing here reaches a
+ * requester except through the existing Gate-2 consent step in gate.ts. This
+ * demo build does not surface any profile field in an AnswerEnvelope at all
+ * -- see gate.ts's GateInput, which has no `profile` field to plumb one
+ * through, and test/gate_profile_privacy.test.ts, which pins that shut.
+ */
+export interface Profile {
+  displayName: string
+  /** "Was mich ausmacht" -- a short self-description, in her own words. */
+  bio: string
+  /** Grätzl / neighbourhood, e.g. "Ottakring". Free text, not a picklist. */
+  neighbourhood: string
+  languages: string[]
+}
+
+// ---------------------------------------------------------------------------
+// Her own inventory: things she has, knows or can offer, typed in herself
+// ---------------------------------------------------------------------------
+
+export interface InventoryItem {
+  id: string
+  text: string
+  /** ISO-8601 local timestamp of when she typed it in. */
+  createdAt: string
+  /**
+   * Whether this entry is in scope for matching. Defaults to TRUE when a
+   * new entry is created (see state.ts's addInventoryItem) -- the opposite
+   * default from ChatThread.included on a 1-on-1 thread below, and
+   * deliberately so: a 1-on-1 chat's content originates with someone else
+   * and she is opting IN to exposing it, whereas an inventory entry is
+   * something she sat down and typed on purpose, so it starts visible.
    */
   included: boolean
 }
