@@ -174,12 +174,21 @@ const run = async () => {
   const mDecline = await freshMarlene(browser)
   const aDecline = await answerAs(mDecline.page, qB, 'decline')
 
-  // Same question, but this Marlene has switched her group off, so there is
-  // genuinely nothing to find.
+  // Same question, but this Marlene has switched off EVERY source she has, so
+  // there is genuinely nothing to find. Both sources matter: her chat group,
+  // and "Was ich habe" -- one of her seeded entries is deliberately phrased to
+  // answer the housing question (that is the "type a line, then find that
+  // line" beat), so leaving it on would mean this control device still had a
+  // match and the byte-identity proof below would be comparing the wrong two
+  // things.
   const mEmpty = await freshMarlene(browser)
   await mEmpty.page.getByRole('button', { name: /^Meine Chats/ }).click()
   const groupRow = mEmpty.page.locator('.thread').filter({ hasText: /Grätzl/i })
   await groupRow.locator('input[type=checkbox]').uncheck()
+  await mEmpty.page.getByRole('button', { name: /^Zurück$/ }).first().click()
+  await mEmpty.page.getByRole('button', { name: /^Was ich habe/ }).click()
+  const entryBoxes = mEmpty.page.locator('.entry input[type=checkbox]')
+  for (let i = 0; i < (await entryBoxes.count()); i++) await entryBoxes.nth(i).uncheck()
   await mEmpty.page.getByRole('button', { name: /^Zurück$/ }).first().click()
   const aEmpty = await answerAs(mEmpty.page, qB, 'share')
 

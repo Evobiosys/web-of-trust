@@ -12,7 +12,10 @@
  * This exists so that a phone which loaded the page once at home still works if
  * the venue network is bad or DNS misbehaves.
  */
-const CACHE = 'wot-demo-v1'
+// Bumped when a deploy must invalidate whatever a phone already holds. The
+// activate handler deletes every cache whose name is not this one, so a
+// device that loaded a broken build gets a clean slate on its next visit.
+const CACHE = 'wot-demo-v2'
 
 self.addEventListener('install', (e) => {
   self.skipWaiting()

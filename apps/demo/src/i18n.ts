@@ -88,6 +88,14 @@ const S: Table = {
   scanTheirCode:  { de: 'Ihren Code scannen', en: 'Scan their code' },
   connectedWith:  { de: 'Verbunden mit', en: 'Connected with' },
   noConnection:   { de: 'Noch nicht verbunden.', en: 'Not connected yet.' },
+  // Said after a scan actually worked. The camera view used to just close,
+  // which from the phone in your hand looks exactly like a crash.
+  scanOkTitle:    { de: 'Code übernommen', en: 'Code accepted' },
+  scanOkWith:     { de: 'Verbunden mit', en: 'Connected with' },
+  scanOkNext:     {
+    de: 'Auf dem anderen Gerät ist noch nichts zu sehen: In dieser Betriebsart geht nichts über ein Netz, also kann es nicht wissen, dass sein Code gelesen wurde. Zeig jetzt deinen Code her, damit die andere Seite ihn scannt. Dann sind beide sicher.',
+    en: 'The other device still shows nothing: in this mode nothing travels over a network, so it cannot know its code was read. Show your own code now so the other side can scan it. Then both of you are sure.',
+  },
   // Said instead of connectedWith while the pairing came from the demo seed.
   // "Vorgekoppelt" is deliberately a slightly odd word: it should make someone
   // ask what it means, and the answer is the honest one.

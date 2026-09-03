@@ -373,9 +373,36 @@ async function scanConnectCode(): Promise<void> {
       seeded: false,
     })
     await saveState(s)
-    go('connect')
+    scanSucceeded(env.from.displayName)
     return { ok: true }
   }, () => go('connect'))
+}
+
+/**
+ * Say, out loud, that the scan worked.
+ *
+ * Before this screen existed the camera view simply closed on a successful
+ * scan and the app returned to a list. From the person holding the phone that
+ * is indistinguishable from a crash, and it is what actually happened in
+ * testing: "I scanned the code but I didn't see any confirmation."
+ *
+ * It also answers the question the other device cannot: in this mode nothing
+ * travels over a network, so the phone showing the code has no way to learn
+ * that it was read. The only way both sides end up sure is for the scan to go
+ * both ways, so the primary action here is to show your own code back.
+ */
+function scanSucceeded(peerName: string): void {
+  const body = el('div', {}, [
+    el('div', { class: 'outcome shared' }, [
+      el('div', { class: 'glyph' }, ['✓']),
+      el('b', {}, [t('scanOkTitle')]),
+      el('span', {}, [t('scanOkWith') + ' ' + peerName]),
+    ]),
+    el('p', {}, [t('scanOkNext')]),
+    el('button', { class: 'btn primary', onclick: () => void showMyConnectCode() }, [t('showMyCode')]),
+    el('button', { class: 'btn quiet', onclick: () => go('home') }, [t('back')]),
+  ])
+  shell(t('navConnect'), body, { back: () => go('home') })
 }
 
 /** Both sides must derive the same key, so the nonce order is canonical, not positional. */
@@ -657,6 +684,10 @@ async function scanScreen(
     if (!r.ok) {
       clear(errBox)
       errBox.appendChild(el('div', { class: 'err' }, [r.msg]))
+      // The error box sits above the camera view, which on a phone is often
+      // scrolled out of sight by the time a scan fails. An error nobody sees
+      // is the same as no error at all.
+      errBox.scrollIntoView({ block: 'center', behavior: 'smooth' })
       if (restart) start()
     }
   }
