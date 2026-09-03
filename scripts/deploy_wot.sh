@@ -6,6 +6,7 @@
 #   idea2.site/wot             302 -> /web-of-trust/
 #   app.idea2.site/wot/demo/   front door + demo overview    (apps/hub)
 #   app.idea2.site/wot/demo1/  chat-group query, QR only     (apps/demo)
+#   app.idea2.site/wot/demo2/  same, but over the relay       (apps/demo, VITE_WOT_MODE=relay)
 #   app.idea2.site/wot/demo4/  full app mockup               (demos/app-mockup.html)
 #   app.idea2.site/wot/demo5/  gating prototype              (demos/gating-prototype.html)
 #   app.idea2.site/wot/app/    mobile-UI LAN alpha client    (apps/mobile-ui)
@@ -58,21 +59,27 @@ push_page() {
   echo "  pushed  $(basename "$src") -> $dest/index.html"
 }
 
-echo "building demo1 (base /wot/demo1/)"
+echo "building and pushing demo1 (base /wot/demo1/, QR only)"
 ( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo1/ npx vite build >/dev/null )
+push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo1"
+
+# Demo 2 is the SAME app with the transport switched at build time, so it
+# reuses dist/. Each build is pushed immediately, before the next overwrites it.
+echo "building and pushing demo2 (base /wot/demo2/, over the relay)"
+( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo2/ VITE_WOT_MODE=relay npx vite build >/dev/null )
+push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo2"
 
 # mobile-ui takes its base on the CLI (no base in its vite.config). It used to
 # be built with --base=/wot-app/ and served from questhub.eco; those absolute
 # asset paths are why it could not simply be re-routed onto idea2.
-echo "building the mobile-ui app (base /wot/app/)"
+echo "building and pushing the mobile-ui app (base /wot/app/)"
 ( cd "$REPO/apps/mobile-ui" && npx vite build --base=/wot/app/ >/dev/null )
+push_dir  "$REPO/apps/mobile-ui/dist"          "$REMOTE_APP/app"
 
-echo "pushing"
-push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo1"
+echo "pushing the static pages"
 push_dir  "$REPO/apps/hub"                     "$REMOTE_APP/demo"
 push_page "$REPO/demos/app-mockup.html"        "$REMOTE_APP/demo4"
 push_page "$REPO/demos/gating-prototype.html"  "$REMOTE_APP/demo5"
-push_dir  "$REPO/apps/mobile-ui/dist"          "$REMOTE_APP/app"
 
 echo "--------"
 echo "verifying (a 200 for each, with AND without the trailing slash)"
@@ -84,6 +91,8 @@ for u in \
   "https://app.idea2.site/wot/demo1/" \
   "https://app.idea2.site/wot/demo1" \
   "https://app.idea2.site/wot/demo1/nachweis/" \
+  "https://app.idea2.site/wot/demo2/" \
+  "https://app.idea2.site/wot/demo2" \
   "https://app.idea2.site/wot/demo4/" \
   "https://app.idea2.site/wot/demo5/" \
   "https://app.idea2.site/wot/app/" \
