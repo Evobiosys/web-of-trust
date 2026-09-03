@@ -177,6 +177,53 @@ const S: Table = {
     en: 'Questions and answers now travel through a relay server instead of the code. It cannot read the content: the key for that was only exchanged between your devices while connecting, never sent to it. It does see who sends something to whom, and when. And: the connection itself is not mutually verified, anyone who saw both codes while you connected could compute the same key.',
   },
 
+  // webrtc mode (demo 3): the data-channel ceremony -- two QR codes open a
+  // direct channel, no server in the path. See webrtc.ts's module doc for
+  // exactly what this rung does and does not protect.
+  webrtcCardTitle: { de: 'Direktverbindung (WebRTC)', en: 'Direct connection (WebRTC)' },
+  webrtcExplain: {
+    de: 'Hier laufen Frage und Antwort direkt zwischen euren Geräten, ganz ohne Server. Der Aufbau braucht zwei Codes: einer bietet an, der andere nimmt an. Danach reist alles über diese Verbindung, ohne weiteres Scannen. Was das nicht schützt: eure Geräte lernen die lokale Netzadresse der Gegenseite, wie beim Verbinden im selben Raum, und wer im selben WLAN mitschneidet, sieht Zeitpunkt und Größe der Datenpakete, auch wenn er den Inhalt nicht lesen kann. Über getrennte Netze (z. B. Mobilfunk zu WLAN) funktioniert das meist nicht, weil dafür ein Vermittlungsserver nötig wäre, den es hier nicht gibt.',
+    en: 'Here questions and answers travel directly between your devices, with no server at all. Setting it up takes two codes: one side offers, the other accepts. After that everything travels over this connection, no more scanning. What this does not protect: your devices learn each other’s local network address, the same as connecting in the same room, and anyone recording traffic on the same Wi-Fi sees the timing and size of the packets, even without reading the content. Across separate networks (say, mobile data to Wi-Fi) this usually will not work, because that needs a relay server, which does not exist here.',
+  },
+  webrtcOfferBtn: { de: 'Verbindung anbieten', en: 'Offer a connection' },
+  webrtcAcceptBtn: { de: 'Verbindung annehmen', en: 'Accept a connection' },
+  webrtcShowOffer: { de: 'Mein Angebot zeigen', en: 'Show my offer' },
+  webrtcOfferHint: { de: 'Halte diesen Code vor das andere Gerät. Es scannt ihn und zeigt dir seine Antwort zurück.',
+                      en: 'Hold this code up to the other device. It scans it and shows you its answer in return.' },
+  webrtcScanAnswer: { de: 'Antwort scannen', en: 'Scan the answer' },
+  webrtcScanOffer: { de: 'Angebot scannen', en: 'Scan the offer' },
+  webrtcShowAnswer: { de: 'Meine Antwort zeigen', en: 'Show my answer' },
+  webrtcAnswerHint: { de: 'Halte diesen Code vor das anbietende Gerät.', en: 'Hold this code up to the offering device.' },
+  webrtcAnswerDone: { de: 'Verbindung prüfen', en: 'Check the connection' },
+  webrtcGathering: { de: 'Bereite Angebot vor…', en: 'Preparing the offer…' },
+  webrtcConnecting: { de: 'Baue Direktverbindung auf…', en: 'Building the direct connection…' },
+  webrtcOpen: { de: 'Verbunden, kein Server beteiligt.', en: 'Connected, no server involved.' },
+  webrtcFailedTitle: { de: 'Direktverbindung nicht zustande gekommen', en: 'Direct connection did not come together' },
+  webrtcFailedBody: {
+    de: 'Das kommt vor, wenn die Geräte nicht im selben Netz sind, das WLAN Geräte gegeneinander abschottet, oder eine Firewall dazwischenfunkt. Ohne eigenen Vermittlungsserver kann diese Betriebsart das nicht umgehen.',
+    en: 'This happens when the devices are not on the same network, the Wi-Fi isolates devices from each other, or a firewall gets in the way. Without its own relay server this mode cannot work around that.',
+  },
+  webrtcTryServer: { de: 'Über den Server versuchen', en: 'Try over the server' },
+  webrtcBackToConnect: { de: 'Zurück zu „Verbinden“', en: 'Back to "Connect"' },
+  webrtcAskInFlight: { de: 'Frage unterwegs, direkt zum anderen Gerät…', en: 'Question on its way, directly to the other device…' },
+  webrtcTimeout: {
+    de: 'Keine Antwort über die Direktverbindung. Der Datenkanal kann in der Zwischenzeit abgebrochen sein.',
+    en: 'No answer over the direct connection. The data channel may have dropped in the meantime.',
+  },
+
+  // ladder mode (demo 6): same webrtc ceremony as demo 3, but ask/answer try
+  // it automatically and fall to the relay on failure -- the visible rung
+  // indicator IS the demo.
+  ladderExplain: {
+    de: 'Diese Vorführung probiert zuerst die Direktverbindung ohne Server. Klappt das nicht oder bricht ab, wechselt sie von selbst auf den Vermittlungsserver aus Demo 2, und du siehst, welche Stufe gerade läuft.',
+    en: 'This demo tries the direct, server-free connection first. If that does not work or drops, it switches on its own to the relay server from demo 2, and you can see which rung is currently in use.',
+  },
+  rungWebrtc: { de: 'Stufe 2 · WebRTC · kein Server', en: 'Rung 2 · WebRTC · no server' },
+  rungRelay: { de: 'Stufe 3 · über den Server', en: 'Rung 3 · over the server' },
+  rungRelayAfterWebrtc: { de: 'Stufe 3 · über den Server (Direktverbindung war nicht erreichbar)',
+                           en: 'Rung 3 · over the server (direct connection was not reachable)' },
+  rungQr: { de: 'Stufe 1 · nur QR-Code', en: 'Rung 1 · QR code only' },
+
   camAsk:         { de: 'Kamera erlauben', en: 'Allow camera' },
   camDenied:      { de: 'Ohne Kamera geht das Scannen nicht. Du kannst den Code auch als Text übertragen.',
                     en: 'Scanning needs the camera. You can also transfer the code as text.' },

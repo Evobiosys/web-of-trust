@@ -21,6 +21,8 @@ import { wotMode } from './mode'
 import { createRelayChannel } from './relay'
 import type { RelayChannel, RelayStatus } from './relay'
 import { ensureRelayIdentity } from './relay_identity'
+import { createWebrtcChannel, decodeRtcPayload, encodeAnswerPayload, encodeOfferPayload } from './webrtc'
+import type { WebrtcChannel, WebrtcStatus } from './webrtc'
 
 // ---------------------------------------------------------------------------
 // shell
@@ -51,6 +53,67 @@ let relayStatusBadgeEl: HTMLElement | null = null
 let pendingIncomingQuery: QueryEnvelope | null = null
 /** The one query this device is currently waiting on an answer for, if any. */
 let awaitingAnswer: { qid: string; resolve: (env: AnswerEnvelope) => void } | null = null
+
+// ---------------------------------------------------------------------------
+// webrtc mode (demo 3) and ladder mode (demo 6): rung 2, a data channel with
+// no server in the path. Inert (never created) when wotMode() is 'qr' or
+// 'relay'. See webrtc.ts's module doc for what this rung does and does not
+// protect, and webrtc_sdp.ts for why an SDP fits a QR at all.
+// ---------------------------------------------------------------------------
+
+let webrtcChannel: (WebrtcChannel & {
+  createOffer: () => Promise<import('./webrtc_sdp').TightIceOffer>
+  acceptAnswer: (a: import('./webrtc_sdp').TightIceOffer) => Promise<void>
+  acceptOffer: (o: import('./webrtc_sdp').TightIceOffer) => Promise<import('./webrtc_sdp').TightIceOffer>
+}) | null = null
+let webrtcStatusBadgeEl: HTMLElement | null = null
+
+/**
+ * Set by demo 3's "über den Server versuchen" escape hatch (webrtc connect
+ * failed or timed out) and by ladder mode's per-ask automatic fall-through.
+ * Once true, ask/answer route over the relay for the rest of the session --
+ * demo 3 never silently retries webrtc after a human has explicitly opted
+ * out of the "no server" claim for this pairing.
+ */
+let useRelayFallback = false
+
+/** Which rung actually carried the last ask/answer -- ladder mode's whole
+ *  point is making this visible, not just true. */
+type Rung = 'qr' | 'webrtc' | 'relay'
+let lastRung: Rung | null = null
+
+function webrtcStatusText(status: WebrtcStatus): string {
+  switch (status) {
+    case 'gathering-offer':
+    case 'gathering-answer':
+      return t('webrtcGathering')
+    case 'awaiting-answer':
+    case 'connecting':
+      return t('webrtcConnecting')
+    case 'open':
+      return t('webrtcOpen')
+    case 'failed':
+      return t('webrtcFailedTitle')
+    default:
+      return t('noConnection')
+  }
+}
+
+function mountWebrtcStatusBadge(): HTMLElement {
+  const badge = el('p', { class: 'note' }, [webrtcChannel ? webrtcStatusText(webrtcChannel.status()) : t('noConnection')])
+  webrtcStatusBadgeEl = badge
+  return badge
+}
+
+function updateWebrtcStatusBadge(): void {
+  if (webrtcStatusBadgeEl && webrtcChannel) webrtcStatusBadgeEl.textContent = webrtcStatusText(webrtcChannel.status())
+}
+
+function rungBadgeText(rung: Rung): string {
+  if (rung === 'webrtc') return t('rungWebrtc')
+  if (rung === 'relay') return useRelayFallback && webrtcChannel ? t('rungRelayAfterWebrtc') : t('rungRelay')
+  return t('rungQr')
+}
 
 function relayStatusText(): string {
   const label =
@@ -89,10 +152,14 @@ async function registerRelaySink(): Promise<void> {
   relayChannel.onEnvelope(key, handleIncomingEnvelope)
 }
 
-/** Dispatches a decrypted, validated inbound envelope arriving from the
- *  relay. Never called at all when wotMode() === 'qr' (no channel is ever
- *  created there). */
-function handleIncomingEnvelope(env: Envelope, _fromDid: string): void {
+/** Dispatches a decrypted, validated inbound envelope. Registered as the
+ *  inbound sink for BOTH relay.ts's `onEnvelope(key, cb)` (2-arg,
+ *  `fromDid` unused here -- routing already narrowed to "the one paired
+ *  peer", see below) and webrtc.ts's `onEnvelope(cb)` (1-arg) -- `_fromDid`
+ *  is therefore optional, not just unused, so this one function satisfies
+ *  both channel shapes. Never called at all when wotMode() === 'qr' (no
+ *  channel is ever created there). */
+function handleIncomingEnvelope(env: Envelope, _fromDid?: string): void {
   if (env.t === 'answer') {
     if (awaitingAnswer && env.qid === awaitingAnswer.qid) awaitingAnswer.resolve(env)
     return
@@ -120,8 +187,19 @@ function handleIncomingEnvelope(env: Envelope, _fromDid: string): void {
  * background, its status reflected by the badge, never a blocking spinner.
  */
 async function initRelaySession(): Promise<void> {
-  if (wotMode() !== 'relay' || !state || relayChannel) return
-  const identity = await ensureRelayIdentity(state)
+  // Ladder mode (demo 6) needs the relay live from the start -- it is rung
+  // 3, the automatic fall-through, not something a human opts into. Webrtc
+  // mode (demo 3) never calls this from boot/seedPersona; there the relay
+  // is only ever brought up on demand, by ensureRelayFallback() below, once
+  // a person has explicitly tapped "über den Server versuchen".
+  if ((wotMode() !== 'relay' && wotMode() !== 'ladder') || !state || relayChannel) return
+  await bringUpRelayChannel(state)
+}
+
+/** Shared by initRelaySession() (relay/ladder mode, automatic) and
+ *  ensureRelayFallback() (webrtc mode, manual escape hatch). */
+async function bringUpRelayChannel(s: DeviceState): Promise<void> {
+  const identity = await ensureRelayIdentity(s)
   const channel = createRelayChannel()
   relayChannel = channel
   channel.onStatus((status, at) => {
@@ -140,12 +218,35 @@ async function initRelaySession(): Promise<void> {
 }
 
 /**
+ * Demo 3's manual escape hatch: brings up the exact same relay channel
+ * relay/ladder mode use, on demand, the first time a person taps "über den
+ * Server versuchen" after a webrtc connect failure or timeout. Idempotent --
+ * a second tap (e.g. after backing out and returning) does not open a
+ * second channel.
+ */
+async function ensureRelayFallback(): Promise<void> {
+  useRelayFallback = true
+  if (relayChannel || !state) return
+  await bringUpRelayChannel(state)
+}
+
+/**
  * Races a relay send against an inbound answer for `qid` and a timeout.
  * `cancel()` tears down the wait without resolving -- used when the user
  * backs out or switches to the QR fallback, so a late answer does not fire
  * into a screen that has moved on.
  */
 const RELAY_ANSWER_TIMEOUT_MS = 20_000
+
+/** How long to wait for an answer over an already-open webrtc data channel
+ *  before treating it as failed. Shorter than the relay's timeout: there is
+ *  no network hop or server queue to account for, only the other device's
+ *  own machine-time-equalisation budget (gate.ts's GATE_BUDGET_MS, 900ms)
+ *  plus however long a person takes to look at the consent prompt and tap
+ *  yes/no -- 20s stays generous for that human factor while still failing
+ *  fast enough that the ladder's automatic fall-through (or demo 3's manual
+ *  escape hatch) is not itself a bad experience. */
+const WEBRTC_ANSWER_TIMEOUT_MS = 20_000
 
 function waitForAnswer(qid: string, timeoutMs: number): { promise: Promise<AnswerEnvelope | null>; cancel: () => void } {
   let done = false
@@ -181,6 +282,7 @@ function shell(title: string, body: HTMLElement, opts: { back?: () => void } = {
   releaseWake()
   releaseWake = () => {}
   relayStatusBadgeEl = null
+  webrtcStatusBadgeEl = null
   clear(root)
   const lang = getLang()
   const bar = el('div', { class: 'topbar' }, [
@@ -470,11 +572,13 @@ function screenConnect(): void {
   const s = state as DeviceState
   const peer = s.peers[0]
   const relay = wotMode() === 'relay'
+  const webrtc = wotMode() === 'webrtc' || wotMode() === 'ladder'
   const body = el('div', {}, [
     el('h1', {}, [t('connectTitle')]),
     el('p', { class: 'lead' }, [t('connectLead')]),
     relay ? el('p', { class: 'note' }, [t('relayExplain')]) : null,
     relay ? el('div', { class: 'card' }, [mountRelayStatusBadge()]) : null,
+    wotMode() === 'ladder' ? el('p', { class: 'note' }, [t('ladderExplain')]) : null,
     peer ? el('div', { class: 'card' }, [
       el('h3', {}, [peerStatusLine(peer)]),
       peer.seeded
@@ -483,6 +587,13 @@ function screenConnect(): void {
     ]) : null,
     el('button', { class: 'btn primary', onclick: () => void showMyConnectCode() }, [t('showMyCode')]),
     el('button', { class: 'btn', onclick: () => void scanConnectCode() }, [t('scanTheirCode')]),
+    webrtc && peer ? el('div', { class: 'card' }, [
+      el('h3', {}, [t('webrtcCardTitle')]),
+      el('p', { class: 'note' }, [t('webrtcExplain')]),
+      mountWebrtcStatusBadge(),
+      el('button', { class: 'btn', onclick: () => void startWebrtcOffer() }, [t('webrtcOfferBtn')]),
+      el('button', { class: 'btn', onclick: () => void startWebrtcAccept() }, [t('webrtcAcceptBtn')]),
+    ]) : null,
   ])
   shell(t('navConnect'), body, { back: () => go('home') })
 }
@@ -493,15 +604,33 @@ function myNonce(): string {
   return existing ?? randomId(16)
 }
 
+/**
+ * True for any build that might ever route an ask/answer over the relay --
+ * either as its primary transport (relay mode, demo 2) or as a fallback a
+ * human or the ladder can reach for (webrtc mode's "über den Server
+ * versuchen", ladder mode's automatic rung 3). Webrtc mode's own claim is
+ * "no server in the path" for the connection itself, but that fallback only
+ * works at all if both sides already know each other's did:peer:2 -- which
+ * has to travel on the ONE ceremony that happens before anything else can
+ * fail, the connect QR. Minting the identity is a local, offline operation
+ * (did:peer:2 is self-certifying, see did.ts); nothing here contacts a
+ * server, on any mode.
+ */
+function needsRelayIdentity(): boolean {
+  const m = wotMode()
+  return m === 'relay' || m === 'webrtc' || m === 'ladder'
+}
+
 async function showMyConnectCode(): Promise<void> {
   const s = state as DeviceState
   const nonce = myNonce()
-  // OPTIONAL, relay mode only (wire.ts's ConnectEnvelope.did doc comment):
-  // carries this device's did:peer:2 so the other side can address it over
-  // the relay once paired. Absent entirely in a qr-mode build -- the object
-  // literal below has no `did` key at all in that case, so encodeForQr()
-  // produces byte-identical output to demo 1's.
-  const did = wotMode() === 'relay' ? (await ensureRelayIdentity(s)).did : undefined
+  // OPTIONAL (wire.ts's ConnectEnvelope.did doc comment): carries this
+  // device's did:peer:2 so the other side can address it over the relay --
+  // as demo 2's primary transport, or as demo 3/6's fallback. Absent
+  // entirely in a qr-mode build -- the object literal below has no `did`
+  // key at all in that case, so encodeForQr() produces byte-identical
+  // output to demo 1's.
+  const did = needsRelayIdentity() ? (await ensureRelayIdentity(s)).did : undefined
   const payload = encodeForQr({ v: 1, t: 'connect', from: s.me, nonce, ...(did ? { did } : {}) })
   await showCodeScreen(t('showMyCode'), payload, t('connectLead'), () => go('connect'))
   // Remember our own nonce so a later scan can complete the pair.
@@ -578,6 +707,123 @@ async function pairKey(p: Peer): Promise<CryptoKey> {
 }
 
 // ---------------------------------------------------------------------------
+// webrtc ceremony (demo 3 / demo 6): two QR codes open a data channel, no
+// server anywhere in the path. See webrtc.ts's module doc for the exact
+// privacy claim and webrtc_sdp.ts for the QR-size feasibility measurement
+// this whole approach rests on.
+// ---------------------------------------------------------------------------
+
+function getOrCreateWebrtcChannel(): NonNullable<typeof webrtcChannel> {
+  if (webrtcChannel) return webrtcChannel
+  const channel = createWebrtcChannel()
+  channel.onStatus(() => updateWebrtcStatusBadge())
+  channel.onEnvelope(handleIncomingEnvelope)
+  webrtcChannel = channel
+  return channel
+}
+
+/** Waits for the channel to reach a terminal state ('open' or 'failed').
+ *  webrtc.ts's own CONNECT_TIMEOUT_MS already forces 'failed' eventually, so
+ *  this never hangs -- it is purely "turn a status callback into a promise
+ *  the ceremony screens can await". */
+function waitForWebrtcTerminal(channel: NonNullable<typeof webrtcChannel>): Promise<WebrtcStatus> {
+  const current = channel.status()
+  if (current === 'open' || current === 'failed') return Promise.resolve(current)
+  return new Promise((resolve) => {
+    channel.onStatus((s) => {
+      updateWebrtcStatusBadge()
+      if (s === 'open' || s === 'failed') resolve(s)
+    })
+  })
+}
+
+async function startWebrtcOffer(): Promise<void> {
+  const channel = getOrCreateWebrtcChannel()
+  const offer = await channel.createOffer()
+  const payload = encodeOfferPayload(offer)
+  await showCodeScreen(t('webrtcShowOffer'), payload, t('webrtcOfferHint'), () => go('connect'), {
+    label: t('webrtcScanAnswer'),
+    action: () => void webrtcScanAnswer(channel),
+  })
+}
+
+async function webrtcScanAnswer(channel: NonNullable<typeof webrtcChannel>): Promise<void> {
+  await scanScreen(t('webrtcScanAnswer'), async (text) => {
+    const decoded = decodeRtcPayload(text)
+    if (!decoded) return { ok: false, msg: t('badCode') }
+    if (decoded.kind !== 'rtc-answer') return { ok: false, msg: t('wrongCode') }
+    await channel.acceptAnswer(decoded.sdp)
+    void webrtcConnectingScreen(channel)
+    return { ok: true }
+  }, () => go('connect'))
+}
+
+async function startWebrtcAccept(): Promise<void> {
+  await scanScreen(t('webrtcScanOffer'), async (text) => {
+    const decoded = decodeRtcPayload(text)
+    if (!decoded) return { ok: false, msg: t('badCode') }
+    if (decoded.kind !== 'rtc-offer') return { ok: false, msg: t('wrongCode') }
+    const channel = getOrCreateWebrtcChannel()
+    const answer = await channel.acceptOffer(decoded.sdp)
+    const payload = encodeAnswerPayload(answer)
+    // A manual "next" tap, exactly like the offer side's "Antwort scannen" --
+    // `showCodeScreen` renders and returns immediately (see showMyConnectCode's
+    // identical usage), it does NOT wait for the code to actually be read. An
+    // earlier version of this function called webrtcConnectingScreen()
+    // straight after `await showCodeScreen(...)`, which replaced the answer
+    // QR with the connecting screen before the other device had a chance to
+    // scan it -- caught by the two-browser walk in
+    // DEVLOG/result-report-webrtc-ladder.md, fixed here.
+    await showCodeScreen(t('webrtcShowAnswer'), payload, t('webrtcAnswerHint'), () => go('connect'), {
+      label: t('webrtcAnswerDone'),
+      action: () => void webrtcConnectingScreen(channel),
+    })
+    return { ok: true }
+  }, () => go('connect'))
+}
+
+/**
+ * Shown after both descriptions are set, while ICE connectivity checks run.
+ * Resolves to success (back to "Verbinden", badge now says "verbunden, kein
+ * Server") or failure -- a real message plus the one-tap "über den Server
+ * versuchen" escape hatch the handover specifically asks for, never a spinner
+ * that just spins forever.
+ */
+async function webrtcConnectingScreen(channel: NonNullable<typeof webrtcChannel>): Promise<void> {
+  const body = el('div', {}, [
+    el('h1', {}, [t('webrtcConnecting')]),
+    el('div', { class: 'card' }, [
+      el('p', {}, [el('span', { class: 'spin' }), document.createTextNode(' ' + t('webrtcConnecting'))]),
+      mountWebrtcStatusBadge(),
+    ]),
+    el('button', { class: 'btn quiet', onclick: () => go('connect') }, [t('back')]),
+  ])
+  shell(t('webrtcCardTitle'), body, { back: () => go('connect') })
+
+  const result = await waitForWebrtcTerminal(channel)
+  if (result === 'open') {
+    go('connect')
+    return
+  }
+  screenWebrtcFailed()
+}
+
+function screenWebrtcFailed(): void {
+  const body = el('div', {}, [
+    el('div', { class: 'err' }, [
+      el('b', {}, [t('webrtcFailedTitle')]),
+      el('p', {}, [t('webrtcFailedBody')]),
+    ]),
+    el('button', {
+      class: 'btn primary',
+      onclick: () => { void ensureRelayFallback().then(() => go('connect')) },
+    }, [t('webrtcTryServer')]),
+    el('button', { class: 'btn quiet', onclick: () => go('connect') }, [t('webrtcBackToConnect')]),
+  ])
+  shell(t('webrtcCardTitle'), body, { back: () => go('connect') })
+}
+
+// ---------------------------------------------------------------------------
 // ask (person B)
 // ---------------------------------------------------------------------------
 
@@ -586,12 +832,21 @@ function screenAsk(): void {
   const lang = getLang()
   const peer = s.peers[0]
   const relayReady = wotMode() === 'relay' && Boolean(peer?.did)
+  const webrtcNotOpen = (wotMode() === 'webrtc' || wotMode() === 'ladder') && !webrtcChannel?.isOpen()
   const body = el('div', {}, [
     el('h1', {}, [t('askTitle')]),
     el('p', { class: 'lead' }, [t('askLead')]),
     !peer ? el('div', { class: 'err' }, [t('noConnection')]) : null,
     peer && wotMode() === 'relay' && !relayReady
       ? el('p', { class: 'note' }, [t('relayNoPeerDid')])
+      : null,
+    // webrtc mode (demo 3): asking still works without the data channel --
+    // it falls back to the same one-code-at-a-time QR path demo 1 uses (see
+    // askWith's dispatch) -- this is informational, not a blocker.
+    // Ladder mode (demo 6): no note needed, the automatic fall-through to
+    // the relay is the point and the rung badge on the next screen says so.
+    peer && wotMode() === 'webrtc' && webrtcNotOpen
+      ? el('p', { class: 'note' }, [t('webrtcCardTitle') + ': ' + t('noConnection')])
       : null,
     ...TEMPLATES.map((tpl: QueryTemplate) =>
       el('div', { class: 'card' }, [
@@ -617,10 +872,35 @@ async function askWith(tpl: QueryTemplate): Promise<void> {
     templateId: tpl.id, templateVersion: tpl.version,
     qid: randomId(12), issuedAt: Date.now(),
   }
-  if (wotMode() === 'relay' && peer.did && relayChannel) {
+  const mode = wotMode()
+  if (mode === 'relay' && peer.did && relayChannel) {
+    lastRung = 'relay'
     await askOverRelay(tpl, q, peer)
     return
   }
+  // webrtc/ladder: rung 2 first, whenever the data channel is actually open --
+  // this is the ladder's entire point, and demo 3's only transport once the
+  // ceremony has succeeded.
+  if ((mode === 'webrtc' || mode === 'ladder') && webrtcChannel?.isOpen()) {
+    await askOverWebrtc(tpl, q, peer)
+    return
+  }
+  // Ladder mode with no open data channel: reach for the server automatically
+  // (rung 3), no human tap required -- that automatic reach, visibly labelled,
+  // IS demo 6.
+  if (mode === 'ladder' && peer.did && relayChannel) {
+    await askOverRelayOrQr(tpl, q, peer)
+    return
+  }
+  // Webrtc mode with no open channel: only use the relay if a human already
+  // tapped "über den Server versuchen" during the connect ceremony -- demo 3
+  // never reaches for a server on its own.
+  if (mode === 'webrtc' && useRelayFallback && peer.did && relayChannel) {
+    lastRung = 'relay'
+    await askOverRelay(tpl, q, peer)
+    return
+  }
+  lastRung = 'qr'
   await askViaQr(tpl, q, peer)
 }
 
@@ -651,6 +931,23 @@ async function scanAnswer(q: QueryEnvelope, peer: Peer): Promise<void> {
 // real error with retry, and the QR path one tap away at every step.
 // ---------------------------------------------------------------------------
 
+/**
+ * Ladder mode's automatic rung-3 fall-through, reused by demo 2's own
+ * (unchanged) relay-mode path via `askOverRelay` below. Ladder-only branch:
+ * when even the relay has no did for this peer (should not happen once
+ * `needsRelayIdentity()` has run, but a demo build should never hang on an
+ * impossible state), falls all the way to the manual QR path -- rung 1.
+ */
+async function askOverRelayOrQr(tpl: QueryTemplate, q: QueryEnvelope, peer: Peer): Promise<void> {
+  if (peer.did && relayChannel) {
+    lastRung = 'relay'
+    await askOverRelay(tpl, q, peer)
+    return
+  }
+  lastRung = 'qr'
+  await askViaQr(tpl, q, peer)
+}
+
 async function askOverRelay(tpl: QueryTemplate, q: QueryEnvelope, peer: Peer): Promise<void> {
   const peerDid = peer.did
   if (!peerDid || !relayChannel) { await askViaQr(tpl, q, peer); return }
@@ -662,6 +959,9 @@ async function askOverRelay(tpl: QueryTemplate, q: QueryEnvelope, peer: Peer): P
     el('p', { class: 'lead' }, ['„' + tpl.question[getLang()] + '“']),
     el('div', { class: 'card' }, [
       el('p', {}, [el('span', { class: 'spin' }), document.createTextNode(' ' + t('relayAskInFlight'))]),
+      // Ladder mode only (demo 6) -- demo 2 never sets wotMode() === 'ladder',
+      // so this line never renders there. The visible rung IS the demo.
+      wotMode() === 'ladder' ? el('p', { class: 'note' }, [rungBadgeText('relay')]) : null,
       mountRelayStatusBadge(),
     ]),
     el('button', { class: 'btn quiet', onclick: () => { waiter.cancel(); void askViaQr(tpl, q, peer) } }, [t('showQrInstead')]),
@@ -702,6 +1002,80 @@ function screenRelayAskError(msg: string, tpl: QueryTemplate, q: QueryEnvelope, 
   shell(t('navAsk'), body, { back: () => go('ask') })
 }
 
+// ---------------------------------------------------------------------------
+// ask over webrtc -- rung 2. Sends the query over the already-open data
+// channel and waits for the answer on the SAME shared `awaitingAnswer` slot
+// relay mode uses (handleIncomingEnvelope is registered as this channel's
+// onEnvelope callback too, see getOrCreateWebrtcChannel) -- transport-
+// agnostic by construction, exactly like gate.ts's envelopes themselves.
+// ---------------------------------------------------------------------------
+
+async function askOverWebrtc(tpl: QueryTemplate, q: QueryEnvelope, peer: Peer): Promise<void> {
+  const channel = webrtcChannel
+  if (!channel || !channel.isOpen()) {
+    if (wotMode() === 'ladder') { await askOverRelayOrQr(tpl, q, peer); return }
+    lastRung = 'qr'
+    await askViaQr(tpl, q, peer)
+    return
+  }
+  lastRung = 'webrtc'
+
+  const waiter = waitForAnswer(q.qid, WEBRTC_ANSWER_TIMEOUT_MS)
+  const body = el('div', {}, [
+    el('h1', {}, [tpl.title[getLang()]]),
+    el('p', { class: 'lead' }, ['„' + tpl.question[getLang()] + '“']),
+    el('div', { class: 'card' }, [
+      el('p', {}, [el('span', { class: 'spin' }), document.createTextNode(' ' + t('webrtcAskInFlight'))]),
+      wotMode() === 'ladder' ? el('p', { class: 'note' }, [rungBadgeText('webrtc')]) : null,
+    ]),
+    el('button', { class: 'btn quiet', onclick: () => { waiter.cancel(); void askViaQr(tpl, q, peer) } }, [t('showQrInstead')]),
+    el('button', { class: 'btn quiet', onclick: () => { waiter.cancel(); go('ask') } }, [t('back')]),
+  ])
+  shell(t('navAsk'), body, { back: () => { waiter.cancel(); go('ask') } })
+
+  const key = await pairKey(peer)
+  let sendErr: Error | null = null
+  try {
+    channel.send(q)
+  } catch (err) {
+    sendErr = err instanceof Error ? err : new Error(String(err))
+  }
+
+  if (sendErr) {
+    waiter.cancel()
+    if (wotMode() === 'ladder') { await askOverRelayOrQr(tpl, q, peer); return }
+    screenWebrtcAskError(t('webrtcTimeout'), tpl, q, peer)
+    return
+  }
+
+  const env = await waiter.promise
+  if (!env) {
+    if (wotMode() === 'ladder') { await askOverRelayOrQr(tpl, q, peer); return }
+    screenWebrtcAskError(t('webrtcTimeout'), tpl, q, peer)
+    return
+  }
+  const decoded = await interpret(env, key)
+  screenResult(decoded, peer.displayName)
+}
+
+/** Demo 3 only (never reached in ladder mode, which auto-falls-through
+ *  instead -- see askOverWebrtc). Real message, a retry, the manual "über
+ *  den Server versuchen" escape hatch (brings up the relay on first tap,
+ *  same as the connect-ceremony failure screen), and the honest QR path. */
+function screenWebrtcAskError(msg: string, tpl: QueryTemplate, q: QueryEnvelope, peer: Peer): void {
+  const body = el('div', {}, [
+    el('div', { class: 'err' }, [msg]),
+    el('button', { class: 'btn primary', onclick: () => void askOverWebrtc(tpl, q, peer) }, [t('retry')]),
+    el('button', {
+      class: 'btn',
+      onclick: () => { void ensureRelayFallback().then(() => askOverRelayOrQr(tpl, q, peer)) },
+    }, [t('webrtcTryServer')]),
+    el('button', { class: 'btn quiet', onclick: () => void askViaQr(tpl, q, peer) }, [t('showQrInstead')]),
+    el('button', { class: 'btn quiet', onclick: () => go('ask') }, [t('back')]),
+  ])
+  shell(t('navAsk'), body, { back: () => go('ask') })
+}
+
 function screenResult(decoded: Awaited<ReturnType<typeof interpret>>, peerName: string): void {
   const shared = decoded.outcome === 'shared' ? decoded.shared : undefined
   const body = el('div', {}, [
@@ -716,6 +1090,11 @@ function screenResult(decoded: Awaited<ReturnType<typeof interpret>>, peerName: 
         el('footer', {}, [t('fromChat') + ' ' + item.context + ' · ' + item.when]),
       ]),
     ),
+    // Ladder mode only (demo 6): which rung actually carried this exchange --
+    // set by askWith()/askOverWebrtc()/askOverRelayOrQr() just before this
+    // screen renders. This IS the demo: the point is not just that a rung 3
+    // fallback exists, but that a person can SEE it happened.
+    wotMode() === 'ladder' && lastRung ? el('p', { class: 'note' }, [rungBadgeText(lastRung)]) : null,
     el('button', { class: 'btn', onclick: () => go('home') }, [t('done')]),
   ])
   shell(t('navAsk'), body, { back: () => go('home') })
@@ -879,16 +1258,77 @@ async function emitAnswer(
   await settleAt(t0, GATE_BUDGET_MS)
 
   // The transport choice below never depends on `outcome`/`consent` -- only
-  // on whether we know a network address for this peer at all. Branching on
-  // the outcome here would reopen exactly the side channel gate.ts's byte
-  // padding exists to close (see gate.ts's module doc and this feature's
-  // wire-level test in relay.test.ts).
-  if (wotMode() === 'relay' && peer?.did && relayChannel) {
+  // on whether we know a network address for this peer at all (which rung is
+  // even reachable). Branching on the outcome here would reopen exactly the
+  // side channel gate.ts's byte padding exists to close (see gate.ts's module
+  // doc and this feature's wire-level test in relay.test.ts). That discipline
+  // holds across every rung added below, not just the original relay branch.
+  const mode = wotMode()
+  if (mode === 'relay' && peer?.did && relayChannel) {
+    await sendAnswerOverRelay(envelope, peer, key)
+    return
+  }
+  if ((mode === 'webrtc' || mode === 'ladder') && webrtcChannel?.isOpen()) {
+    await sendAnswerOverWebrtc(envelope)
+    return
+  }
+  if (mode === 'ladder' && peer?.did && relayChannel) {
+    await sendAnswerOverRelay(envelope, peer, key)
+    return
+  }
+  if (mode === 'webrtc' && useRelayFallback && peer?.did && relayChannel) {
     await sendAnswerOverRelay(envelope, peer, key)
     return
   }
   const payload = encodeForQr(envelope)
   await showCodeScreen(t('showAnswer'), payload, t('answerHint'), () => go('home'), undefined, t('identicalNote'))
+}
+
+/**
+ * Rung 2's answer send. No outer AES-GCM wrap here (unlike
+ * `sendAnswerOverRelay`, whose `channel.send` re-encrypts under `pairKey` for
+ * the relay operator's benefit) -- the data channel is already DTLS-secured
+ * end to end, and `envelope.body` is already gate.ts's own AEAD ciphertext
+ * regardless of transport. This just moves the same JSON `encodeForQr`
+ * produces for a QR code, over the open channel instead.
+ */
+async function sendAnswerOverWebrtc(envelope: AnswerEnvelope): Promise<void> {
+  const channel = webrtcChannel
+  if (!channel || !channel.isOpen()) {
+    // Should not happen given the gating in emitAnswer() above, but a demo
+    // must never hang on an impossible state -- fall back to the honest QR.
+    const payload = encodeForQr(envelope)
+    await showCodeScreen(t('showAnswer'), payload, t('answerHint'), () => go('home'), undefined, t('identicalNote'))
+    return
+  }
+  try {
+    channel.send(envelope)
+  } catch {
+    const payload = encodeForQr(envelope)
+    await showCodeScreen(
+      t('showAnswer'), payload,
+      t('webrtcTimeout') + ' ' + t('answerHint'),
+      () => go('home'), undefined, t('identicalNote'),
+    )
+    return
+  }
+  // Same "sent" screen shape (and the SAME strings) as sendAnswerOverRelay --
+  // identical wording and structure regardless of outcome (I3), and
+  // transport-neutral wording since both rungs use it.
+  const body = el('div', {}, [
+    el('div', { class: 'outcome shared' }, [
+      el('div', { class: 'glyph' }, ['✓']),
+      el('b', {}, [t('relayAnswerSent')]),
+      el('span', {}, [t('relayAnswerSentSub')]),
+    ]),
+    el('p', {}, [t('identicalNote')]),
+    el('button', {
+      class: 'btn quiet',
+      onclick: () => void showCodeScreen(t('showAnswer'), encodeForQr(envelope), t('answerHint'), () => go('home'), undefined, t('identicalNote')),
+    }, [t('showQrInstead')]),
+    el('button', { class: 'btn', onclick: () => go('home') }, [t('done')]),
+  ])
+  shell(t('navAnswer'), body, { back: () => go('home') })
 }
 
 async function sendAnswerOverRelay(envelope: AnswerEnvelope, peer: Peer, pairKeyForPeer: CryptoKey): Promise<void> {
