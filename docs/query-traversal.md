@@ -319,3 +319,8 @@ No variant B is offered.
   precise a question should be told when an earlier framing of the same
   question, even one used to scope this very document, did not hold up
   against the code.
+
+**Continued in `docs/two-hop-decisions.md`:** what the owner's "named
+introduction" and "the intermediary reads what she carries" decisions imply
+for the hop-2 relay described in §1c, including whether the Indistinguishable
+No survives a second hop.
