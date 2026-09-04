@@ -126,6 +126,15 @@ const S: Table = {
   // stops being a claim the person has to take on faith.
   navLink:        { de: 'Verbindung prüfen', en: 'Check the connection' },
   navChatNow:     { de: 'Jetzt schreiben', en: 'Write now' },
+  connectPairTitle:   { de: 'Einander kennenlernen', en: 'Get to know each other' },
+  connectPairExplain: {
+    de: 'Einmal einen Code austauschen, damit die Geräte wissen, wer der andere ist. Das ist noch keine laufende Verbindung, sondern die Grundlage dafür.',
+    en: 'Exchange a code once so the devices know who the other is. This is not yet a running connection, it is what one is built on.',
+  },
+  webrtcSteps: {
+    de: 'Es gibt hier keine Geräteliste und kein Suchen. Drei Schritte: 1. ein Gerät tippt „Verbindung anbieten“ und zeigt seinen Code. 2. das andere tippt „Verbindung annehmen“, scannt ihn und zeigt daraufhin seine Antwort. 3. das erste Gerät scannt diese Antwort. Danach läuft die Verbindung direkt zwischen den beiden.',
+    en: 'There is no device list and no searching here. Three steps: 1. one device taps "Offer a connection" and shows its code. 2. the other taps "Accept a connection", scans it, and then shows its answer. 3. the first device scans that answer. After that the two are connected directly.',
+  },
   showMyCodeFootnote: {
     de: 'Ein gezeigter Code allein verbindet noch nichts. Entweder das andere Gerät meldet sich von selbst zurück, oder ihr scannt hier seinen Code.',
     en: 'Showing a code connects nothing by itself. Either the other device reports back on its own, or you scan its code here.',

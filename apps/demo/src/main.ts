@@ -787,16 +787,28 @@ function screenConnect(): void {
     // for every other mode and as a fallback.
     relay ? el('button', { class: 'btn primary', onclick: () => void showConnectLinkCode() }, [t('showConnectLink')]) : null,
     relay ? el('p', { class: 'note' }, [t('connectLinkExplain')]) : null,
-    el('button', { class: relay ? 'btn' : 'btn primary', onclick: () => void showMyConnectCode() }, [t('showMyCode')]),
-    el('button', { class: 'btn', onclick: () => void scanConnectCode() }, [t('scanTheirCode')]),
+    // The two ceremonies are different things and used to sit as adjacent
+    // buttons, which cost a real session: the owner pressed "Meinen Code
+    // zeigen" expecting the direct connection, got the relay pairing, and
+    // reported "I didn't see any device to connect with". They are now in
+    // separate labelled cards, and the direct one spells out its three steps,
+    // because there is no device discovery here by design and nobody can be
+    // expected to infer that from a button.
+    el('div', { class: 'card' }, [
+      el('h3', {}, [t('connectPairTitle')]),
+      el('p', { class: 'note' }, [t('connectPairExplain')]),
+      el('button', { class: relay ? 'btn' : 'btn primary', onclick: () => void showMyConnectCode() }, [t('showMyCode')]),
+      el('button', { class: 'btn', onclick: () => void scanConnectCode() }, [t('scanTheirCode')]),
+    ]),
     wotMode() !== 'qr' && peer
       ? el('button', { class: 'btn primary', onclick: () => go('link') }, [t('navChatNow')])
       : null,
     webrtc && peer ? el('div', { class: 'card' }, [
       el('h3', {}, [t('webrtcCardTitle')]),
       el('p', { class: 'note' }, [t('webrtcExplain')]),
+      el('p', { class: 'note' }, [t('webrtcSteps')]),
       mountWebrtcStatusBadge(),
-      el('button', { class: 'btn', onclick: () => void startWebrtcOffer() }, [t('webrtcOfferBtn')]),
+      el('button', { class: 'btn primary', onclick: () => void startWebrtcOffer() }, [t('webrtcOfferBtn')]),
       el('button', { class: 'btn', onclick: () => void startWebrtcAccept() }, [t('webrtcAcceptBtn')]),
     ]) : null,
   ])
