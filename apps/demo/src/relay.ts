@@ -40,6 +40,13 @@
  * explicitly per call for symmetry and because a channel has no peer
  * directory of its own; the two-device demo has exactly one pair key alive
  * at any moment.
+ *
+ * `sendRaw`/`onRawWire` are a second, DELIBERATELY UNENCRYPTED path,
+ * scoped to exactly one caller: the one-scan connect-link ceremony's
+ * bootstrap message (connect_link.ts), sent before either side can derive
+ * a shared key at all. Nothing else in this app should ever call them --
+ * see connect_link.ts's module header for why that one case is safe and
+ * every other message stays on the encrypted `send`/`onEnvelope` path.
  */
 import type { Identity } from './did'
 import { signChallenge } from './did'
@@ -247,6 +254,44 @@ export interface RelayChannel {
    */
   onEnvelope(pairKey: CryptoKey, cb: (envelope: Envelope, fromDid: string) => void): void
   /**
+   * Sends `payload` to `toDid` WITHOUT encryption -- POSTs it to the relay
+   * ingress verbatim, framed the same as `send()` (`buildOuterWire`), minus
+   * the `encryptEnvelope` step.
+   *
+   * The ONE legitimate use of this, and the reason it exists at all: the
+   * one-scan connect-link ceremony's bootstrap message (connect_link.ts),
+   * where by construction NEITHER side can yet derive a shared key -- that
+   * message is what tells the receiving side the sender's public key in the
+   * first place. See connect_link.ts's module header for the full argument
+   * for why this is still honest: the relay already sees `to`/`from` in
+   * cleartext on every wire this file sends (this file's own header), and a
+   * `connect-ack` payload carries nothing beyond a public did:peer:2 and a
+   * display name -- no key material, nothing that would let the relay
+   * decrypt anything it could not already decrypt. NEVER use this for
+   * query/answer content or anything gated by consent -- those go through
+   * `send()`, always encrypted.
+   */
+  sendRaw(toDid: string, payload: string): Promise<void>
+  /**
+   * Registers a callback that fires for the CLEARTEXT `from`/`payload` of
+   * every drained wire, independent of -- and in addition to -- `onEnvelope`'s
+   * decrypt-then-dispatch sink. Exists for the same one bootstrap case as
+   * `sendRaw`: a caller cannot register a `pairKey` with `onEnvelope` for a
+   * peer it does not know the public key of yet, so it has no other way to
+   * observe "someone just told me who they are" arrive.
+   *
+   * Fires for EVERY wire, including ones `onEnvelope`'s sink also
+   * successfully decrypts -- callers must apply their own filtering (e.g.
+   * "only while a connect-link ceremony is pending") rather than assuming
+   * this only ever fires for bootstrap wires. A wire is acked once EITHER
+   * this callback is registered (any registration is treated as "handled",
+   * mirroring `onEnvelope`'s "register before connect()" convention) or
+   * `onEnvelope` successfully decrypts it -- see `handleWire`'s
+   * implementation. Only one registration is kept, matching `onEnvelope`'s
+   * and `onStatus`'s single-registration convention.
+   */
+  onRawWire(cb: (fromDid: string, payload: string) => void): void
+  /**
    * Registers a callback for connection status changes: `'connecting'` when
    * a drain attempt (first or a reconnect) starts, `'connected'` on
    * `auth_ok`, `'disconnected'` when the socket closes. `connect()`'s
@@ -311,6 +356,7 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
   let backoff = reconnectBaseMs
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let sink: { pairKey: CryptoKey; cb: (envelope: Envelope, fromDid: string) => void } | null = null
+  let rawSink: ((fromDid: string, payload: string) => void) | null = null
   let statusCb: ((status: RelayStatus, at: number) => void) | null = null
 
   function emitStatus(status: RelayStatus): void {
@@ -320,15 +366,27 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
   /**
    * Decrypt+parse one drained wire and, only on success, hand it to the
    * registered sink and report "ack this id". See {@link RelayChannel}'s
-   * `onEnvelope` doc for why a failure here must NOT ack.
+   * `onEnvelope` doc for why a failure here must NOT ack -- UNLESS a raw
+   * sink is registered, in which case that sink's own cleartext view counts
+   * as "handled" regardless of whether the encrypted sink could decrypt it
+   * (see `onRawWire`'s doc comment).
    */
   async function handleWire(rawWire: string): Promise<boolean> {
     const outer = parseOuterWire(rawWire)
-    if (!outer || !sink) return false
-    const envelope = await decryptEnvelope(outer.payload, sink.pairKey)
-    if (!envelope) return false
-    sink.cb(envelope, outer.from)
-    return true
+    if (!outer) return false
+    let handled = false
+    if (rawSink) {
+      rawSink(outer.from, outer.payload)
+      handled = true
+    }
+    if (sink) {
+      const envelope = await decryptEnvelope(outer.payload, sink.pairKey)
+      if (envelope) {
+        sink.cb(envelope, outer.from)
+        handled = true
+      }
+    }
+    return handled
   }
 
   /**
@@ -462,29 +520,42 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
     })
   }
 
-  async function send(toDid: string, envelope: Envelope, pairKey: CryptoKey): Promise<void> {
+  /** Shared by `send()` and `sendRaw()` -- everything except how `payload` was produced. */
+  async function postToIngress(toDid: string, payload: string, callerLabel: string): Promise<void> {
     if (!identity) {
-      throw new Error('RelayChannel.send: connect() must be called at least once before send()')
+      throw new Error(`RelayChannel.${callerLabel}: connect() must be called at least once before ${callerLabel}()`)
     }
     if (!fetchImpl) {
-      throw new Error('RelayChannel.send: no fetch implementation available (pass opts.fetchImpl outside a browser/Node>=18 runtime)')
+      throw new Error(`RelayChannel.${callerLabel}: no fetch implementation available (pass opts.fetchImpl outside a browser/Node>=18 runtime)`)
     }
-    const payload = await encryptEnvelope(envelope, pairKey)
     const rawWire = buildOuterWire(toDid, identity.did, payload)
 
     const url = new URL(ingressPath, relayOrigin).toString()
     const res = await fetchImpl(url, { method: 'POST', body: rawWire })
     const parsed = (await res.json().catch(() => ({}))) as { routed?: string; reason?: string }
     if (parsed.routed === 'rejected') {
-      throw new Error(`RelayChannel.send: relay rejected wire for ${toDid}: ${parsed.reason ?? 'no reason given'}`)
+      throw new Error(`RelayChannel.${callerLabel}: relay rejected wire for ${toDid}: ${parsed.reason ?? 'no reason given'}`)
     }
     if (!res.ok) {
-      throw new Error(`RelayChannel.send: relay ingress ${url} responded ${res.status}`)
+      throw new Error(`RelayChannel.${callerLabel}: relay ingress ${url} responded ${res.status}`)
     }
+  }
+
+  async function send(toDid: string, envelope: Envelope, pairKey: CryptoKey): Promise<void> {
+    const payload = await encryptEnvelope(envelope, pairKey)
+    await postToIngress(toDid, payload, 'send')
+  }
+
+  async function sendRaw(toDid: string, payload: string): Promise<void> {
+    await postToIngress(toDid, payload, 'sendRaw')
   }
 
   function onEnvelope(pairKey: CryptoKey, cb: (envelope: Envelope, fromDid: string) => void): void {
     sink = { pairKey, cb }
+  }
+
+  function onRawWire(cb: (fromDid: string, payload: string) => void): void {
+    rawSink = cb
   }
 
   function onStatus(cb: (status: RelayStatus, at: number) => void): void {
@@ -516,5 +587,5 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
     }
   }
 
-  return { connect, send, onEnvelope, onStatus, close }
+  return { connect, send, sendRaw, onEnvelope, onRawWire, onStatus, close }
 }

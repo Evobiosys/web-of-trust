@@ -11,7 +11,7 @@ import { detectAndParse } from './parse/index'
 import { matchTemplate } from './match/lexical'
 import { TEMPLATES, getTemplate } from './data/templates'
 import { decide, interpret, settleAt, GATE_BUDGET_MS } from './gate'
-import { derivePairKey, randomId } from './crypto'
+import { derivePairKey, deriveEcdhPairKey, randomId } from './crypto'
 import { encodeForQr, decodeFromQr } from './wire'
 import type { Envelope } from './wire'
 import { SEED_DIRECT_IOS } from './data/seed_direct'
@@ -21,6 +21,10 @@ import { wotMode } from './mode'
 import { createRelayChannel } from './relay'
 import type { RelayChannel, RelayStatus } from './relay'
 import { ensureRelayIdentity } from './relay_identity'
+import { ecdhSharedSecret } from './did'
+import { storageIsEphemeral } from './db'
+import { buildConnectAck, buildConnectLinkUrl, parseConnectLinkParams } from './connect_link'
+import type { ConnectLinkParams } from './connect_link'
 import { createWebrtcChannel, decodeRtcPayload, encodeAnswerPayload, encodeOfferPayload } from './webrtc'
 import type { WebrtcChannel, WebrtcStatus } from './webrtc'
 
@@ -53,6 +57,18 @@ let relayStatusBadgeEl: HTMLElement | null = null
 let pendingIncomingQuery: QueryEnvelope | null = null
 /** The one query this device is currently waiting on an answer for, if any. */
 let awaitingAnswer: { qid: string; resolve: (env: AnswerEnvelope) => void } | null = null
+
+/**
+ * The one-scan connect link (connect_link.ts): parsed once, at module load,
+ * from whatever URL opened this page. `null` on every ordinary visit.
+ * Consumed exactly once, by `completeConnectLinkIfPending()` -- see that
+ * function for the phone's half of the ceremony this feature exists for.
+ * `typeof location` guards this the same way relay.ts's own
+ * `resolveRelayOrigin` does, for a non-jsdom test/Node context with no
+ * global `location`.
+ */
+let pendingConnectLink: ConnectLinkParams | null =
+  typeof location !== 'undefined' ? parseConnectLinkParams(location.search) : null
 
 // ---------------------------------------------------------------------------
 // webrtc mode (demo 3) and ladder mode (demo 6): rung 2, a data channel with
@@ -232,6 +248,105 @@ function handleIncomingEnvelope(env: Envelope, _fromDid?: string): void {
 }
 
 /**
+ * The relay channel's `onRawWire` sink (registered in bringUpRelayChannel):
+ * fires for the CLEARTEXT `from`/`payload` of every drained wire, decrypted
+ * or not -- see relay.ts's `onRawWire` doc comment for why. The only shape
+ * this ever recognises is a `connect-ack` (connect_link.ts's module
+ * header); every ordinary query/answer/chat/ping wire is AES-GCM ciphertext
+ * base64url, which `decodeFromQr`'s `JSON.parse` fails on harmlessly, so
+ * this is a silent no-op for all of them, exactly matching wire.ts's own
+ * "never throw on unexpected shape" posture.
+ *
+ * This is the LAPTOP's half of the one-scan ceremony: the phone's
+ * `completeConnectLinkIfPending()` sends this; receiving it here is what
+ * lets the laptop finally learn who scanned its link and complete the
+ * pairing on receipt, live, without a reload (screenConnect() re-renders
+ * because `screen` never left `'connect'` while the link/QR was on
+ * screen -- see showConnectLinkCode()).
+ */
+function handleRawWire(fromDid: string, payload: string): void {
+  const env = decodeFromQr(payload)
+  if (!env || env.t !== 'connect-ack') return
+  // The outer wire's cleartext `from` (relay.ts's routing field) must match
+  // what the envelope itself claims -- a mismatch is either a relay bug or
+  // tampering, either way not something to trust silently.
+  if (env.did !== fromDid) return
+  const s = state
+  if (!s) return
+  upsertPeer(s, {
+    id: env.from.id,
+    displayName: env.from.displayName,
+    // Unused placeholders: this peer's `pairing: 'ecdh'` means pairKey()
+    // never reads these -- see state.ts's `Peer.pairing` doc comment. Filled
+    // anyway because the Peer type still requires a value.
+    nonceSelf: randomId(16),
+    noncePeer: randomId(16),
+    connectedAt: Date.now(),
+    blocked: false,
+    seeded: false,
+    did: env.did,
+    pairing: 'ecdh',
+  })
+  void saveState(s).then(() => registerRelaySink())
+  if (screen === 'connect') render()
+}
+
+/**
+ * The PHONE's half of the one-scan ceremony (connect_link.ts): if this page
+ * was opened from a connect link, ensure this device's own relay identity
+ * and relay channel exist, replace the seeded/previous peer with the real
+ * one the link named, tell the laptop who we are (a `connect-ack`, sent
+ * UNENCRYPTED via `sendRaw` -- see connect_link.ts's module header for why
+ * that is safe here and nowhere else), and land on the connect screen so
+ * this device ALSO shows "verbunden mit …" without a reload.
+ *
+ * A no-op with nothing pending, or outside relay mode -- the one-scan
+ * ceremony is relay-only (the handover for this feature: "which demos get
+ * this: demo 2 at minimum"). Called from boot() (a returning session that
+ * happens to have been opened via a connect link -- unusual, but a device
+ * already paired to someone else can still be re-pointed at a new peer) and
+ * from seedPersona() (the ordinary first-visit case: a brand-new phone,
+ * still on the persona picker, opened this exact link).
+ */
+async function completeConnectLinkIfPending(): Promise<void> {
+  const params = pendingConnectLink
+  if (!params || wotMode() !== 'relay' || !state) return
+  pendingConnectLink = null
+  // One-shot: a reload of this same tab must not re-send a stale ack, and
+  // the peer's DID/id have no reason to sit in browser history once used.
+  if (typeof history !== 'undefined') history.replaceState(null, '', location.pathname)
+
+  const s = state
+  const didIdentity = await ensureRelayIdentity(s)
+  upsertPeer(s, {
+    id: params.from.id,
+    displayName: params.from.displayName,
+    nonceSelf: randomId(16),
+    noncePeer: randomId(16),
+    connectedAt: Date.now(),
+    blocked: false,
+    seeded: false,
+    did: params.did,
+    pairing: 'ecdh',
+  })
+  await saveState(s)
+
+  if (!relayChannel) await bringUpRelayChannel(s)
+  await registerRelaySink()
+  const ack = buildConnectAck(s.me, didIdentity)
+  try {
+    await relayChannel?.sendRaw(params.did, encodeForQr(ack))
+  } catch {
+    // The peer record above is already saved either way, so the laptop
+    // learning about this pairing is only delayed, not lost -- a
+    // reconnect's fresh registerRelaySink()/onRawWire registration (or the
+    // laptop re-showing its link) can still complete it. Nothing to surface
+    // here beyond what the connect screen's relay status badge already says.
+  }
+  go('connect')
+}
+
+/**
  * Opens this device's relay drain connection, once. A no-op in qr mode
  * (wotMode() !== 'relay') and a no-op if already initialised -- safe to call
  * from both boot() (a returning session) and seedPersona() (a fresh one).
@@ -260,6 +375,11 @@ async function bringUpRelayChannel(s: DeviceState): Promise<void> {
     relayStatusAt = at
     updateRelayStatusBadge()
   })
+  // The one-scan connect-link ceremony's bootstrap sink (connect_link.ts) --
+  // harmless to register unconditionally: it only ever recognises a
+  // `connect-ack` payload, and every ordinary encrypted wire fails that
+  // check silently (see handleRawWire's doc comment).
+  channel.onRawWire(handleRawWire)
   await registerRelaySink()
   try {
     await channel.connect(identity)
@@ -462,8 +582,19 @@ async function seedPersona(id: string, displayName: string, role: 'holder' | 'se
   }))
   state = { me: { id, displayName }, threads, peers, profile, inventory }
   await saveState(state)
-  void initRelaySession()
-  go('home')
+  // The ordinary first-visit case for the one-scan connect-link ceremony
+  // (connect_link.ts): a brand-new phone was still on the persona picker
+  // when it opened the link (no state existed yet for boot() to find it),
+  // so this is the first point a persona -- and therefore a relay identity
+  // and a peer list -- exists to attach the pairing to. Completing it here
+  // instead of after `go('home')` avoids a home-screen flash before jumping
+  // straight to 'connect'.
+  if (pendingConnectLink) {
+    await completeConnectLinkIfPending()
+  } else {
+    void initRelaySession()
+    go('home')
+  }
 }
 
 /** Fixed demo nonces so both devices start out already paired. See seedPersona. */
@@ -646,7 +777,14 @@ function screenConnect(): void {
         ? el('p', { class: 'seeded' }, [t('seededNote')])
         : el('p', {}, [new Date(peer.connectedAt).toLocaleString(getLang() === 'de' ? 'de-AT' : 'en-GB')]),
     ]) : null,
-    el('button', { class: 'btn primary', onclick: () => void showMyConnectCode() }, [t('showMyCode')]),
+    // The one-scan connect link (connect_link.ts): relay mode only, and the
+    // PRIMARY affordance there -- it is the whole reason this feature exists
+    // (a phone whose camera can only open a link, GrapheneOS, cannot use the
+    // JSON codes below at all). The two-scan codes stay available underneath
+    // for every other mode and as a fallback.
+    relay ? el('button', { class: 'btn primary', onclick: () => void showConnectLinkCode() }, [t('showConnectLink')]) : null,
+    relay ? el('p', { class: 'note' }, [t('connectLinkExplain')]) : null,
+    el('button', { class: relay ? 'btn' : 'btn primary', onclick: () => void showMyConnectCode() }, [t('showMyCode')]),
     el('button', { class: 'btn', onclick: () => void scanConnectCode() }, [t('scanTheirCode')]),
     webrtc && peer ? el('div', { class: 'card' }, [
       el('h3', {}, [t('webrtcCardTitle')]),
@@ -698,6 +836,38 @@ async function showMyConnectCode(): Promise<void> {
   const p = s.peers[0]
   if (p) { p.nonceSelf = nonce; await saveState(s) }
   else { pendingSelfNonce = nonce }
+}
+
+/**
+ * The laptop's half of the one-scan connect-link ceremony (connect_link.ts):
+ * shows a QR encoding a URL (not JSON, unlike `showMyConnectCode` above) so
+ * a phone's native camera app -- the ONLY option on GrapheneOS, this
+ * feature's whole reason for existing -- can open it directly. Reuses
+ * `showCodeScreen` exactly as `showMyConnectCode` does, since it already
+ * renders whatever payload string it is given as a QR plus a copy button;
+ * the only difference is what that payload IS.
+ *
+ * Deliberately does NOT call `go()` -- `screen` stays `'connect'` the whole
+ * time this is on screen, matching `showMyConnectCode`'s own convention.
+ * That is what makes the live update work with no extra plumbing:
+ * `handleRawWire`'s `if (screen === 'connect') render()`, once the phone's
+ * `connect-ack` arrives, redraws `screenConnect()` in place -- which now
+ * shows "Verbunden mit …" (`peerStatusLine`, state.ts) instead of the QR --
+ * satisfying the handover's explicit complaint about screens that change
+ * nothing after a successful action.
+ */
+async function showConnectLinkCode(): Promise<void> {
+  const s = state as DeviceState
+  const identity = await ensureRelayIdentity(s)
+  // Deliberately origin + directory path, not a bare `location.origin` --
+  // mirrors `apps/mobile-ui/src/screens/meet.js`'s `appBaseUrl` exactly (see
+  // that file's comment): this app may be served under a path prefix
+  // (`WOT_BASE`, mode.ts), and a bare origin would silently land the phone
+  // back at the domain root instead of this build.
+  const origin = window.location.origin + window.location.pathname.replace(/[^/]*$/, '')
+  const url = buildConnectLinkUrl(origin, identity.did, s.me)
+  const footnote = t('connectLinkHonesty') + (storageIsEphemeral() ? ' ' + t('connectLinkEphemeralNote') : '')
+  await showCodeScreen(t('showConnectLink'), url, t('connectLinkHint'), () => go('connect'), undefined, footnote)
 }
 
 let pendingSelfNonce: string | null = null
@@ -761,8 +931,21 @@ function scanSucceeded(peerName: string): void {
   shell(t('navConnect'), body, { back: () => go('home') })
 }
 
-/** Both sides must derive the same key, so the nonce order is canonical, not positional. */
+/**
+ * Both sides must derive the same key. Two derivations, picked by
+ * `p.pairing` (state.ts's doc comment on that field has the full
+ * reasoning):
+ *  - `'ecdh'` (the one-scan connect-link ceremony, connect_link.ts): X25519
+ *    ECDH between this device's own relay identity and the peer's `did` --
+ *    `nonceSelf`/`noncePeer` are unused placeholders for this peer.
+ *  - absent/`'nonce'` (the original two-scan ceremony): HKDF over both
+ *    nonces, canonically sorted since nonce order is not positional.
+ */
 async function pairKey(p: Peer): Promise<CryptoKey> {
+  if (p.pairing === 'ecdh' && p.did && state) {
+    const identity = await ensureRelayIdentity(state)
+    return deriveEcdhPairKey(ecdhSharedSecret(identity, p.did))
+  }
   const [a, b] = [p.nonceSelf, p.noncePeer].sort()
   return derivePairKey(a, b)
 }
@@ -1710,11 +1893,21 @@ async function boot(): Promise<void> {
   state = await loadState()
   screen = state ? 'home' : 'start'
   render()
-  // Fire-and-forget: a returning session (state already on disk) opens its
-  // relay drain in the background while the home screen renders immediately.
-  // A no-op in qr mode and a no-op when state is null (first visit --
-  // seedPersona() opens it once a persona is picked instead).
-  void initRelaySession()
+  // A returning session (state already on disk) that ALSO happens to have
+  // opened this tab via a fresh connect link -- unusual (the ordinary case
+  // is a brand-new phone, handled in seedPersona() instead, since a
+  // first-visit device has no state yet for boot() to find), but a device
+  // already paired to someone else can still be re-pointed at a new peer
+  // this way. Otherwise: fire-and-forget, a returning session opens its
+  // relay drain in the background while the home screen renders
+  // immediately. Both are no-ops in qr mode; `initRelaySession()` is also a
+  // no-op when state is null (first visit -- seedPersona() opens it once a
+  // persona is picked instead).
+  if (state && pendingConnectLink) {
+    void completeConnectLinkIfPending()
+  } else {
+    void initRelaySession()
+  }
 }
 
 void boot().catch((err: unknown) => {

@@ -137,6 +137,39 @@ export async function derivePairKey(nonceA: string, nonceB: string): Promise<Cry
   )
 }
 
+/**
+ * HKDF-SHA256 an X25519 ECDH shared secret (did.ts's `ecdhSharedSecret`) into
+ * an AES-GCM 256 pair key.
+ *
+ * Real key agreement, unlike `derivePairKey` above: that function's input is
+ * two plaintext nonces, so anyone who saw both -- including a relay either
+ * nonce happened to pass through -- can compute the same key. This
+ * function's input is an ECDH shared secret, which requires one party's
+ * PRIVATE key-agreement key to compute; that key never leaves the device
+ * that minted it, so a relay that carries both parties' did:peer:2 (public
+ * keys only, as it must, to route -- relay.ts's module header) still cannot
+ * derive this. See connect_link.ts's module header for why the one-scan
+ * ceremony needs this instead of `derivePairKey`, and did.ts's
+ * `ecdhSharedSecret` for the ECDH step itself.
+ */
+export async function deriveEcdhPairKey(sharedSecret: Uint8Array): Promise<CryptoKey> {
+  const baseKey = await globalThis.crypto.subtle.importKey('raw', sharedSecret as BufferSource, 'HKDF', false, [
+    'deriveKey',
+  ])
+  return globalThis.crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode('ew-demo-ecdh-pair-v1'),
+    },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  )
+}
+
 /** AES-GCM encrypt. `iv` must be 12 bytes (the WebCrypto/NIST recommendation). */
 export async function seal(
   key: CryptoKey,

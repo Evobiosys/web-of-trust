@@ -9,7 +9,7 @@ import {
   seal,
   toB64u,
 } from '../src/crypto'
-import type { AnswerEnvelope, ConnectEnvelope, QueryEnvelope } from '../src/types'
+import type { AnswerEnvelope, ConnectAckEnvelope, ConnectEnvelope, QueryEnvelope } from '../src/types'
 
 // ---------------------------------------------------------------------------
 // crypto.ts -- no dedicated test file was allotted to this deliverable, so
@@ -154,6 +154,17 @@ const CONNECT_WITH_DID: ConnectEnvelope = {
   did: 'did:peer:2.Vz6Mkabc.Ez6LSabc.SeyJ0IjoiZG0ifQ',
 }
 
+// The one-scan connect-link ceremony's bootstrap message (connect_link.ts):
+// sent unencrypted (relay.ts's sendRaw), so decodeFromQr is its ONLY
+// validation layer -- unlike every other envelope here, there is no AEAD
+// authentication catching a tampered field first.
+const CONNECT_ACK: ConnectAckEnvelope = {
+  v: 1,
+  t: 'connect-ack',
+  from: { id: 'marlene0', displayName: 'Marlene' },
+  did: 'did:peer:2.Vz6Mkabc.Ez6LSabc.SeyJ0IjoiZG0ifQ',
+}
+
 describe('encodeForQr / decodeFromQr round trip', () => {
   it('round-trips a ConnectEnvelope', () => {
     expect(decodeFromQr(encodeForQr(CONNECT))).toEqual(CONNECT)
@@ -185,6 +196,37 @@ describe('encodeForQr / decodeFromQr round trip', () => {
   it('round-trips an AnswerEnvelope', () => {
     expect(decodeFromQr(encodeForQr(ANSWER))).toEqual(ANSWER)
   })
+
+  it('round-trips a ConnectAckEnvelope', () => {
+    expect(decodeFromQr(encodeForQr(CONNECT_ACK))).toEqual(CONNECT_ACK)
+  })
+})
+
+describe('decodeFromQr rejects a malformed ConnectAckEnvelope', () => {
+  it('rejects a missing `did` (required here, unlike ConnectEnvelope.did)', () => {
+    const bad = JSON.stringify({ v: 1, t: 'connect-ack', from: CONNECT_ACK.from })
+    expect(decodeFromQr(bad)).toBeNull()
+  })
+
+  it.each([123, '', null, {}, []])('rejects a malformed `did`: %j', (bad) => {
+    const raw = JSON.stringify({ v: 1, t: 'connect-ack', from: CONNECT_ACK.from, did: bad })
+    expect(decodeFromQr(raw)).toBeNull()
+  })
+
+  it('rejects a missing `from`', () => {
+    const bad = JSON.stringify({ v: 1, t: 'connect-ack', did: CONNECT_ACK.did })
+    expect(decodeFromQr(bad)).toBeNull()
+  })
+
+  it('rejects a `from` missing displayName', () => {
+    const bad = JSON.stringify({ v: 1, t: 'connect-ack', from: { id: 'x' }, did: CONNECT_ACK.did })
+    expect(decodeFromQr(bad)).toBeNull()
+  })
+
+  it('rejects an empty `from.id`', () => {
+    const bad = JSON.stringify({ v: 1, t: 'connect-ack', from: { id: '', displayName: 'X' }, did: CONNECT_ACK.did })
+    expect(decodeFromQr(bad)).toBeNull()
+  })
 })
 
 describe('decodeFromQr rejects malformed input', () => {
@@ -205,6 +247,7 @@ describe('decodeFromQr rejects malformed input', () => {
     ).toBeNull() // missing displayName
     expect(decodeFromQr(JSON.stringify({ v: 1, t: 'query', from: QUERY.from }))).toBeNull()
     expect(decodeFromQr(JSON.stringify({ v: 1, t: 'answer', qid: 'x' }))).toBeNull() // no body
+    expect(decodeFromQr(JSON.stringify({ v: 1, t: 'connect-ack', from: CONNECT_ACK.from }))).toBeNull() // no did
   })
 
   it('rejects non-JSON garbage without throwing', () => {

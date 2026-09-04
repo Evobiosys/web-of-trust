@@ -184,6 +184,32 @@ export interface ConnectEnvelope {
   did?: string
 }
 
+/**
+ * The one-scan connect-link ceremony's reply (connect_link.ts): sent by a
+ * phone that opened a connect LINK (never a QR -- see that module's header
+ * for why a link is the whole point of this envelope existing) back to the
+ * laptop that showed it, over the relay, once the phone has minted its own
+ * did:peer:2 and registered with the relay.
+ *
+ * Deliberately carries NO nonce and NO other secret. The pairing key comes
+ * from X25519 ECDH between the two `did`s (crypto.ts's `deriveEcdhPairKey`,
+ * did.ts's `ecdhSharedSecret`), which only needs each side's PUBLIC key --
+ * this envelope, like every relay wire's outer `to`/`from`, is safe to be
+ * sent unencrypted (relay.ts's `sendRaw`) because the relay learning "these
+ * two DIDs are pairing" is not new information (it must know both DIDs to
+ * route anyway) and this carries no PRIVATE key material at all.
+ *
+ * `did` is REQUIRED here, unlike ConnectEnvelope.did (optional there for
+ * qr-mode/demo-1 compatibility): a ConnectAckEnvelope only ever exists in
+ * relay mode, so routing back to the phone always needs it.
+ */
+export interface ConnectAckEnvelope {
+  v: 1
+  t: 'connect-ack'
+  from: Identity
+  did: string
+}
+
 /** QR 2: B asks. Carries the template id and the nonce, never free text. */
 export interface QueryEnvelope {
   v: 1
