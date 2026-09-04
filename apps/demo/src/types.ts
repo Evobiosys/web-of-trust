@@ -212,7 +212,7 @@ export interface ConnectAckEnvelope {
 
 /**
  * QR 2: B asks. Carries the template id and the nonce -- and, as of "call
- * into the web" (In die Runde fragen), OPTIONALLY a free-text ask instead of
+ * into the web" (Ins Netzwerk rufen), OPTIONALLY a free-text ask instead of
  * one of the five fixed templates.
  *
  * `freeText` present means: `templateId` is the fixed sentinel

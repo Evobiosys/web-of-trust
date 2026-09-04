@@ -85,7 +85,7 @@ let geoCeremonyBusy = false
 /**
  * Every query this device is currently waiting on an answer for, keyed by
  * qid. A plain Map rather than the single-slot `{qid,resolve}|null` this
- * replaced: askNetwork() (In die Runde fragen) sends a distinct qid to EACH
+ * replaced: askNetwork() (Ins Netzwerk rufen) sends a distinct qid to EACH
  * connected peer and waits on all of them concurrently, which the old single
  * slot could not represent (a second concurrent wait would silently steal
  * the first one's resolution). The single-peer ask functions
@@ -219,7 +219,7 @@ function updateRelayStatusBadge(): void {
  * scenario -- every other demo pinned one peer, only demo 20's geologengasse
  * scenario (Jakob's laptop, which can hold several peers at once, each
  * pairing separately -- see the coordinator's scope note this function
- * exists to satisfy) used the resolver. "Call into the web" (In die Runde
+ * exists to satisfy) used the resolver. "Call into the web" (Ins Netzwerk rufen
  * fragen, main.ts's askNetwork()) needs the SAME multi-peer capability in
  * the DEFAULT scenario too -- an asker can be paired to more than one holder
  * and broadcast to all of them -- so the resolver is now unconditional. It
@@ -360,16 +360,25 @@ function handleIncomingEnvelope(env: Envelope, _fromDid?: string): void {
  * pairing on receipt, live, without a reload (screenConnect() re-renders
  * because `screen` never left `'connect'` while the link/QR was on
  * screen -- see showConnectLinkCode()).
+ *
+ * RETURNS `true` only on the paths that genuinely recognised this wire as a
+ * connect-ack meant for this device (root-caused 2026-09-05, see relay.ts's
+ * `onRawWire` doc comment): every early `return` below -- not a connect-ack,
+ * a `did` mismatch, no `state` yet -- returns `false`/`void`, which
+ * `handleWire` now treats as "not handled", leaving the wire un-acked so an
+ * un-acked ordinary encrypted wire (this function's silent no-op case, by
+ * far the common one) is correctly redelivered instead of silently and
+ * permanently dropped.
  */
-function handleRawWire(fromDid: string, payload: string): void {
+function handleRawWire(fromDid: string, payload: string): boolean {
   const env = decodeFromQr(payload)
-  if (!env || env.t !== 'connect-ack') return
+  if (!env || env.t !== 'connect-ack') return false
   // The outer wire's cleartext `from` (relay.ts's routing field) must match
   // what the envelope itself claims -- a mismatch is either a relay bug or
   // tampering, either way not something to trust silently.
-  if (env.did !== fromDid) return
+  if (env.did !== fromDid) return false
   const s = state
-  if (!s) return
+  if (!s) return false
   if (wotScenario() === 'geologengasse') {
     // Demo 20: nobody joins Jakob's graph without an explicit tap on
     // "Anfrage bestätigen" -- see acceptPendingRequest() below. Several
@@ -379,14 +388,14 @@ function handleRawWire(fromDid: string, payload: string): void {
     // still covers it.
     if (s.peers.some((p) => p.did === env.did)) {
       void registerRelaySink()
-      return
+      return true
     }
     const req = { did: env.did, from: env.from }
     const idx = pendingAcceptRequests.findIndex((r) => r.did === env.did)
     if (idx >= 0) pendingAcceptRequests[idx] = req
     else pendingAcceptRequests.push(req)
     if (screen === 'connect' || screen === 'home') render()
-    return
+    return true
   }
   upsertPeer(s, {
     id: env.from.id,
@@ -404,6 +413,7 @@ function handleRawWire(fromDid: string, payload: string): void {
   })
   void saveState(s).then(() => registerRelaySink())
   if (screen === 'connect') render()
+  return true
 }
 
 /**
@@ -1950,7 +1960,7 @@ function screenAsk(): void {
     peer && wotMode() === 'webrtc' && webrtcNotOpen
       ? el('p', { class: 'note' }, [t('webrtcCardTitle') + ': ' + t('noConnection')])
       : null,
-    // "In die Runde fragen": free text, not one of the five fixed templates
+    // "Ins Netzwerk rufen": free text, not one of the five fixed templates
     // below -- travels to every connected peer (askWith()'s broadcast
     // branch), matched against inventory AND chat content exactly like a
     // fixed template, through the same consent gate. Shown first: this is
@@ -1987,7 +1997,7 @@ function screenAsk(): void {
 }
 
 /**
- * `freeText`, when present, is the "In die Runde fragen" ask -- see
+ * `freeText`, when present, is the "Ins Netzwerk rufen" ask -- see
  * screenAsk()'s free-text card. Every OTHER call site (the five template
  * cards) omits it, so this stays byte-for-byte the same dispatch those demos
  * already exercise.
@@ -2064,7 +2074,7 @@ async function askWith(tpl: QueryTemplate, freeText?: string): Promise<void> {
 }
 
 /**
- * "In die Runde fragen" / "call into the web": send the SAME question to
+ * "Ins Netzwerk rufen" / "call into the web": send the SAME question to
  * EVERY given peer, each over its own qid (waitForAnswer's Map keys on qid,
  * see that function's doc comment for why one qid per peer rather than a
  * shared one), and wait for all of them.

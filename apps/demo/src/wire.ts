@@ -56,7 +56,7 @@ function parseQuery(o: Record<string, unknown>): QueryEnvelope | null {
   if (typeof o.templateVersion !== 'number' || !Number.isFinite(o.templateVersion)) return null
   if (!isNonEmptyString(o.qid)) return null
   if (typeof o.issuedAt !== 'number' || !Number.isFinite(o.issuedAt)) return null
-  // `freeText` (the "In die Runde fragen" ask) is OPTIONAL, same convention
+  // `freeText` (the "Ins Netzwerk rufen" ask) is OPTIONAL, same convention
   // as ConnectEnvelope.did above: absent is fine (every existing templated
   // query), but a present-and-malformed field rejects the whole envelope
   // rather than being silently dropped -- and it gets the same length bound

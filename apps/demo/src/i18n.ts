@@ -205,16 +205,17 @@ const S: Table = {
   showQueryHint:  { de: 'Halte diesen Code vor das andere Gerät.', en: 'Hold this code up to the other device.' },
   waitAnswer:     { de: 'Antwort scannen', en: 'Scan the answer' },
 
-  // "In die Runde fragen" -- call into the web: a free-text ask, not one of
-  // the five fixed templates. See DEVLOG/handover-inventory-call.md for the
-  // name and data/free_text_query.ts for the matching.
-  askFreeTextTitle:  { de: 'In die Runde fragen', en: 'Call into the web' },
+  // "Ins Netzwerk rufen" -- a free-text ask, not one of
+  // the five fixed templates. Renamed from "In die Runde fragen" at the
+  // owner's request: a Runde is people who are physically present, which is
+  // exactly what this is not. See data/free_text_query.ts for the matching.
+  askFreeTextTitle:  { de: 'Ins Netzwerk rufen', en: 'Call into the web' },
   askFreeTextPrivacy: {
     de: 'Die andere Seite sieht deinen Namen und genau diesen Satz, so wie du ihn tippst.',
     en: 'The other side sees your name and exactly this sentence, exactly as you type it.',
   },
   askFreeTextPlaceholder: { de: 'z. B. Ski', en: 'e.g. skis' },
-  askFreeTextSubmit: { de: 'In die Runde fragen', en: 'Call into the web' },
+  askFreeTextSubmit: { de: 'Ins Netzwerk rufen', en: 'Call into the web' },
   networkAskInFlight: { de: 'Frage an {n} Personen im Netz…', en: 'Asking {n} people in the network…' },
   networkAskedCount:  { de: 'Gefragt: {n} Personen im Netz.', en: 'Asked: {n} people in the network.' },
 

@@ -1,5 +1,5 @@
 /**
- * "In die Runde fragen" ("call into the web"): a free-text ask, as opposed to
+ * "Ins Netzwerk rufen" ("call into the web"): a free-text ask, as opposed to
  * one of the five fixed TEMPLATES (data/templates.ts). B types a sentence
  * instead of picking a card; A's device matches it with the exact same
  * matcher (match/lexical.ts's matchTemplate), because this builds an ordinary
