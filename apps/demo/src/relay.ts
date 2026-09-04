@@ -542,6 +542,8 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
     })
   }
 
+  const INGRESS_TIMEOUT_MS = 15_000
+
   /** Shared by `send()` and `sendRaw()` -- everything except how `payload` was produced. */
   async function postToIngress(toDid: string, payload: string, callerLabel: string): Promise<void> {
     if (!identity) {
@@ -553,7 +555,33 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
     const rawWire = buildOuterWire(toDid, identity.did, payload)
 
     const url = new URL(ingressPath, relayOrigin).toString()
-    const res = await fetchImpl(url, { method: 'POST', body: rawWire })
+    // A send that never settles is worse than a send that fails.
+    //
+    // Without this, a stalled connection left the promise pending forever:
+    // nothing threw, nothing retried, and on the silent ambient path nothing
+    // was on screen to notice. It cost a real bug -- the local query log,
+    // which was written after this await, simply never got written on the
+    // devices whose send happened to hang. That symptom is fixed elsewhere by
+    // logging first, but the hang itself is a fault in its own right and it
+    // also strands the ASKER, who waits out the full answer timeout for a
+    // message that was never delivered.
+    //
+    // Fifteen seconds: far longer than the ~100 ms this normally takes, short
+    // enough that a caller learns the truth while the person is still holding
+    // the phone.
+    const ac = typeof AbortController !== 'undefined' ? new AbortController() : null
+    const timer = ac ? setTimeout(() => ac.abort(), INGRESS_TIMEOUT_MS) : null
+    let res: Response
+    try {
+      res = await fetchImpl(url, { method: 'POST', body: rawWire, ...(ac ? { signal: ac.signal } : {}) })
+    } catch (err) {
+      throw new Error(
+        `RelayChannel.${callerLabel}: relay ingress ${url} did not answer within ` +
+        `${INGRESS_TIMEOUT_MS} ms (${err instanceof Error ? err.message : String(err)})`,
+      )
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
     const parsed = (await res.json().catch(() => ({}))) as { routed?: string; reason?: string }
     if (parsed.routed === 'rejected') {
       throw new Error(`RelayChannel.${callerLabel}: relay rejected wire for ${toDid}: ${parsed.reason ?? 'no reason given'}`)
