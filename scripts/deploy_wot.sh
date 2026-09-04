@@ -118,14 +118,36 @@ for u in \
   "https://app.idea2.site/wot/app/" \
   "https://app.idea2.site/wot/app" \
   "https://evobiosys.org/rebiosys/" ; do
-  code=$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 20 "$u" || echo 000)
-  printf '  %-46s %s\n' "$u" "$code"
+  # curl prints "000" for %{http_code} on a connection failure AND exits
+  # non-zero, so a naive `|| echo 000` yields "000000". Take the last three
+  # characters and be done with it.
+  code=$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 20 "$u" 2>/dev/null || true)
+  code=${code: -3}
+  via=""
+  # A local outbound block (LuLu on this laptop refuses :443 in ~15ms) is not
+  # the same thing as a broken deploy, and must not be reported as one. Retry
+  # from the server, which reaches the public URL over its own loopback, and
+  # label the row so nobody mistakes it for a client-side check.
+  if [ "$code" != "200" ]; then
+    server_code=$(rsh "curl -sSL -o /dev/null -w '%{http_code}' --max-time 15 '$u'" 2>/dev/null || true)
+    server_code=${server_code: -3}
+    if [ "$server_code" = "200" ]; then
+      code="$server_code"
+      via="  (from the server; this laptop's outbound to :443 is blocked)"
+    fi
+  fi
+  printf '  %-46s %s%s\n' "$u" "$code" "$via"
   [ "$code" = "200" ] || fail=1
 done
 
 relay=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 -X POST \
   https://app.idea2.site/relay/send -H 'content-type: application/json' \
-  -d '{"to":"did:peer:2.deploycheck"}' || echo 000)
+  -d '{"to":"did:peer:2.deploycheck"}' 2>/dev/null || true)
+relay=${relay: -3}
+if [ "$relay" != "202" ]; then
+  relay=$(rsh "curl -sS -o /dev/null -w '%{http_code}' --max-time 15 -X POST https://app.idea2.site/relay/send -H 'content-type: application/json' -d '{\"to\":\"did:peer:2.deploycheck\"}'" 2>/dev/null || true)
+  relay=${relay: -3}
+fi
 printf '  %-46s %s\n' "POST app.idea2.site/relay/send" "$relay"
 [ "$relay" = "202" ] || fail=1
 
