@@ -32,7 +32,7 @@ const root = document.getElementById('app') as HTMLElement
 let state: DeviceState | null = null
 let releaseWake: () => void = () => {}
 
-type Screen = 'start' | 'home' | 'chats' | 'profile' | 'inventory' | 'connect' | 'ask' | 'answer'
+type Screen = 'start' | 'home' | 'chats' | 'profile' | 'inventory' | 'connect' | 'ask' | 'answer' | 'link'
 let screen: Screen = 'start'
 
 // ---------------------------------------------------------------------------
@@ -152,6 +152,40 @@ async function registerRelaySink(): Promise<void> {
   relayChannel.onEnvelope(key, handleIncomingEnvelope)
 }
 
+/**
+ * The conversation and the probe.
+ *
+ * Deliberately in memory only. This is a demo of a live link, not a messenger:
+ * persisting it would mean deciding what happens to it on a device that blocks
+ * storage (see db.ts), and none of that teaches anyone anything about whether
+ * the connection works. Closing the tab ends the conversation, which is also
+ * the honest thing to tell someone.
+ */
+const chatLog: { mine: boolean; text: string; at: number }[] = []
+let unreadChat = 0
+let pendingPing: { id: string; sentAt: number; resolve: (ms: number) => void } | null = null
+
+/**
+ * Send one envelope over whichever transport is currently up, without the
+ * caller having to know which. Prefers the direct data channel when it is
+ * open, because a message that never touches a server is the better
+ * demonstration when both are available.
+ *
+ * Throws when nothing is connected, so a caller can say so rather than
+ * silently dropping the message.
+ */
+async function sendOverActiveTransport(env: Envelope): Promise<'webrtc' | 'relay'> {
+  if (webrtcChannel && webrtcChannel.isOpen()) {
+    webrtcChannel.send(env)
+    return 'webrtc'
+  }
+  const s = state
+  const peer = s?.peers[0]
+  if (!relayChannel || !peer?.did) throw new Error(t('noConnection'))
+  await relayChannel.send(peer.did, env, await pairKey(peer))
+  return 'relay'
+}
+
 /** Dispatches a decrypted, validated inbound envelope. Registered as the
  *  inbound sink for BOTH relay.ts's `onEnvelope(key, cb)` (2-arg,
  *  `fromDid` unused here -- routing already narrowed to "the one paired
@@ -170,6 +204,25 @@ function handleIncomingEnvelope(env: Envelope, _fromDid?: string): void {
     // so any arriving query is by construction from that one peer.
     pendingIncomingQuery = env
     go('answer')
+    return
+  }
+  if (env.t === 'chat') {
+    chatLog.push({ mine: false, text: env.text, at: Date.now() })
+    // Only redraw if the person is looking at the conversation. Yanking them
+    // out of a consent screen because a message arrived would be worse than
+    // the message waiting.
+    if (screen === 'link') render()
+    else unreadChat += 1
+    return
+  }
+  if (env.t === 'ping') {
+    if (!env.back) {
+      // Someone is testing the line. Answer immediately and say nothing about
+      // it on screen: the test belongs to whoever pressed the button.
+      void sendOverActiveTransport({ v: 1, t: 'ping', id: env.id, back: true })
+    } else if (pendingPing && pendingPing.id === env.id) {
+      pendingPing.resolve(Date.now() - pendingPing.sentAt)
+    }
     return
   }
   // A ConnectEnvelope never travels over the relay in this app -- pairing is
@@ -317,6 +370,7 @@ function render(): void {
     case 'connect': return screenConnect()
     case 'ask':     return screenAsk()
     case 'answer':  return screenAnswer()
+    case 'link':    return screenLink()
     default:        return screenHome()
   }
 }
@@ -449,6 +503,13 @@ function screenHome(): void {
     ]),
     el('button', { class: 'btn primary', onclick: () => go('ask') }, [t('navAsk')]),
     el('button', { class: 'btn', onclick: () => go('answer') }, [t('navAnswer')]),
+    // Only in the modes that actually hold a connection. In qr mode there is
+    // nothing to test and nothing to type into.
+    wotMode() !== 'qr'
+      ? el('button', { class: 'btn', onclick: () => go('link') }, [
+          t('navLink') + (unreadChat ? ` (${unreadChat})` : ''),
+        ])
+      : null,
     el('button', { class: 'btn quiet', onclick: () => go('chats') }, [
       t('navChats') + ' (' + s.threads.length + ')',
     ]),
@@ -1416,10 +1477,42 @@ async function scanScreen(
     style: 'width:100%;border-radius:14px;border:1px solid var(--line);background:var(--bg-raised);color:var(--ink);padding:12px;font:inherit;margin-bottom:12px',
   }) as HTMLTextAreaElement
 
+  const busy = el('div', { class: 'busy', style: 'display:none' }, [t('scanCaught')])
+  const hint = el('p', {}, [t('scanning')])
+
+  /**
+   * The black-box fix.
+   *
+   * `scanQr` calls `stop()` the instant it decodes, which stops the camera
+   * tracks -- so the <video> element is left showing a dead black rectangle.
+   * Whatever happens next can take seconds (accepting a WebRTC offer gathers
+   * ICE candidates before it can produce an answer), and during that time the
+   * screen said nothing at all. Reported from a real phone as "I scanned the
+   * code and then the camera box went black".
+   *
+   * So the moment a code is caught, the camera view is replaced by a line that
+   * says it was caught and something is happening. On failure the camera comes
+   * back with the error; on success the caller navigates away.
+   */
+  const showBusy = (on: boolean): void => {
+    busy.style.display = on ? '' : 'none'
+    video.style.display = on ? 'none' : ''
+    hint.style.display = on ? 'none' : ''
+  }
+
   const handle = async (text: string, restart: boolean): Promise<void> => {
-    const r = await onText(text.trim())
+    clear(errBox)
+    showBusy(true)
+    let r: ScanOutcome
+    try {
+      r = await onText(text.trim())
+    } catch (err) {
+      // An exception here used to surface as nothing at all. It is the most
+      // likely outcome when a peer connection cannot be established.
+      r = { ok: false, msg: `${t('scanFailed')} ${err instanceof Error ? err.message : String(err)}` }
+    }
     if (!r.ok) {
-      clear(errBox)
+      showBusy(false)
       errBox.appendChild(el('div', { class: 'err' }, [r.msg]))
       // The error box sits above the camera view, which on a phone is often
       // scrolled out of sight by the time a scan fails. An error nobody sees
@@ -1431,9 +1524,11 @@ async function scanScreen(
 
   let stop: () => void = () => {}
   const start = () => {
+    showBusy(false)
     if (!cameraPlausible()) {
       clear(errBox)
       errBox.appendChild(el('div', { class: 'err' }, [t('camDenied')]))
+      video.style.display = 'none'
       return
     }
     const h = scanQr(video, (text) => { void handle(text, true) })
@@ -1441,6 +1536,7 @@ async function scanScreen(
     h.ready.catch(() => {
       clear(errBox)
       errBox.appendChild(el('div', { class: 'err' }, [t('camDenied')]))
+      video.style.display = 'none'
     })
   }
 
@@ -1448,7 +1544,8 @@ async function scanScreen(
     el('h1', {}, [title]),
     errBox,
     video,
-    el('p', {}, [t('scanning')]),
+    busy,
+    hint,
     el('h2', {}, [t('camPaste')]),
     pasteArea,
     el('button', { class: 'btn', onclick: () => void handle(pasteArea.value, false) }, [t('useCode')]),
@@ -1457,6 +1554,93 @@ async function scanScreen(
   shell(title, body, { back: () => { stop(); back() } })
   start()
 }
+
+// ---------------------------------------------------------------------------
+// the live link: a conversation and a probe
+//
+// Neither is part of the query protocol. They exist because "Verbunden (seit
+// 09:57:33)" is a claim, and a person holding two devices has no way to check
+// it. Typing a word on one and watching it appear on the other is proof; the
+// probe puts a number next to it. Both travel the same path a query would, so
+// if these work the query path works.
+// ---------------------------------------------------------------------------
+
+function screenLink(): void {
+  unreadChat = 0
+  const s = state as DeviceState
+  const peer = s.peers[0]
+  const result = el('div', {})
+  const input = el('textarea', {
+    rows: 2,
+    placeholder: t('linkPlaceholder'),
+    style: 'width:100%;border-radius:14px;border:1px solid var(--line);background:var(--bg-raised);color:var(--ink);padding:12px;font:inherit;margin-bottom:10px',
+  }) as HTMLTextAreaElement
+
+  const say = (node: HTMLElement): void => { clear(result); result.appendChild(node) }
+
+  const send = async (): Promise<void> => {
+    const text = input.value.trim().slice(0, 500)
+    if (!text) return
+    input.value = ''
+    chatLog.push({ mine: true, text, at: Date.now() })
+    render()
+    try {
+      await sendOverActiveTransport({ v: 1, t: 'chat', from: s.me, text, ts: Date.now() })
+    } catch (err) {
+      chatLog.push({ mine: true, text: t('linkSendFailed') + ' ' + (err instanceof Error ? err.message : ''), at: Date.now() })
+      render()
+    }
+  }
+
+  const test = async (): Promise<void> => {
+    const id = randomId(10)
+    say(el('p', {}, [el('span', { class: 'spin' }), document.createTextNode(' ' + t('linkTesting'))]))
+    const ms = await new Promise<number | null>((resolve) => {
+      pendingPing = { id, sentAt: Date.now(), resolve: (v) => resolve(v) }
+      const timer = setTimeout(() => { pendingPing = null; resolve(null) }, 10000)
+      void sendOverActiveTransport({ v: 1, t: 'ping', id, back: false })
+        .then((rung) => { lastTestRung = rung })
+        .catch(() => { clearTimeout(timer); pendingPing = null; resolve(null) })
+    })
+    pendingPing = null
+    if (ms === null) {
+      say(el('div', { class: 'err' }, [t('linkTestFailed')]))
+      return
+    }
+    say(el('div', { class: 'outcome shared' }, [
+      el('div', { class: 'glyph' }, ['\u2713']),
+      el('b', {}, [t('linkTestOk')]),
+      el('span', {}, [`${ms} ms \u00b7 ${lastTestRung === 'webrtc' ? t('linkViaDirect') : t('linkViaServer')}`]),
+    ]))
+  }
+
+  const bubbles = chatLog.length
+    ? chatLog.map((m) =>
+        el('div', { class: m.mine ? 'quote mine' : 'quote' }, [
+          document.createTextNode(m.text),
+          el('footer', {}, [
+            (m.mine ? t('linkMe') : peer?.displayName ?? '') + ' \u00b7 ' +
+            new Date(m.at).toLocaleTimeString(getLang() === 'de' ? 'de-AT' : 'en-GB'),
+          ]),
+        ]),
+      )
+    : [el('p', {}, [t('linkEmpty')])]
+
+  const body = el('div', {}, [
+    el('h1', {}, [t('navLink')]),
+    el('p', { class: 'lead' }, [t('linkLead')]),
+    el('button', { class: 'btn primary', onclick: () => void test() }, [t('linkTestBtn')]),
+    result,
+    el('h2', {}, [t('linkChatTitle')]),
+    ...bubbles,
+    input,
+    el('button', { class: 'btn', onclick: () => void send() }, [t('linkSendBtn')]),
+    el('button', { class: 'btn quiet', onclick: () => go('home') }, [t('back')]),
+  ])
+  shell(t('navLink'), body, { back: () => go('home') })
+}
+
+let lastTestRung: 'webrtc' | 'relay' = 'relay'
 
 // ---------------------------------------------------------------------------
 // boot

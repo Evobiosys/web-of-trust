@@ -91,6 +91,27 @@ const S: Table = {
   // Said after a scan actually worked. The camera view used to just close,
   // which from the phone in your hand looks exactly like a crash.
   scanOkTitle:    { de: 'Code übernommen', en: 'Code accepted' },
+  // The live-link screen: a probe and a conversation, so "Verbunden seit …"
+  // stops being a claim the person has to take on faith.
+  navLink:        { de: 'Verbindung prüfen', en: 'Check the connection' },
+  linkLead:       { de: 'Hier siehst du, ob die Verbindung wirklich steht. Drück auf Prüfen, oder tipp etwas und schau auf das andere Gerät.', en: 'This is where you see whether the connection is really up. Press test, or type something and look at the other device.' },
+  linkTestBtn:    { de: 'Verbindung prüfen', en: 'Test the connection' },
+  linkTesting:    { de: 'Läuft …', en: 'Testing …' },
+  linkTestOk:     { de: 'Die Verbindung steht', en: 'The connection is up' },
+  linkTestFailed: { de: 'Keine Antwort vom anderen Gerät. Ist es offen und auf derselben Demo?', en: 'No answer from the other device. Is it open, on the same demo?' },
+  linkViaDirect:  { de: 'direkt von Gerät zu Gerät', en: 'directly, device to device' },
+  linkViaServer:  { de: 'über den Server', en: 'via the server' },
+  linkChatTitle:  { de: 'Nachrichten', en: 'Messages' },
+  linkPlaceholder:{ de: 'Tipp etwas und schau aufs andere Gerät', en: 'Type something, then look at the other device' },
+  linkSendBtn:    { de: 'Senden', en: 'Send' },
+  linkSendFailed: { de: 'Nicht gesendet:', en: 'Not sent:' },
+  linkEmpty:      { de: 'Noch nichts geschrieben.', en: 'Nothing written yet.' },
+  linkMe:         { de: 'Ich', en: 'Me' },
+  // Shown between catching a code and knowing whether it worked. Accepting a
+  // WebRTC offer gathers ICE first, which takes seconds; the camera is already
+  // stopped by then, so without this the screen is a dead black rectangle.
+  scanCaught:     { de: 'Code erkannt. Einen Moment …', en: 'Code caught. One moment …' },
+  scanFailed:     { de: 'Das hat nicht geklappt:', en: 'That did not work:' },
   scanOkWith:     { de: 'Verbunden mit', en: 'Connected with' },
   scanOkNext:     {
     de: 'Auf dem anderen Gerät ist noch nichts zu sehen: In dieser Betriebsart geht nichts über ein Netz, also kann es nicht wissen, dass sein Code gelesen wurde. Zeig jetzt deinen Code her, damit die andere Seite ihn scannt. Dann sind beide sicher.',

@@ -8,10 +8,13 @@
  * mistyped fields).
  */
 
-import type { AnswerEnvelope, ConnectEnvelope, QueryEnvelope } from './types'
+import type { AnswerEnvelope, ChatEnvelope, ConnectEnvelope, PingEnvelope, QueryEnvelope } from './types'
 import { WIRE_VERSION } from './types'
 
-export type Envelope = ConnectEnvelope | QueryEnvelope | AnswerEnvelope
+/** Free text is the one unbounded field on the wire, so it gets a bound. */
+export const CHAT_MAX_LEN = 500
+
+export type Envelope = ConnectEnvelope | QueryEnvelope | AnswerEnvelope | ChatEnvelope | PingEnvelope
 
 /** JSON-serialise an envelope for a QR code. */
 export function encodeForQr(env: Envelope): string {
@@ -67,6 +70,24 @@ function parseAnswer(o: Record<string, unknown>): AnswerEnvelope | null {
   return { v: WIRE_VERSION, t: 'answer', qid: o.qid, body: o.body }
 }
 
+function parseChat(o: Record<string, unknown>): ChatEnvelope | null {
+  if (!isIdentity(o.from)) return null
+  // An empty message is not a message. A caller that wants to say nothing can
+  // simply not send.
+  if (!isNonEmptyString(o.text)) return null
+  // Bound it here, at the boundary, rather than trusting a sender's restraint:
+  // this is the one envelope whose content is free text.
+  if (o.text.length > CHAT_MAX_LEN) return null
+  if (typeof o.ts !== 'number' || !Number.isFinite(o.ts)) return null
+  return { v: WIRE_VERSION, t: 'chat', from: o.from, text: o.text, ts: o.ts }
+}
+
+function parsePing(o: Record<string, unknown>): PingEnvelope | null {
+  if (!isNonEmptyString(o.id)) return null
+  if (typeof o.back !== 'boolean') return null
+  return { v: WIRE_VERSION, t: 'ping', id: o.id, back: o.back }
+}
+
 /**
  * Parse a QR payload back into an envelope. Returns `null` on anything
  * malformed -- truncated JSON, wrong version, wrong/missing `t`, wrong field
@@ -92,6 +113,10 @@ export function decodeFromQr(s: string): Envelope | null {
       return parseQuery(o)
     case 'answer':
       return parseAnswer(o)
+    case 'chat':
+      return parseChat(o)
+    case 'ping':
+      return parsePing(o)
     default:
       return null
   }

@@ -220,6 +220,41 @@ export interface AnswerEnvelope {
 
 export const ANSWER_BODY_LEN = 512
 
+/**
+ * A plain message between two paired devices, and a round-trip probe.
+ *
+ * Neither is part of the query protocol and neither goes through the consent
+ * gate: they exist so a person can SEE that the connection is real. Watching a
+ * word typed on a laptop appear on a phone answers "is this actually
+ * connected" in a way a status line never will, and the probe puts a number on
+ * it. Both are ordinary payloads on whichever transport is open, so they also
+ * exercise the exact path a query would take.
+ *
+ * They carry no inventory, no chat history, and nothing gated. Do not route
+ * anything through them that the gate would otherwise decide about.
+ */
+export interface ChatEnvelope {
+  v: 1
+  t: 'chat'
+  from: Identity
+  text: string
+  /** Sender's clock, for ordering in the local log only. Never trusted. */
+  ts: number
+}
+
+/**
+ * One type for both halves of the probe: `back: false` is the question,
+ * `back: true` is the reply carrying the same `id`. Keeping it to one type
+ * keeps wire.ts's parser table small, which is the file where every extra
+ * branch is another way to accept something malformed.
+ */
+export interface PingEnvelope {
+  v: 1
+  t: 'ping'
+  id: string
+  back: boolean
+}
+
 /** Reasons live only on the answering device. They are never serialised. */
 export type LocalOutcome = 'no-match' | 'below-k' | 'declined' | 'blocked' | 'shared'
 

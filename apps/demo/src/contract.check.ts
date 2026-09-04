@@ -19,7 +19,7 @@ import type {
   MatchResult,
   QueryEnvelope,
   AnswerEnvelope,
-  ConnectEnvelope,
+  ChatEnvelope, PingEnvelope, ConnectEnvelope,
   DecodedAnswer,
   LocalOutcome,
 } from './types'
@@ -71,10 +71,14 @@ type RandomIdFn = (len: number) => string
 const _randomId: RandomIdFn = randomId
 
 /* --- wire -------------------------------------------------------------- */
-type EncodeFn = (env: ConnectEnvelope | QueryEnvelope | AnswerEnvelope) => string
+type EncodeFn = (env: ConnectEnvelope | QueryEnvelope | AnswerEnvelope | ChatEnvelope | PingEnvelope) => string
 const _encode: EncodeFn = encodeForQr
 
-type DecodeFn = (s: string) => ConnectEnvelope | QueryEnvelope | AnswerEnvelope | null
+// Widened for the chat and ping envelopes (types.ts). Kept as an explicit
+// union rather than importing wire.ts's `Envelope` alias, so that adding a new
+// envelope type still has to be acknowledged HERE, which is the whole point of
+// this file.
+type DecodeFn = (s: string) => ConnectEnvelope | QueryEnvelope | AnswerEnvelope | ChatEnvelope | PingEnvelope | null
 const _decode: DecodeFn = decodeFromQr
 
 /** Referenced so `noUnusedLocals` does not hide a drift by complaining first. */
