@@ -80,6 +80,94 @@ export interface SecondBrainNote {
   ownerDisplayName: string
 }
 
+/**
+ * The three onboarding postures (DEVLOG/handover-three-modes.md). Chosen once
+ * on THIS device, at onboarding, on every device including a guest arriving
+ * by connect link -- never inherited from whoever invited you (that would be
+ * exactly the coercion the feature exists to prevent). Changeable afterwards
+ * from "Mein Profil". A mode is a STARTING POSTURE, not a lock: every
+ * individual switch it sets (see applyModePosture below) stays individually
+ * settable afterwards, same as any other field in this file.
+ *
+ * `'sicher'`: the most protective. No free-text asks, in either direction --
+ * this device cannot compose one (main.ts's screenAsk) and will not resolve
+ * one addressed to it (main.ts's resolveIncomingTemplate), so nobody using
+ * this device is ever shown a stranger's own words to react to. Nothing this
+ * device holds is exposed until it is switched on deliberately -- see
+ * seedPersona/seedJakob/seedSecondHopRoot's seed-time use of this posture.
+ * Never offers to relay a second hop (main.ts's runSecondHopRelayCeremony)
+ * -- see that function's own eligibleNotes gate.
+ *
+ * `'standard'`: the default (I9 -- a person who taps straight through gets
+ * this). Reproduces exactly what this app already shipped before this
+ * feature existed: free-text asks allowed, the fast/honest-about-reach
+ * default for a direct answer (D28), relaying stays non-revealing (D30),
+ * a second hop is possible.
+ *
+ * `'pro'`: everything available, including whatever is fastest and most
+ * revealing -- the owner's own words: "i know what i am doing and will
+ * nuance what i share and talk." Not a locked-down safety rail; a person who
+ * has picked this is trusted to manage their own exposure.
+ */
+export type Mode = 'sicher' | 'standard' | 'pro'
+
+/** Absent reads as `'standard'` -- the same "absent means the safe default"
+ *  convention `secondHopUniformModeDirect`/`secondHopRevealRelay` already
+ *  use below, and for the same reason: a state saved before this field
+ *  existed (a rehearsal phone on an earlier build of this branch, exactly
+ *  the case `withDefaults`'s own migration comment already worries about)
+ *  must not silently become some OTHER posture just because the field is
+ *  missing. `withDefaults` does not need to backfill it. */
+export function deviceMode(s: DeviceState): Mode {
+  return s.mode ?? 'standard'
+}
+
+/**
+ * The bundle a mode sets for the two independent per-role timing switches
+ * (DECISIONS.md D28/D30 -- see DeviceState.secondHopUniformModeDirect and
+ * .secondHopRevealRelay's own doc comments for what each one governs).
+ * `'standard'` reproduces D28/D30's own shipped defaults exactly (both
+ * false). `'sicher'` pushes the direct switch to uniform too, so a Sicher
+ * device's own directly-answered "nothing" (including a free-text ask this
+ * device just refused to resolve, see resolveIncomingTemplate) takes the
+ * same fixed ~30s every relay-class ending already takes -- the refusal
+ * cannot be read off the clock. `'pro'` opts the relay switch into
+ * revealing, on top of the direct switch's already-fast default: the
+ * fastest, most revealing combination this app can produce.
+ */
+export function modeSwitchDefaults(mode: Mode): {
+  secondHopUniformModeDirect: boolean
+  secondHopRevealRelay: boolean
+} {
+  switch (mode) {
+    case 'sicher': return { secondHopUniformModeDirect: true, secondHopRevealRelay: false }
+    case 'pro': return { secondHopUniformModeDirect: false, secondHopRevealRelay: true }
+    case 'standard':
+    default: return { secondHopUniformModeDirect: false, secondHopRevealRelay: false }
+  }
+}
+
+/**
+ * The ONE place a mode gets applied. Called only from an EXPLICIT choice --
+ * picking a mode during onboarding (main.ts's seedPersona/seedGeoGuest/
+ * seedSecondHopGuest/seedJakob/seedSecondHopRoot, all of which receive the
+ * chosen mode as a parameter rather than reading a default) or changing it
+ * later from "Mein Profil" (screens/profile.ts) -- and NEVER from
+ * `deviceMode()`/`withDefaults`/`loadState()`. That asymmetry matters: a
+ * rehearsal phone that has individually hand-tuned
+ * secondHopUniformModeDirect/secondHopRevealRelay must not have them
+ * silently reset just because `s.mode` happens to be absent and
+ * `deviceMode()` reads it as `'standard'` on every load. A mode is a
+ * starting posture applied ONCE per explicit choice, not a rule re-enforced
+ * on every boot.
+ */
+export function applyModePosture(s: DeviceState, mode: Mode): void {
+  s.mode = mode
+  const d = modeSwitchDefaults(mode)
+  s.secondHopUniformModeDirect = d.secondHopUniformModeDirect
+  s.secondHopRevealRelay = d.secondHopRevealRelay
+}
+
 export interface DeviceState {
   me: Identity
   threads: ChatThread[]
@@ -160,6 +248,16 @@ export interface DeviceState {
    */
   secondHopUniformModeDirect?: boolean
   secondHopRevealRelay?: boolean
+  /**
+   * The onboarding posture (see the `Mode` type and `deviceMode()` above).
+   * Absent reads as `'standard'` -- `withDefaults` does not need to backfill
+   * it, same reasoning as `secondHopUniformModeDirect`/`secondHopRevealRelay`
+   * above: a state saved before this field existed already IS what
+   * `'standard'` describes (free text allowed, fast/honest default, second
+   * hop possible), so treating its absence as `'standard'` is not a
+   * guess, it is simply naming what that state already does.
+   */
+  mode?: Mode
 }
 
 /** Exported so test/state_defaults.test.ts can write a legacy-shaped record

@@ -265,3 +265,94 @@ Regression after D27–D30 combined: `tsc --noEmit` clean; 310 vitest tests gree
 Re-verified after all five: `tsc --noEmit` clean, 311 vitest tests green (was 310, +1 for the migration test), and a fresh three-way bundle-grep (demo1 / demo21-address-free / demo20-with-test-address) against a distinct throwaway test address confirming demo1 and demo21 remain address-free and demo20 alone carries it.
 
 `test/e2e/second_hop.mjs` against questhub.eco: **41 assertions, 41 passed, 0 failed** — counted directly from the script's own output (`grep -c PASS`/`grep -c FAIL`), not hand-tallied. This is unchanged by point 4's fix above: that fix rewrote how ONE existing assertion is computed (byte search instead of a lossy decode-then-substring check), it did not add or remove an `ok()` call, so the true total was already 41 before this hardening pass — the "40/40" figure in the D27–D30 entry above was simply an uncounted arithmetic slip, now corrected there directly since this whole file is still one uncommitted draft (nothing has been committed since `0429e06`; append-only protects entries once they ship, not arithmetic caught before the first commit).
+
+### D31 — Three onboarding postures (Sicher/Standard/Pro), layered on top of D28–D30, not replacing them
+
+The owner's own instruction (DEVLOG/handover-three-modes.md), read for its actual concern:
+not data leakage but SOCIAL awkwardness — being asked something you would rather not have been
+asked, having to refuse someone you know, having a no read as a no to them. Three modes, chosen
+at onboarding on every device including a guest arriving by connect link, never inherited from
+whoever invited you.
+
+**What a mode bundles, concretely.** `state.ts`'s `applyModePosture(s, mode)` is the one place a
+mode is ever written, called only from an explicit pick (onboarding or "Mein Profil"), never
+from `deviceMode()`/`withDefaults()`, so a rehearsal phone's hand-tuned switches are never reset
+by a mere reload. It sets three things: `s.mode` itself; D28/D30's own two timing switches via
+`modeSwitchDefaults(mode)` (`sicher`: direct forced uniform, relay stays non-revealing; `standard`:
+both at D28/D30's own shipped defaults, unchanged; `pro`: direct fast, relay opted into
+revealing); and, only at SEED time (`seedPersona`/`seedSecondHopRoot`/`onImport`, never on an
+existing device), whether newly-seeded/imported group threads and inventory default to
+`included`. A newly-typed inventory entry (`addInventoryItem`) is untouched by all three modes —
+typing something in right now is already a deliberate choice, regardless of posture.
+
+**Free text gated at ONE shared resolution point, not per caller.** `resolveIncomingTemplate`
+(`main.ts`) is the single function `runConsentCeremony` (manual QR/paste scan),
+`handleAmbientQuery` (relay/webrtc auto-delivery) and `runSecondHopRelayCeremony` (demo 21's
+relay-aware ceremony) all resolve a query through. A Sicher device returns `undefined` there for
+any `q.freeText`, regardless of which of the three callers reached it — so Sicher's own promise
+("nie eine Frage in freien Worten") holds on every entry point this app has, not only the ambient
+one. This was deliberately NOT implemented as a pre-branch short-circuit in each caller: an
+earlier draft nearly did exactly that in `handleAmbientQuery`, which would have answered a
+refused free-text ask on `GATE_BUDGET_MS` (900ms) while a refused template ask on the same
+scenario waits `RELAY_DEADLINE_MS` (30s) — turning a device's OWN mode into something readable
+off the clock, precisely the class of oracle D25/D26 exist to close. Returning `undefined`
+instead means a refused free-text ask folds into the exact same "unresolvable template" path a
+corrupt/unknown templateId already took, inheriting whichever timing that path already used
+(uniform on a Sicher device, since Sicher also forces the direct switch uniform).
+
+**Second hop gated the same way.** `runSecondHopRelayCeremony`'s `eligibleNotes` now reads
+`!q.relayed && deviceMode(s) !== 'sicher'` — a Sicher device never offers to relay at all, folded
+into the existing depth-cap's "nothing" path, so a Sicher relayer is never put in the position of
+deciding whether to forward a stranger's question about someone she knows.
+
+**k-anonymity: found, deliberately left untouched.** D27 already established that raising
+`kThreshold` alone would not deliver real k=7 for this app's own inventory/note content (single-
+author by construction). No mode changes `kThreshold` for the same reason the handover names it
+explicitly as out of scope: it is the floor protecting the crowd being asked about, not a
+personal exposure dial for the person answering. Same reasoning, `gate.ts`'s consent gate and the
+byte-identical "no answer" are untouched by all three modes.
+
+**Jakob's own laptop bootstrap changes from zero-tap to one-tap (demo 20/21).** Before this
+branch, `boot()` auto-seeded Jakob's laptop straight to `home` with no screen at all, the one
+device in this app that never passed through any onboarding screen. The handover is explicit
+that Jakob picks his mode too, on every device including his own, so `boot()` now defers the
+actual seed call (`pendingJakobSeedKind`, resolved by a new `screenModePick`/
+`finishJakobOnboarding`) until he has picked — Standard preselected, one tap ("Los geht's") to
+`home`, same as before this branch minus that one tap. This is a deliberate, owner-requested
+change to a live demo's opening screen, named here explicitly rather than left as an incidental
+side effect.
+
+**A bug found and fixed while wiring this in, worth recording because no existing test caught
+it.** `render()`'s `if (!state) return void screenStart()` guard ran BEFORE the `screen` switch,
+unconditionally, so setting `screen = 'modePick'` in `boot()` was silently never reached — every
+render fell through to `screenStart()`, which for a geologengasse build calls
+`screenGeoNameEntry()` regardless of `screen`'s actual value. Fixed by checking
+`pendingJakobSeedKind` in that same early guard, before the switch is ever consulted. Caught by
+manually driving a demo 20 build in a browser, not by any of the 315 unit tests or by
+`seven_steps.mjs` — none of this repo's automated coverage exercises the state-less-boot path
+either shape of Jakob's laptop bootstrap takes. Left as a named gap in test coverage, not
+closed by this branch.
+
+**Two honestly-named residuals, not closed by this branch (full list in
+DEVLOG/result-report-three-modes.md):** a mode is a starting posture, not a lock — every switch
+it sets stays individually re-toggleable, so "Aktueller Modus: Sicher" can be shown on a device
+whose actual settings no longer fully match Sicher's own posture once a person has hand-tuned
+one switch away from it; and switching TO Sicher later does not retroactively re-exclude content
+already switched to `included` before the change — `applyModePosture` never touches existing
+`ChatThread.included`/`InventoryItem.included` values, only `mode` itself and the two timing
+switches. The profile screen's own copy says so explicitly (`modeChangeScopeNote`, i18n.ts) so
+this is stated to the person rather than only documented here.
+
+Regression: `apps/demo`: `tsc --noEmit` clean; `vitest run` 315/315 (unchanged count — `mode` is
+optional, so every existing `DeviceState` literal across the suite still compiles without
+modification); `vite build` clean for demo 1/2/3/6/20/21; `test/e2e/seven_steps.mjs` 23/23
+against a fresh demo-1 build, run twice (once before, once after the `render()` fix above), both
+clean, no page errors. Manual Playwright smoke of demo 20/21 (no live relay reachable locally, so
+the connect-link ceremony itself does not fully complete — the same pre-existing, already-
+disclosed local-testing gap D22/D25 already name for this architecture): Jakob's laptop shows
+`screenModePick` and lands on `home` with the chosen mode visible; a demo 20 guest picking Sicher
+on the name-entry screen lands with the free-text ask card absent from her own `screenAsk` and
+`Aktueller Modus: Sicher` visible; picking Sicher for Jakob's own demo 21 laptop leaves his
+ladder inventory entry `ausgeschlossen` rather than the Standard/Pro default of included;
+changing mode from "Mein Profil" updates both the profile heading and the home-screen badge
+immediately. No stray dev/preview servers left running afterward.
