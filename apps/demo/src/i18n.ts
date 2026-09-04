@@ -185,11 +185,11 @@ const S: Table = {
   askLead:        { de: 'Frag frei ins Netz, oder wähle eine der Fragen unten.',
                     en: 'Ask the network freely, or pick one of the questions below.' },
   // Demo 20 (geologengasse) only: the free-text card is excluded there for
-  // now (see main.ts's screenAsk doc comment), so this keeps the original,
-  // still-accurate wording for that one scenario rather than promising a
-  // capability its screen does not show.
-  askLeadGeo:     { de: 'Du wählst eine Frage aus. Freitext geht bewusst nicht: die Frage muss so eng sein, dass sie nichts ausforschen kann.',
-                    en: 'You pick a question. Free text is deliberately not possible: the question must be narrow enough that it cannot fish for anything.' },
+  // now (see main.ts's screenAsk doc comment). Says only what this ONE
+  // screen offers today, not a claim about what the system will or won't
+  // ever do -- I7: free text exists and works elsewhere in this same build,
+  // so "deliberately not possible" would overclaim.
+  askLeadGeo:     { de: 'Du wählst eine Frage aus.', en: 'You pick a question.' },
   showQuery:      { de: 'Frage zeigen', en: 'Show the question' },
   showQueryHint:  { de: 'Halte diesen Code vor das andere Gerät.', en: 'Hold this code up to the other device.' },
   waitAnswer:     { de: 'Antwort scannen', en: 'Scan the answer' },
