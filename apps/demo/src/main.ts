@@ -3,7 +3,8 @@ import { initI18n, t, getLang, toggleLang } from './i18n'
 import { el, clear, coarseWhen } from './ui/dom'
 import { renderQr, keepAwake } from './ui/qr'
 import { scanQr, cameraPlausible } from './ui/scanner'
-import { loadState, saveState, resetAll, threadsInScope, upsertPeer, appendQueryLog, findPeerByDid, PERSONAS } from './state'
+import { loadState, saveState, resetAll, threadsInScope, upsertPeer, findPeerByDid, PERSONAS } from './state'
+import { logAndDispatch } from './answer_log'
 import type { DeviceState, Peer } from './state'
 import { renderProfile } from './screens/profile'
 import { renderInventory } from './screens/inventory'
@@ -2490,7 +2491,7 @@ async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
 }
 
 /**
- * Decide, send, and log. Every answered query -- manual QR scan, single-peer
+ * Decide, log, and send. Every answered query -- manual QR scan, single-peer
  * relay/webrtc ask, AND the ambient silent path -- funnels through this one
  * function, which is what makes "every received query is logged" true by
  * construction rather than by remembering to call a log function at N call
@@ -2509,13 +2510,20 @@ async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
  * a silent call that cannot reach any transport simply does not send;
  * nothing was watching for it to arrive.
  *
- * Logging happens LAST, strictly after the transport dispatch has already
- * returned (i.e. after the wire message has already gone out, or the QR is
- * already on screen). This is deliberate, not incidental: whatever
- * `appendQueryLog`/`saveState` cost, it can never shift WHEN the answer left
- * this device, because it only runs after that already happened. See
- * types.ts's QueryLogEntry doc comment for the rest of the "this cannot leak"
- * argument.
+ * Logging happens through logAndDispatch() (answer_log.ts), which appends
+ * the entry -- and kicks off, but does not await, its persist -- BEFORE the
+ * transport dispatch below is even attempted, not after it returns. That
+ * used to be reversed ("logging happens LAST, after the wire message has
+ * already gone out"), on the theory that whatever appendQueryLog/saveState
+ * cost, it must never shift WHEN the answer left this device. That theory
+ * was correct about the side channel (appendQueryLog is a plain, O(1),
+ * outcome-independent array push, so its position never mattered for
+ * timing) but wrong about what it made the log depend on: relay.ts's ingress
+ * POST has no timeout, so a stalled send left the entry unwritten
+ * indefinitely, not merely late -- reproduced live: the silent device's
+ * Protokoll entry was simply missing, not delayed. See answer_log.ts's
+ * module doc comment for the full argument and test/answer_log.test.ts for
+ * the regression test.
  */
 async function emitAnswer(
   q: QueryEnvelope,
@@ -2558,58 +2566,48 @@ async function emitAnswer(
   // already gone out (see pushLocalShare's own doc comment) -- it never
   // changes which branch below fires or how long any of them take before
   // sending.
-  // Every answered query is logged, silent or not (see this function's doc
-  // comment); the render that lets Protokoll show it arrive live is the one
-  // piece `silent` still has to gate -- same rule as every other render this
-  // function or its transport helpers would otherwise do.
-  const logQuery = async (): Promise<void> => {
-    const s = state
-    if (s) {
-      appendQueryLog(s, {
-        at: Date.now(),
-        fromDisplayName: q.from.displayName,
-        fromId: q.from.id,
-        text: q.freeText ?? tpl.question.de,
-        outcome,
-      })
-      await saveState(s)
-      // Someone reading Protokoll right now should see this arrive live, same
-      // as the chat screen does for an incoming message -- except under
-      // `silent`, where nothing renders at all.
-      if (!silent && screen === 'log') render()
-    }
-  }
+  return logAndDispatch(state, {
+    at: Date.now(),
+    fromDisplayName: q.from.displayName,
+    fromId: q.from.id,
+    text: q.freeText ?? tpl.question.de,
+    outcome,
+  }, async () => {
+    // Someone reading Protokoll right now should see this arrive live, same
+    // as the chat screen does for an incoming message -- except under
+    // `silent`, where nothing renders at all. Fired now (the entry is
+    // already appended above) rather than after dispatch, so it no longer
+    // depends on dispatch settling either.
+    if (!silent && screen === 'log') render()
 
-  const mode = wotMode()
-  if (mode === 'relay' && peer?.did && relayChannel) {
-    await sendAnswerOverRelay(envelope, peer, key, outcome, tpl, match, silent)
-    await logQuery()
-    return
-  }
-  if ((mode === 'webrtc' || mode === 'ladder') && webrtcChannel?.isOpen()) {
-    await sendAnswerOverWebrtc(envelope, outcome, tpl, match, silent)
-    await logQuery()
-    return
-  }
-  if (mode === 'ladder' && peer?.did && relayChannel) {
-    await sendAnswerOverRelay(envelope, peer, key, outcome, tpl, match, silent)
-    await logQuery()
-    return
-  }
-  if (mode === 'webrtc' && useRelayFallback && peer?.did && relayChannel) {
-    await sendAnswerOverRelay(envelope, peer, key, outcome, tpl, match, silent)
-    await logQuery()
-    return
-  }
-  if (!silent) {
-    const payload = encodeForQr(envelope)
-    await showCodeScreen(t('showAnswer'), payload, t('answerHint'), () => go('home'), undefined, t('identicalNote'))
-  }
-  // else: silent with no reachable ambient transport -- nothing sent, nothing
-  // shown. Should not happen in practice (handleAmbientQuery only runs for a
-  // query that just arrived over an open relay/webrtc channel), but a demo
-  // must never throw on an edge case instead of degrading quietly.
-  await logQuery()
+    const mode = wotMode()
+    if (mode === 'relay' && peer?.did && relayChannel) {
+      await sendAnswerOverRelay(envelope, peer, key, outcome, tpl, match, silent)
+      return
+    }
+    if ((mode === 'webrtc' || mode === 'ladder') && webrtcChannel?.isOpen()) {
+      await sendAnswerOverWebrtc(envelope, outcome, tpl, match, silent)
+      return
+    }
+    if (mode === 'ladder' && peer?.did && relayChannel) {
+      await sendAnswerOverRelay(envelope, peer, key, outcome, tpl, match, silent)
+      return
+    }
+    if (mode === 'webrtc' && useRelayFallback && peer?.did && relayChannel) {
+      await sendAnswerOverRelay(envelope, peer, key, outcome, tpl, match, silent)
+      return
+    }
+    if (!silent) {
+      const payload = encodeForQr(envelope)
+      await showCodeScreen(t('showAnswer'), payload, t('answerHint'), () => go('home'), undefined, t('identicalNote'))
+      return
+    }
+    // else: silent with no reachable ambient transport -- nothing sent,
+    // nothing shown. Should not happen in practice (handleAmbientQuery only
+    // runs for a query that just arrived over an open relay/webrtc channel),
+    // but a demo must never throw on an edge case instead of degrading
+    // quietly. Already logged above regardless.
+  })
 }
 
 /**

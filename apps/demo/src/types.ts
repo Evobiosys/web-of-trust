@@ -359,10 +359,15 @@ export interface SharedItem {
  * serialised."). A log entry MUST NEVER be built from, or fed into, anything
  * that crosses the wire -- gate.ts's AnswerEnvelope has no field for it and
  * never will (test/gate_identity.test.ts pins AnswerEnvelope's shape shut).
- * main.ts's emitAnswer() appends the log entry AFTER the answer has already
- * been sent (or shown as a QR), specifically so that however long writing
- * this entry takes can never shift when the wire message goes out -- see
- * emitAnswer's doc comment.
+ * main.ts's emitAnswer() appends the log entry (via answer_log.ts's
+ * logAndDispatch()) BEFORE the answer is sent (or shown as a QR) -- not
+ * after. The entry's own cost still cannot shift when the wire message goes
+ * out (a plain array push is O(1) and identical regardless of `outcome`),
+ * but its EXISTENCE must not depend on that send ever completing: relay.ts's
+ * ingress POST has no timeout, and a query this device answers ambiently and
+ * silently has nobody watching a screen to notice a stalled send -- only the
+ * local record would ever have shown it happened at all. See answer_log.ts's
+ * module doc comment for the full argument.
  *
  * What is deliberately NOT stored: `match.hits` themselves. Only the label
  * (`outcome`) is kept, never the matched content. Two reasons: it keeps every

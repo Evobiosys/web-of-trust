@@ -33,7 +33,14 @@
  *      surface:false for Ben, for the SAME broadcast query.
  *   3. Both devices append a QueryLogEntry (state.ts's appendQueryLog(),
  *      also imported, not reimplemented) -- I6 Auditability holds even for
- *      the device that showed nothing.
+ *      the device that showed nothing. Ben's (the silent side) is appended
+ *      through answer_log.ts's logAndDispatch() -- the SAME function
+ *      main.ts's emitAnswer() calls -- so this also exercises the ordering
+ *      fix for the reported bug ("the local query log is NOT reliably
+ *      written on the SILENT side"): the entry is appended BEFORE the send
+ *      is attempted, not after it resolves. A separate case further down
+ *      simulates that send never resolving at all (relay.ts's ingress POST
+ *      has no timeout) and shows the log entry exists regardless.
  *   4. The log cannot become a side channel: the SAME pair of cases
  *      (a real match the owner declines to share, vs a genuine no-match) is
  *      run once here as a direct byte-identity check on gate.decide()'s
@@ -54,6 +61,7 @@ import { createRelayChannel } from '../../src/relay.ts'
 import { derivePairKey, open, ivFromQid, fromB64u } from '../../src/crypto.ts'
 import { decide, interpret } from '../../src/gate.ts'
 import { addInventoryItem, threadsInScope, appendQueryLog } from '../../src/state.ts'
+import { logAndDispatch } from '../../src/answer_log.ts'
 import { freeTextTemplate } from '../../src/data/free_text_query.ts'
 import { matchTemplate } from '../../src/match/lexical.ts'
 import { classifyIncomingQuery } from '../../src/incoming_query.ts'
@@ -219,13 +227,25 @@ async function main() {
 
   // ---- Ben's device answers automatically -- consent: false, exactly what
   //      main.ts's handleAmbientQuery() -> emitAnswer(..., false, ..., {
-  //      silent: true }) does for a query that never surfaced. -----------
+  //      silent: true }) does for a query that never surfaced. Routed
+  //      through logAndDispatch() (answer_log.ts) -- the REAL function
+  //      emitAnswer() calls, not a reimplementation of its ordering -- so
+  //      this exercises the exact sequencing the field bug was in: the local
+  //      log entry is appended (and its persist kicked off) BEFORE the send
+  //      below is even attempted, not after it returns. See the deliberate
+  //      hang case further down for why that ordering is the fix, not
+  //      incidental.
   const { outcome: outcomeBen, envelope: answerBen } = await decide({
     query: qBen, template: tpl, match: matchBen, consent: false, blocked: false, key: keyBen,
   })
   ok('Ben\'s gate outcome really is "no-match"', outcomeBen === 'no-match')
   wireSends.push(answerBen)
-  await benChannel.send(nora.did, answerBen, keyBen)
+  await logAndDispatch(benState, {
+    at: Date.now(), fromDisplayName: qBen.from.displayName, fromId: qBen.from.id,
+    text: freeText, outcome: outcomeBen,
+  }, () => benChannel.send(nora.did, answerBen, keyBen))
+  ok('Ben\'s local log entry already exists once logAndDispatch() returns (appended before the send, not after)',
+    benState.queryLog.length === 1 && benState.queryLog[0].outcome === 'no-match')
 
   await waitFor(() => noraAnswers.length >= 2, DELIVERY_TIMEOUT_MS)
   const fromMarlene = noraAnswers.find((a) => a.from === 'marlene')
@@ -239,14 +259,14 @@ async function main() {
   ok('Nora sees the Ski item, verbatim', (decodedMarlene.shared?.items ?? []).some((i) => i.text.includes('Ski')))
   ok('Nora decodes Ben\'s answer as "nothing" (not distinguishable from a decline)', decodedBen.outcome === 'nothing')
 
-  // ---- I6: BOTH devices log the query, using the real appendQueryLog() ---
+  // ---- I6: BOTH devices log the query. Marlene's path (the surfaced,
+  //      human-consent ceremony) is still exercised with the real
+  //      appendQueryLog() directly, matching what runConsentCeremony's own
+  //      call into emitAnswer ultimately does; Ben's is already logged above
+  //      via logAndDispatch(). ---------------------------------------------
   appendQueryLog(marleneState, {
     at: Date.now(), fromDisplayName: qMarlene.from.displayName, fromId: qMarlene.from.id,
     text: freeText, outcome: outcomeMarlene,
-  })
-  appendQueryLog(benState, {
-    at: Date.now(), fromDisplayName: qBen.from.displayName, fromId: qBen.from.id,
-    text: freeText, outcome: outcomeBen,
   })
   ok('Marlene\'s local log has exactly one entry, outcome "shared"', marleneState.queryLog.length === 1 && marleneState.queryLog[0].outcome === 'shared')
   ok('Ben\'s local log has exactly one entry, outcome "no-match"', benState.queryLog.length === 1 && benState.queryLog[0].outcome === 'no-match')
@@ -255,6 +275,25 @@ async function main() {
     JSON.stringify(marleneState.queryLog).indexOf('ben00000') === -1 &&
     JSON.stringify(benState.queryLog).indexOf('marlene0') === -1
   ))
+
+  // ---- THE REPORTED BUG, REPRODUCED DETERMINISTICALLY ---------------------
+  //
+  // "The local query log is NOT reliably written on the SILENT side": the
+  // silent ambient path has no UI watching its send, so a stalled
+  // RelayChannel.send() (relay.ts's ingress POST has no timeout/
+  // AbortController -- see postToIngress) used to leave the local Protokoll
+  // entry unwritten for as long as the network stayed stuck -- reproduced
+  // live as "still missing after a 9 second wait", i.e. indefinitely, not
+  // merely late. Simulated here with a `dispatch` that deliberately never
+  // settles, through the SAME logAndDispatch() call Ben's answer above just
+  // went through -- proof that I6 no longer depends on the network at all.
+  const stuckDevice = makeDevice('stuck0000', 'Stuck-Silent')
+  const neverSettles = new Promise(() => {})
+  void logAndDispatch(stuckDevice, {
+    at: Date.now(), fromDisplayName: 'Nora', fromId: 'nora0000', text: freeText, outcome: 'no-match',
+  }, () => neverSettles)
+  ok('[reported bug] the silent device\'s log entry exists immediately, even though its "send" never resolves',
+    stuckDevice.queryLog.length === 1 && stuckDevice.queryLog[0].outcome === 'no-match')
 
   // ---- THE SIDE-CHANNEL PROOF ----------------------------------------------
   //
