@@ -7,7 +7,7 @@
  * those are invariants, so both are tested.
  */
 import { describe, it, expect } from 'vitest'
-import { upsertPeer } from '../src/state'
+import { upsertPeer, findPeerByDid } from '../src/state'
 import type { DeviceState, Peer } from '../src/state'
 
 const peer = (over: Partial<Peer> = {}): Peer => ({
@@ -26,6 +26,7 @@ const stateWith = (p: Peer[]): DeviceState => ({
   peers: p,
   profile: { displayName: 'Nora', bio: '', neighbourhood: '', languages: [] },
   inventory: [],
+  queryLog: [],
 })
 
 describe('seeded pairing', () => {
@@ -58,5 +59,28 @@ describe('seeded pairing', () => {
     upsertPeer(s, peer({ seeded: false }))
     expect(s.peers).toHaveLength(1)
     expect(s.peers[0].id).toBe('marlene0')
+  })
+})
+
+describe('findPeerByDid (main.ts\'s registerRelaySink() key-resolver lookup)', () => {
+  it('resolves a real ecdh-paired peer by their did', () => {
+    const s = stateWith([peer({ did: 'did:peer:2.realpeer', pairing: 'ecdh' })])
+    expect(findPeerByDid(s, 'did:peer:2.realpeer')?.id).toBe('marlene0')
+  })
+
+  it('a SEEDED peer (no did at all) is never matched, even by an empty/undefined fromDid', () => {
+    // The bug this function exists to close: a bare `.find(p => p.did ===
+    // fromDid)` matches a seeded peer against `undefined` (`undefined ===
+    // undefined` is true), handing the caller a fixed DEMO_NONCE key for
+    // traffic that named no real sender at all.
+    const s = stateWith([peer({ seeded: true })]) // no `did` field
+    expect(findPeerByDid(s, undefined)).toBeUndefined()
+    expect(findPeerByDid(s, '')).toBeUndefined()
+    expect(findPeerByDid(s, null)).toBeUndefined()
+  })
+
+  it('an unknown did resolves to nothing, even with a real peer present', () => {
+    const s = stateWith([peer({ did: 'did:peer:2.realpeer', pairing: 'ecdh' })])
+    expect(findPeerByDid(s, 'did:peer:2.someone-else')).toBeUndefined()
   })
 })

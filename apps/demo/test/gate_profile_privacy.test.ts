@@ -39,6 +39,7 @@ function baseState(overrides: Partial<DeviceState> = {}): DeviceState {
     peers: [],
     profile: { displayName: 'Marlene', bio: '', neighbourhood: '', languages: [] },
     inventory: [],
+    queryLog: [],
     ...overrides,
   }
 }

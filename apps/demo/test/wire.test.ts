@@ -10,6 +10,7 @@ import {
   toB64u,
 } from '../src/crypto'
 import type { AnswerEnvelope, ConnectAckEnvelope, ConnectEnvelope, QueryEnvelope } from '../src/types'
+import { FREE_TEXT_MAX_LEN } from '../src/types'
 
 // ---------------------------------------------------------------------------
 // crypto.ts -- no dedicated test file was allotted to this deliverable, so
@@ -191,6 +192,36 @@ describe('encodeForQr / decodeFromQr round trip', () => {
 
   it('round-trips a QueryEnvelope', () => {
     expect(decodeFromQr(encodeForQr(QUERY))).toEqual(QUERY)
+  })
+
+  it('round-trips a QueryEnvelope carrying the optional freeText field ("In die Runde fragen")', () => {
+    const withFreeText: QueryEnvelope = { ...QUERY, freeText: 'Ski' }
+    expect(decodeFromQr(encodeForQr(withFreeText))).toEqual(withFreeText)
+  })
+
+  it('a QueryEnvelope with no freeText field parses with freeText left undefined', () => {
+    const decoded = decodeFromQr(encodeForQr(QUERY))
+    expect(decoded).not.toBeNull()
+    expect((decoded as QueryEnvelope).freeText).toBeUndefined()
+    expect('freeText' in (decoded as QueryEnvelope)).toBe(false)
+  })
+
+  it('rejects a QueryEnvelope whose freeText field is present but malformed', () => {
+    const badTypes = [123, '', null, {}, []]
+    for (const bad of badTypes) {
+      const raw = JSON.stringify({ ...QUERY, freeText: bad })
+      expect(decodeFromQr(raw)).toBeNull()
+    }
+  })
+
+  it('rejects a QueryEnvelope whose freeText exceeds FREE_TEXT_MAX_LEN', () => {
+    const raw = JSON.stringify({ ...QUERY, freeText: 'x'.repeat(FREE_TEXT_MAX_LEN + 1) })
+    expect(decodeFromQr(raw)).toBeNull()
+  })
+
+  it('accepts a QueryEnvelope whose freeText is exactly FREE_TEXT_MAX_LEN', () => {
+    const withFreeText: QueryEnvelope = { ...QUERY, freeText: 'x'.repeat(FREE_TEXT_MAX_LEN) }
+    expect(decodeFromQr(encodeForQr(withFreeText))).toEqual(withFreeText)
   })
 
   it('round-trips an AnswerEnvelope', () => {

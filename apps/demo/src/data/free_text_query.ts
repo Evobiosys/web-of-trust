@@ -1,0 +1,83 @@
+/**
+ * "In die Runde fragen" ("call into the web"): a free-text ask, as opposed to
+ * one of the five fixed TEMPLATES (data/templates.ts). B types a sentence
+ * instead of picking a card; A's device matches it with the exact same
+ * matcher (match/lexical.ts's matchTemplate), because this builds an ordinary
+ * QueryTemplate from the free text -- there is no second matching path.
+ *
+ * Why a synthetic QueryTemplate rather than a new matcher entry point: every
+ * caller on the answering side (runConsentCeremony, the ambient query
+ * handler, gate.ts's decide()) already takes a QueryTemplate and never checks
+ * where it came from. Reusing that contract means a free-text ask is, from
+ * the matcher and the gate onward, indistinguishable in shape from a fixed
+ * template -- the SAME anonymity floor, the SAME exclude-term veto machinery
+ * (empty here, but the field exists so nothing has to special-case it), the
+ * SAME byte-identical-PASS discipline.
+ */
+
+import type { QueryTemplate } from '../types'
+import { tokenize } from '../match/normalize'
+
+/** Sentinel templateId a free-text QueryEnvelope always carries on the wire
+ *  (see types.ts's QueryEnvelope.freeText doc comment) -- the receiving
+ *  device never looks this id up in data/templates.ts's catalogue; it is
+ *  only there so QueryEnvelope.templateId stays a required, always-present
+ *  field for every envelope shape wire.ts and gate.ts already assume. */
+export const FREE_TEXT_TEMPLATE_ID = 'wot.freetext.ask'
+
+// A short stoplist of function words that carry no matching signal on their
+// own ("kennt jemand einen Ski der frei ist" must not treat "kennt", "einen"
+// or "der" as search terms). Deliberately small and deliberately not a full
+// German stopword list: over-stripping would silently drop a short real word
+// (e.g. "Bohrmaschine" broken into pieces some dictionary considers
+// function-word-like never happens here because this list is closed, not
+// pattern-based).
+const STOPWORDS = new Set([
+  'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem', 'einer', 'eines',
+  'und', 'oder', 'ist', 'hat', 'habe', 'hab', 'ich', 'du', 'er', 'sie', 'es', 'wir', 'ihr',
+  'mit', 'für', 'von', 'zu', 'im', 'in', 'am', 'auf', 'nach', 'bei', 'um', 'was',
+  'wer', 'wen', 'wem', 'wo', 'wie', 'kennt', 'jemand', 'jemanden', 'gibt', 'mal', 'noch',
+])
+
+/**
+ * Build a QueryTemplate from whatever B typed. Deterministic (same text ->
+ * same template every time) so both devices in a broadcast -- and a test
+ * calling this twice -- get an identical template without it ever crossing
+ * the wire itself (only the raw `text` does, in QueryEnvelope.freeText; each
+ * receiving device rebuilds the template locally, exactly like a fixed
+ * template is looked up locally by id).
+ */
+export function freeTextTemplate(text: string): QueryTemplate {
+  const words = tokenize(text).filter((w) => w.length >= 2 && !STOPWORDS.has(w))
+  // A query that is ALL stopwords (rare, but "was hat wer" typed as a joke)
+  // still gets to try matching on its unfiltered tokens rather than matching
+  // nothing by construction.
+  const matchTerms = words.length ? words : tokenize(text)
+  return {
+    id: FREE_TEXT_TEMPLATE_ID,
+    version: 1,
+    category: 'freetext',
+    title: { de: `„${text}“`, en: `"${text}"` },
+    question: { de: text, en: text },
+    matchTerms,
+    boostTerms: [],
+    excludeTerms: [],
+    minScore: 1,
+    // DEMO OVERRIDE, same reasoning as data/templates.ts's T1: production
+    // default is 7 (DEFAULT_K). Kept at 1 here for a STRUCTURAL reason, not
+    // just convenience -- state.ts's inventoryThreads() gives every "Was ich
+    // habe" entry exactly one author (the device's own owner), so any
+    // inventory-only match has distinctAuthors === 1 by construction. A
+    // floor above 1 would make sharing an inventory entry impossible,
+    // ever, which would silently kill the one story this feature exists to
+    // tell ("Ski" in, "Ski" found). Do not raise this without also giving
+    // inventory entries a way to accumulate distinct authors. Do not ship
+    // this value as-is (see README's Privacy Honesty Box, I7).
+    kThreshold: 1,
+    // Free text is a bigger privacy surface than a curated template's fixed
+    // vocabulary -- the asker can type anything, so the UI that shows this
+    // question to A must say so plainly (see i18n.ts's askFreeTextPrivacy).
+    sensitivity: 'high',
+    ttlSeconds: 3600,
+  }
+}

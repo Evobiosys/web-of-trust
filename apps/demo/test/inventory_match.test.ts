@@ -19,6 +19,7 @@ function baseState(overrides: Partial<DeviceState> = {}): DeviceState {
     peers: [],
     profile: { displayName: 'Marlene', bio: '', neighbourhood: '', languages: [] },
     inventory: [],
+    queryLog: [],
     ...overrides,
   }
 }
@@ -138,5 +139,44 @@ describe('inventory entries matched via threadsInScope + matchTemplate', () => {
     const result = matchTemplate(template({ kThreshold: 1 }), threadsInScope(s))
     expect(result.hits).toHaveLength(2)
     expect(result.distinctAuthors).toBe(1) // same person, same normalized author key
+  })
+})
+
+describe('"call into the web": a free-text ask against an inventory entry (the owner\'s named story)', () => {
+  it('writing "Ski" into "Was ich habe" and asking the network for "Ski" finds it', async () => {
+    const { freeTextTemplate } = await import('../src/data/free_text_query')
+    const { classifyIncomingQuery } = await import('../src/incoming_query')
+
+    const s = baseState()
+    addInventoryItem(s, 'Ski, kannst du dir ausborgen, steht im Keller.')
+
+    const tpl = freeTextTemplate('Ski')
+    const result = matchTemplate(tpl, threadsInScope(s))
+
+    expect(result.hits).toHaveLength(1)
+    expect(result.hits[0].message.text).toContain('Ski')
+    // Structural, not incidental: an inventory-only match always has exactly
+    // one author (state.ts's inventoryThreads() doc comment), which is why
+    // freeTextTemplate()'s kThreshold is a demo override of 1 -- see that
+    // module's doc comment for the full argument.
+    expect(result.distinctAuthors).toBe(1)
+    expect(result.aboveThreshold).toBe(true)
+
+    // The exact decision main.ts's handleAmbientQuery() makes from this
+    // match: this device must surface the consent ceremony.
+    expect(classifyIncomingQuery(result, false, true)).toEqual({ surface: true, outcome: null })
+  })
+
+  it('a device with no matching inventory or chat content gets a silent no-match, not a surfaced one', async () => {
+    const { freeTextTemplate } = await import('../src/data/free_text_query')
+    const { classifyIncomingQuery } = await import('../src/incoming_query')
+
+    const s = baseState({ inventory: [entry('Hab ein Lastenrad, frag einfach kurz.', true)] })
+    const tpl = freeTextTemplate('Ski')
+    const result = matchTemplate(tpl, threadsInScope(s))
+
+    expect(result.hits).toHaveLength(0)
+    expect(result.aboveThreshold).toBe(false)
+    expect(classifyIncomingQuery(result, false, true)).toEqual({ surface: false, outcome: 'no-match' })
   })
 })

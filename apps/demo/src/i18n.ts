@@ -193,11 +193,30 @@ const S: Table = {
 
   // ask
   askTitle:       { de: 'Was möchtest du wissen?', en: 'What do you want to know?' },
-  askLead:        { de: 'Du wählst eine Frage aus. Freitext geht bewusst nicht: die Frage muss so eng sein, dass sie nichts ausforschen kann.',
-                    en: 'You pick a question. Free text is deliberately not possible: the question must be narrow enough that it cannot fish for anything.' },
+  askLead:        { de: 'Frag frei ins Netz, oder wähle eine der Fragen unten.',
+                    en: 'Ask the network freely, or pick one of the questions below.' },
+  // Demo 20 (geologengasse) only: the free-text card is excluded there for
+  // now (see main.ts's screenAsk doc comment). Says only what this ONE
+  // screen offers today, not a claim about what the system will or won't
+  // ever do -- I7: free text exists and works elsewhere in this same build,
+  // so "deliberately not possible" would overclaim.
+  askLeadGeo:     { de: 'Du wählst eine Frage aus.', en: 'You pick a question.' },
   showQuery:      { de: 'Frage zeigen', en: 'Show the question' },
   showQueryHint:  { de: 'Halte diesen Code vor das andere Gerät.', en: 'Hold this code up to the other device.' },
   waitAnswer:     { de: 'Antwort scannen', en: 'Scan the answer' },
+
+  // "In die Runde fragen" -- call into the web: a free-text ask, not one of
+  // the five fixed templates. See DEVLOG/handover-inventory-call.md for the
+  // name and data/free_text_query.ts for the matching.
+  askFreeTextTitle:  { de: 'In die Runde fragen', en: 'Call into the web' },
+  askFreeTextPrivacy: {
+    de: 'Die andere Seite sieht deinen Namen und genau diesen Satz, so wie du ihn tippst.',
+    en: 'The other side sees your name and exactly this sentence, exactly as you type it.',
+  },
+  askFreeTextPlaceholder: { de: 'z. B. Ski', en: 'e.g. skis' },
+  askFreeTextSubmit: { de: 'In die Runde fragen', en: 'Call into the web' },
+  networkAskInFlight: { de: 'Frage an {n} Personen im Netz…', en: 'Asking {n} people in the network…' },
+  networkAskedCount:  { de: 'Gefragt: {n} Personen im Netz.', en: 'Asked: {n} people in the network.' },
 
   // answer
   answerTitle:    { de: 'Anfrage beantworten', en: 'Answer a request' },
@@ -224,6 +243,19 @@ const S: Table = {
   outNothingSub:  { de: 'Du erfährst nicht, warum. Ob niemand etwas hatte oder jemand nicht teilen wollte, sieht von hier aus identisch aus.',
                     en: 'You do not learn why. Whether nobody had anything or somebody chose not to share looks identical from here.' },
   fromChat:       { de: 'aus', en: 'from' },
+
+  // Protokoll: the local query log (I6 Auditability)
+  navLog:         { de: 'Protokoll', en: 'Log' },
+  logLead:        {
+    de: 'Jede Anfrage an dieses Gerät steht hier, mit dem, was daraufhin passiert ist. Das bleibt nur auf diesem Gerät und wird nie gesendet.',
+    en: 'Every request to this device is listed here, with what happened as a result. This stays on this device only and is never sent.',
+  },
+  logEmpty:       { de: 'Noch keine Anfragen.', en: 'No requests yet.' },
+  logOutcomeShared:   { de: 'Geteilt', en: 'Shared' },
+  logOutcomeDeclined: { de: 'Gefunden, nicht geteilt', en: 'Found, not shared' },
+  logOutcomeBelowK:   { de: 'Gefunden, zu wenige Stimmen für die Anonymität', en: 'Found, too few voices for anonymity' },
+  logOutcomeNoMatch:  { de: 'Nichts gefunden', en: 'Nothing found' },
+  logOutcomeBlocked:  { de: 'Blockiert', en: 'Blocked' },
 
   // camera
   // relay mode: connection status, waiting states, errors

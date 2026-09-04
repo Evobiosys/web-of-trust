@@ -2,7 +2,7 @@
  * Device state. Lives in IndexedDB, never leaves the device.
  */
 
-import type { ChatThread, Identity, InventoryItem, Profile } from './types'
+import type { ChatThread, Identity, InventoryItem, Profile, QueryLogEntry } from './types'
 import { kvGet, kvSet, kvClear } from './db'
 import { randomId } from './crypto'
 import type { SerializedIdentityV1 } from './did'
@@ -62,6 +62,14 @@ export interface DeviceState {
   peers: Peer[]
   profile: Profile
   inventory: InventoryItem[]
+  /**
+   * I6 Auditability: every query this device has RECEIVED, local-only, never
+   * transmitted. See types.ts's QueryLogEntry for the full privacy reasoning
+   * (why this cannot become a side channel) and appendQueryLog() below for
+   * how an entry gets added. Absent in every state saved before this field
+   * existed -- withDefaults backfills it, same as `inventory`/`profile`.
+   */
+  queryLog: QueryLogEntry[]
   /**
    * This device's did:peer:2 identity (did.ts), relay mode only. Minted
    * lazily on first need (relay_identity.ts's `ensureRelayIdentity`), not on
@@ -162,6 +170,7 @@ function withDefaults(s: DeviceState): DeviceState {
     ...s,
     inventory: s.inventory ?? [],
     profile: s.profile ?? emptyProfile(s.me.displayName),
+    queryLog: s.queryLog ?? [],
   }
 }
 
@@ -244,6 +253,22 @@ export function findPeer(s: DeviceState, id: string): Peer | undefined {
 }
 
 /**
+ * Look a peer up by their relay did:peer:2 (Peer.did). Truthy-guarded on
+ * purpose: a SEEDED pairing has no `did` at all (Peer.did's own doc comment
+ * -- there is no ceremony a seed could have minted one from), so `p.did ===
+ * fromDid` alone would match a seeded peer against an `undefined`/empty
+ * `fromDid` (`undefined === undefined` is `true`). That match would hand a
+ * caller the seeded peer's fixed DEMO_NONCE-derived key for traffic that
+ * named no real sender at all -- main.ts's registerRelaySink() is the one
+ * caller this protects; a bare `.find((p) => p.did === fromDid)` there was
+ * the bug this function exists to close.
+ */
+export function findPeerByDid(s: DeviceState, did: string | undefined | null): Peer | undefined {
+  if (!did) return undefined
+  return s.peers.find((p) => p.did === did)
+}
+
+/**
  * Upsert a peer, keeping the earliest connectedAt so the trust history stays
  * honest.
  *
@@ -289,4 +314,28 @@ export function addInventoryItem(s: DeviceState, text: string): InventoryItem {
  */
 export function removeInventoryItem(s: DeviceState, id: string): void {
   s.inventory = s.inventory.filter((i) => i.id !== id)
+}
+
+/** A long-running demo device must not grow this without bound. Oldest
+ *  entries drop first -- see appendQueryLog(). */
+const QUERY_LOG_MAX = 200
+
+/**
+ * I6 Auditability: record that this device was asked something, and what it
+ * did about it. See types.ts's QueryLogEntry doc comment for the full
+ * privacy reasoning -- in short, this can never become a side channel
+ * because it only ever names THIS device's own asker and THIS device's own
+ * decision, never anything about any other device.
+ *
+ * Callers: main.ts's emitAnswer() (every answered query, both the ambient
+ * silent path and the manual/QR path) appends AFTER the answer envelope has
+ * already been sent -- deliberately, so that however long this call takes
+ * can never shift when the wire message goes out. See emitAnswer's doc
+ * comment.
+ */
+export function appendQueryLog(s: DeviceState, entry: Omit<QueryLogEntry, 'id'>): QueryLogEntry {
+  const full: QueryLogEntry = { id: randomId(8), ...entry }
+  s.queryLog.push(full)
+  if (s.queryLog.length > QUERY_LOG_MAX) s.queryLog.splice(0, s.queryLog.length - QUERY_LOG_MAX)
+  return full
 }
