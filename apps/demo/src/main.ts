@@ -1895,15 +1895,11 @@ function screenAsk(): void {
     // fixed template, through the same consent gate. Shown first: this is
     // the capability the owner asked for by name.
     //
-    // Excluded for demo 20 (geologengasse): that scenario is live and being
-    // demonstrated the day this landed, askWith()'s broadcast branch is
-    // itself excluded for it (see that function's doc comment), and this
-    // card has not had a browser pass on Jakob's specific screen -- keeping
-    // his "Fragen" screen pixel-for-pixel what it already was is the safe
-    // default. Lift alongside the askWith() exclusion.
-    wotScenario() === 'geologengasse'
-      ? null
-      : el('div', { class: 'card' }, [
+    // Shown in every mode including demo 20. It was briefly held back there
+    // while demo 20 was being demonstrated and this path had no browser
+    // pass; it has one now, so withholding it would only hide the feature
+    // from the scenario built to show it.
+    el('div', { class: 'card' }, [
           el('h3', {}, [t('askFreeTextTitle')]),
           el('p', { class: 'note' }, [t('askFreeTextPrivacy')]),
           freeTextInput,
@@ -1944,7 +1940,10 @@ function screenAsk(): void {
  * addressing `peers[0]` only: a single already-open data channel or a QR
  * code only ever reaches one peer regardless of how many are paired.
  *
- * EXCLUDED for demo 20 (geologengasse): Jakob's laptop is the one place in
+ * Demo 20 (geologengasse) is INCLUDED as of the browser pass this comment's
+ * earlier version asked for: the whole scenario is several friends asking
+ * Jakob for things, so excluding the one device that routinely holds several
+ * peers excluded the point. Jakob's laptop is the one place in
  * this app that already legitimately holds several relay peers today (each
  * accepted guest, via acceptPendingRequest()), so `relayPeers.length > 1` is
  * routinely true there -- but demo 20 is live and being demonstrated the day
@@ -1953,14 +1952,13 @@ function screenAsk(): void {
  * DOM). Rather than risk an untested code path on running software, Jakob's
  * "Fragen" keeps its exact existing single-peer askOverRelay behaviour --
  * this is a narrowing, not a new capability, so it cannot regress what demo
- * 20 already does. Lift this exclusion once askNetwork has a real browser
- * pass on the geologengasse scenario specifically.
+ * 20 already does. The exclusion has now been lifted and demo 20's ask path
+ * verified in a browser against the live relay.
  */
 async function askWith(tpl: QueryTemplate, freeText?: string): Promise<void> {
   const s = state as DeviceState
   const mode = wotMode()
-  const geo = wotScenario() === 'geologengasse'
-  const relayPeers = mode === 'relay' && !geo ? s.peers.filter((p) => p.did) : []
+  const relayPeers = mode === 'relay' ? s.peers.filter((p) => p.did) : []
   if (relayChannel && relayPeers.length > 1) {
     await askNetwork(tpl, freeText, relayPeers)
     return
