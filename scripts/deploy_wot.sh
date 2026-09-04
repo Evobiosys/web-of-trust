@@ -44,6 +44,19 @@ echo "--------"
 
 rsh() { "${SSHENV[@]}" ssh questhub "$@"; }
 
+# Take the demo-20 address OUT of the environment immediately, and keep it in a
+# plain shell variable only this script's demo-20 build reads.
+#
+# Vite inlines any VITE_* variable it finds in the environment into EVERY build
+# it runs. Exporting VITE_WOT_ADDRESS for the whole script therefore baked the
+# flat's address into demo 1, 2, 3 and 6 as well, which is exactly the leak
+# geologengasse.ts was written to prevent. Caught by grepping the deployed
+# bundles rather than by reasoning about it. Unsetting it here makes the script
+# correct no matter how carelessly it is invoked.
+DEMO20_ADDRESS="${VITE_WOT_ADDRESS:-}"
+unset VITE_WOT_ADDRESS
+unset VITE_WOT_SCENARIO
+
 # Push one local directory to one remote directory, then repair its context.
 push_dir() {
   local src="$1" dest="$2"
@@ -101,12 +114,12 @@ push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo6"
 # contains the address in cleartext once VITE_WOT_ADDRESS is supplied
 # (a fully client-side app has no other way to answer with it locally).
 if [ "${DEPLOY_DEMO20:-}" = "1" ]; then
-  if [ -z "${VITE_WOT_ADDRESS:-}" ]; then
+  if [ -z "$DEMO20_ADDRESS" ]; then
     echo "DEPLOY_DEMO20=1 but VITE_WOT_ADDRESS is not set -- refusing to build a demo whose whole point is answering with a real address it does not have. See this block's own comment." >&2
     exit 1
   fi
   echo "building and pushing demo20 (base /wot/demo20/, Jakob's own flat)"
-  ( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo20/ VITE_WOT_MODE=relay VITE_WOT_SCENARIO=geologengasse VITE_WOT_ADDRESS="$VITE_WOT_ADDRESS" npx vite build >/dev/null )
+  ( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo20/ VITE_WOT_MODE=relay VITE_WOT_SCENARIO=geologengasse VITE_WOT_ADDRESS="$DEMO20_ADDRESS" npx vite build >/dev/null )
   push_dir  "$REPO/apps/demo/dist"             "$REMOTE_APP/demo20"
 else
   echo "skipping demo20 (opt-in only -- set DEPLOY_DEMO20=1 and VITE_WOT_ADDRESS to include it)"
