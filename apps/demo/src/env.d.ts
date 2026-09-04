@@ -20,6 +20,24 @@ interface ImportMetaEnv {
    * up relay code paths by surprise.
    */
   readonly VITE_WOT_MODE?: string
+  /**
+   * Build-time scenario switch (mode.ts's `wotScenario()`), orthogonal to
+   * VITE_WOT_MODE. `'geologengasse'` turns on demo 20 (the owner's own flat
+   * and his own web of trust); unset, or any other value, is `'default'` --
+   * every other demo's exact existing behaviour.
+   */
+  readonly VITE_WOT_SCENARIO?: string
+  /**
+   * demo 20 ONLY. The exact address (data/geologengasse.ts). Deliberately
+   * NOT a literal in any .ts file, and never set for demos 1/2/3/6's build
+   * commands -- see data/geologengasse.ts's module doc for why. Supplied by
+   * the person running the build, as a shell env var, never committed:
+   *
+   *   VITE_WOT_ADDRESS="Geologengasse <Hausnummer>, 1030 Wien" \
+   *     VITE_WOT_MODE=relay VITE_WOT_SCENARIO=geologengasse \
+   *     WOT_BASE=/wot/demo20/ npx vite build
+   */
+  readonly VITE_WOT_ADDRESS?: string
 }
 
 declare module '*?raw' {

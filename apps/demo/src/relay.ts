@@ -33,13 +33,19 @@
  * does not apply to the WebSocket protocol), so the drain connection works
  * cross-origin regardless; only `send()`'s POST is origin-locked.
  *
- * SCOPE: one active peer per RelayChannel's `onEnvelope` registration (the
- * same "a later call replaces the earlier one" convention crypto callbacks
- * use elsewhere in this codebase) -- correct for the demo, which pairs
- * exactly one asker with one holder at a time. `send()` takes the pair key
- * explicitly per call for symmetry and because a channel has no peer
- * directory of its own; the two-device demo has exactly one pair key alive
- * at any moment.
+ * SCOPE: `onEnvelope` accepts EITHER a single fixed `CryptoKey` (demos
+ * 1/2/3/6's shape, unchanged: "a later call replaces the earlier one",
+ * correct for a demo that pairs exactly one asker with one holder at a
+ * time) OR a `PairKeyResolver` function that picks a key per inbound wire
+ * from its cleartext `from` DID -- added for demo 20 (mode.ts's
+ * `wotScenario() === 'geologengasse'`), where one laptop holds several
+ * peers at once and each needs its OWN pair key to decrypt. Passing a plain
+ * `CryptoKey` is exactly equivalent to passing `() => thatKey`: every
+ * inbound wire is tried against it regardless of sender, byte-identically
+ * to this file's behaviour before `PairKeyResolver` existed. `send()` takes
+ * the pair key explicitly per call, as before -- it was never
+ * single-peer-limited; only the receive side (`onEnvelope`'s single `sink`)
+ * was.
  *
  * `sendRaw`/`onRawWire` are a second, DELIBERATELY UNENCRYPTED path,
  * scoped to exactly one caller: the one-scan connect-link ceremony's
@@ -190,6 +196,16 @@ interface DrainFrame {
 
 export type RelayStatus = 'connecting' | 'connected' | 'disconnected'
 
+/**
+ * Per-wire key lookup for `onEnvelope` (demo 20's multi-peer receive path --
+ * see this file's module header). Called with the wire's cleartext sender
+ * DID; returns the pair key to try, or `null`/`undefined` for "no known
+ * peer, drop this wire" (same as a decrypt failure -- not acked, may be
+ * redelivered). May be async since deriving an ECDH pair key touches
+ * `crypto.subtle`.
+ */
+export type PairKeyResolver = (fromDid: string) => CryptoKey | null | undefined | Promise<CryptoKey | null | undefined>
+
 export interface RelayChannelOptions {
   /** Overrides the resolved relay origin outright (highest priority -- see {@link resolveRelayOrigin}). Mainly for the e2e script and tests. */
   relayOrigin?: string
@@ -248,11 +264,14 @@ export interface RelayChannel {
    * connection, not just delayed. Register the sink first.
    *
    * A wire that decrypts and parses is handed to `cb` and then acked. Only
-   * one `(pairKey, cb)` registration is kept -- a later call replaces the
-   * earlier one, matching this file's single-active-peer scope (see the
-   * file header).
+   * one `(resolver, cb)` registration is kept -- a later call replaces the
+   * earlier one. `pairKeyOrResolver` is either a fixed `CryptoKey` (tried
+   * against every inbound wire regardless of sender -- demos 1/2/3/6's
+   * exact original behaviour) or a `PairKeyResolver` that looks the key up
+   * per wire by sender DID (demo 20's multi-peer case -- see the file
+   * header).
    */
-  onEnvelope(pairKey: CryptoKey, cb: (envelope: Envelope, fromDid: string) => void): void
+  onEnvelope(pairKeyOrResolver: CryptoKey | PairKeyResolver, cb: (envelope: Envelope, fromDid: string) => void): void
   /**
    * Sends `payload` to `toDid` WITHOUT encryption -- POSTs it to the relay
    * ingress verbatim, framed the same as `send()` (`buildOuterWire`), minus
@@ -355,7 +374,7 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
   let stopped = true
   let backoff = reconnectBaseMs
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  let sink: { pairKey: CryptoKey; cb: (envelope: Envelope, fromDid: string) => void } | null = null
+  let sink: { resolveKey: PairKeyResolver; cb: (envelope: Envelope, fromDid: string) => void } | null = null
   let rawSink: ((fromDid: string, payload: string) => void) | null = null
   let statusCb: ((status: RelayStatus, at: number) => void) | null = null
 
@@ -380,10 +399,13 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
       handled = true
     }
     if (sink) {
-      const envelope = await decryptEnvelope(outer.payload, sink.pairKey)
-      if (envelope) {
-        sink.cb(envelope, outer.from)
-        handled = true
+      const key = await sink.resolveKey(outer.from)
+      if (key) {
+        const envelope = await decryptEnvelope(outer.payload, key)
+        if (envelope) {
+          sink.cb(envelope, outer.from)
+          handled = true
+        }
       }
     }
     return handled
@@ -550,8 +572,10 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
     await postToIngress(toDid, payload, 'sendRaw')
   }
 
-  function onEnvelope(pairKey: CryptoKey, cb: (envelope: Envelope, fromDid: string) => void): void {
-    sink = { pairKey, cb }
+  function onEnvelope(pairKeyOrResolver: CryptoKey | PairKeyResolver, cb: (envelope: Envelope, fromDid: string) => void): void {
+    const resolveKey: PairKeyResolver =
+      typeof pairKeyOrResolver === 'function' ? pairKeyOrResolver : () => pairKeyOrResolver
+    sink = { resolveKey, cb }
   }
 
   function onRawWire(cb: (fromDid: string, payload: string) => void): void {

@@ -9,6 +9,9 @@
 #   app.idea2.site/wot/demo2/  same, but over the relay       (apps/demo, VITE_WOT_MODE=relay)
 #   app.idea2.site/wot/demo3/  device to device, no server   (apps/demo, VITE_WOT_MODE=webrtc)
 #   app.idea2.site/wot/demo6/  the ladder, visible           (apps/demo, VITE_WOT_MODE=ladder)
+#   app.idea2.site/wot/demo20/ Jakob's own flat, opt-in only (apps/demo, VITE_WOT_MODE=relay,
+#                              VITE_WOT_SCENARIO=geologengasse -- see below, NOT built or
+#                              pushed by a plain run of this script)
 #   app.idea2.site/wot/demo4/  full app mockup               (demos/app-mockup.html)
 #   app.idea2.site/wot/demo5/  gating prototype              (demos/gating-prototype.html)
 #   app.idea2.site/wot/app/    mobile-UI LAN alpha client    (apps/mobile-ui)
@@ -82,6 +85,33 @@ echo "building and pushing demo6 (base /wot/demo6/, the ladder)"
 ( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo6/ VITE_WOT_MODE=ladder npx vite build >/dev/null )
 push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo6"
 
+# Demo 20 (Jakob's own flat, his own web of trust) is DELIBERATELY opt-in:
+# a plain `./scripts/deploy_wot.sh` run never touches it, never requires
+# VITE_WOT_ADDRESS, and never risks publishing the owner's real address
+# by accident. Build and push it only with:
+#
+#   DEPLOY_DEMO20=1 VITE_WOT_ADDRESS="Geologengasse <Hausnummer>, 1030 Wien" \
+#     ./scripts/deploy_wot.sh
+#
+# See apps/demo/src/data/geologengasse.ts's module doc for why the address
+# is a build-time env var and never a literal in this repo -- and read this
+# script's own header comment ("don't publish this") before ever running
+# this block against the public app.idea2.site host: that host is reachable
+# by anyone with the URL, and demo 20's own built bundle necessarily
+# contains the address in cleartext once VITE_WOT_ADDRESS is supplied
+# (a fully client-side app has no other way to answer with it locally).
+if [ "${DEPLOY_DEMO20:-}" = "1" ]; then
+  if [ -z "${VITE_WOT_ADDRESS:-}" ]; then
+    echo "DEPLOY_DEMO20=1 but VITE_WOT_ADDRESS is not set -- refusing to build a demo whose whole point is answering with a real address it does not have. See this block's own comment." >&2
+    exit 1
+  fi
+  echo "building and pushing demo20 (base /wot/demo20/, Jakob's own flat)"
+  ( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo20/ VITE_WOT_MODE=relay VITE_WOT_SCENARIO=geologengasse VITE_WOT_ADDRESS="$VITE_WOT_ADDRESS" npx vite build >/dev/null )
+  push_dir  "$REPO/apps/demo/dist"             "$REMOTE_APP/demo20"
+else
+  echo "skipping demo20 (opt-in only -- set DEPLOY_DEMO20=1 and VITE_WOT_ADDRESS to include it)"
+fi
+
 # mobile-ui imports @resource-web/app-profiles as a workspace package and
 # resolves it through that package's dist/, not its source. Skipping this build
 # silently ships whatever strings dist/ happened to hold: the first deploy after
@@ -102,22 +132,30 @@ push_page "$REPO/demos/gating-prototype.html"  "$REMOTE_APP/demo5"
 echo "--------"
 echo "verifying (a 200 for each, with AND without the trailing slash)"
 fail=0
-for u in \
-  "https://idea2.site/wot" \
-  "https://app.idea2.site/wot/demo/" \
-  "https://app.idea2.site/wot/demo" \
-  "https://app.idea2.site/wot/demo1/" \
-  "https://app.idea2.site/wot/demo1" \
-  "https://app.idea2.site/wot/demo1/nachweis/" \
-  "https://app.idea2.site/wot/demo2/" \
-  "https://app.idea2.site/wot/demo2" \
-  "https://app.idea2.site/wot/demo3/" \
-  "https://app.idea2.site/wot/demo6/" \
-  "https://app.idea2.site/wot/demo4/" \
-  "https://app.idea2.site/wot/demo5/" \
-  "https://app.idea2.site/wot/app/" \
-  "https://app.idea2.site/wot/app" \
-  "https://evobiosys.org/rebiosys/" ; do
+verify_urls=(
+  "https://idea2.site/wot"
+  "https://app.idea2.site/wot/demo/"
+  "https://app.idea2.site/wot/demo"
+  "https://app.idea2.site/wot/demo1/"
+  "https://app.idea2.site/wot/demo1"
+  "https://app.idea2.site/wot/demo1/nachweis/"
+  "https://app.idea2.site/wot/demo2/"
+  "https://app.idea2.site/wot/demo2"
+  "https://app.idea2.site/wot/demo3/"
+  "https://app.idea2.site/wot/demo6/"
+  "https://app.idea2.site/wot/demo4/"
+  "https://app.idea2.site/wot/demo5/"
+  "https://app.idea2.site/wot/app/"
+  "https://app.idea2.site/wot/app"
+  "https://evobiosys.org/rebiosys/"
+)
+# Only checked when demo20 was actually built and pushed this run -- a plain
+# run never pushed it, so checking for it unconditionally would report a
+# false failure every single time.
+if [ "${DEPLOY_DEMO20:-}" = "1" ]; then
+  verify_urls+=("https://app.idea2.site/wot/demo20/")
+fi
+for u in "${verify_urls[@]}"; do
   # curl prints "000" for %{http_code} on a connection failure AND exits
   # non-zero, so a naive `|| echo 000` yields "000000". Take the last three
   # characters and be done with it.
