@@ -14,6 +14,8 @@
 import { el } from '../ui/dom'
 import { t } from '../i18n'
 import type { DeviceState } from '../state'
+import { deviceMode, applyModePosture } from '../state'
+import { renderModePicker, modeTitleKey } from './mode_picker'
 
 function field(label: string, input: HTMLElement, hint?: string): HTMLElement {
   return el('div', { class: 'field' }, [el('label', {}, [label]), input, hint ? el('small', {}, [hint]) : null])
@@ -60,11 +62,28 @@ export function renderProfile(s: DeviceState, onSave: () => void, onIdentityChan
     onSave()
   })
 
+  // The current mode, visible "without hunting for it" (handover's own
+  // requirement) -- shown as a heading BEFORE the picker itself, not only
+  // implied by which radio happens to be checked, so a person skimming the
+  // screen sees it at a glance. Changing it here calls applyModePosture()
+  // (state.ts) -- the ONE place a mode bundle actually gets applied -- then
+  // re-renders the whole app via onIdentityChange, same as the display-name
+  // field above, so the change takes visibly immediately.
+  const modeSection = el('div', {}, [
+    el('h2', {}, [t('modeCurrentLabel') + ': ' + t(modeTitleKey(deviceMode(s)))]),
+    el('p', { class: 'note' }, [t('modePickerNote')]),
+    renderModePicker(deviceMode(s), (m) => {
+      applyModePosture(s, m)
+      onIdentityChange()
+    }, 'wot-mode-profile'),
+  ])
+
   return el('div', {}, [
     el('p', { class: 'lead' }, [t('profileLead')]),
     field(t('profileName'), nameInput),
     field(t('profileBio'), bioInput),
     field(t('profileGraetzl'), graetzlInput),
     field(t('profileLangs'), langsInput, t('profileLangsHint')),
+    modeSection,
   ])
 }

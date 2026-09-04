@@ -3,10 +3,14 @@ import { initI18n, t, getLang, toggleLang } from './i18n'
 import { el, clear, coarseWhen } from './ui/dom'
 import { renderQr, keepAwake } from './ui/qr'
 import { scanQr, cameraPlausible } from './ui/scanner'
-import { loadState, saveState, resetAll, threadsInScope, upsertPeer, findPeerByDid, PERSONAS } from './state'
+import {
+  loadState, saveState, resetAll, threadsInScope, upsertPeer, findPeerByDid, PERSONAS,
+  deviceMode, applyModePosture,
+} from './state'
 import { logAndDispatch } from './answer_log'
-import type { DeviceState, Peer } from './state'
+import type { DeviceState, Peer, Mode } from './state'
 import { renderProfile } from './screens/profile'
+import { renderModePicker, modeTitleKey } from './screens/mode_picker'
 import { renderInventory } from './screens/inventory'
 import { detectAndParse } from './parse/index'
 import { matchTemplate } from './match/lexical'
@@ -55,8 +59,32 @@ const root = document.getElementById('app') as HTMLElement
 let state: DeviceState | null = null
 let releaseWake: () => void = () => {}
 
-type Screen = 'start' | 'home' | 'chats' | 'profile' | 'inventory' | 'connect' | 'ask' | 'answer' | 'link' | 'graph' | 'log'
+type Screen = 'start' | 'modePick' | 'home' | 'chats' | 'profile' | 'inventory' | 'connect' | 'ask' | 'answer' | 'link' | 'graph' | 'log'
 let screen: Screen = 'start'
+
+/**
+ * The mode currently selected on whichever onboarding screen is on view
+ * (screenStart's persona flow, screenGeoNameEntry, screenSecondHopNameEntry,
+ * screenModePick). One module-level var, not per-screen state, because only
+ * one onboarding screen is ever live at a time on a given device -- same
+ * convention as `pendingGeoQueries`/`geoCeremonyBusy` below. Defaults to
+ * 'standard' (I9: a person who taps straight through, touching no radio at
+ * all, gets the safe default).
+ */
+let onboardingMode: Mode = 'standard'
+
+/**
+ * Demo 20/21 only (mode.ts's geologengasse/secondHop scenarios): Jakob's own
+ * laptop used to auto-seed straight to `home` in boot() below, with no
+ * screen in between -- the one device in this app that never passed through
+ * screenStart() at all, and therefore never got a chance to pick a mode.
+ * The handover is explicit that Jakob picks his mode too, on every device
+ * including his own, so boot() now defers the actual seed call until he has
+ * (screenModePick, below) -- this remembers WHICH seed function to run once
+ * he does. `null` means no seed is pending (the ordinary case for every
+ * other scenario, and for a Jakob laptop that already has state on disk).
+ */
+let pendingJakobSeedKind: 'geo' | 'secondHop' | null = null
 
 // ---------------------------------------------------------------------------
 // relay mode: session, status, and the in-flight query/answer this device is
@@ -835,7 +863,19 @@ function refreshPendingRequestBubble(): void {
 function go(s: Screen): void { screen = s; render() }
 
 function render(): void {
+  // Jakob's own laptop bootstrap (demo 20/21, pendingJakobSeedKind's own
+  // doc comment): `state` stays null until finishJakobOnboarding actually
+  // seeds it, so the ordinary "`!state` means screenStart()" shortcut below
+  // would otherwise route here every re-render (langtoggle included) and
+  // never show screenModePick at all. Checked BEFORE the `!state` shortcut,
+  // not folded into the switch, for the exact same reason that shortcut
+  // exists in the first place: `screen` alone is not the source of truth
+  // for what a state-less boot shows.
+  if (!state && pendingJakobSeedKind) return void screenModePick()
   if (!state) return void screenStart()
+  // 'modePick' has no case here: it only ever renders through the `!state`
+  // guard above, never through this switch (by the time `state` exists,
+  // finishJakobOnboarding has already called go('home')).
   switch (screen) {
     case 'chats':     return screenChats()
     case 'profile':   return screenProfile()
@@ -883,7 +923,7 @@ function screenGeoNameEntry(): void {
     placeholder: t('geoPlacePh'),
     style: 'width:100%;border-radius:14px;border:1px solid var(--line);background:var(--bg-raised);color:var(--ink);padding:12px;font:inherit;margin-bottom:14px',
   }) as HTMLInputElement
-  const submit = (): void => { void seedGeoGuest(nameInput.value, placeInput.value) }
+  const submit = (): void => { void seedGeoGuest(nameInput.value, placeInput.value, onboardingMode) }
   nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit() })
   placeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit() })
   const body = el('div', {}, [
@@ -895,6 +935,14 @@ function screenGeoNameEntry(): void {
     nameInput,
     placeInput,
     el('p', { class: 'note' }, [t('geoNameOptional')]),
+    // Chosen on THIS device, by the guest, not inherited from Jakob who
+    // invited her (handover: that would be exactly the coercion this
+    // feature exists to prevent). Inline on the same screen so accepting
+    // the invitation costs no extra tap beyond what "Anfrage senden"
+    // already was -- see onboardingMode's own doc comment.
+    el('h2', {}, [t('modePickerLead')]),
+    renderModePicker(onboardingMode, (m) => { onboardingMode = m }, 'wot-mode-geo'),
+    el('p', { class: 'note' }, [t('modePickerNote')]),
     el('button', { class: 'btn primary', onclick: submit }, [t('geoNameSend')]),
   ])
   clear(root)
@@ -934,10 +982,16 @@ function screenStart(): void {
         el('p', {}, [p.blurb[lang]]),
         el('button', {
           class: 'btn primary',
-          onclick: () => void seedPersona(p.id, p.displayName, p.role),
+          onclick: () => void seedPersona(p.id, p.displayName, p.role, onboardingMode),
         }, [t('continueAs') + ' ' + p.displayName]),
       ]),
     ),
+    // Inline on the same screen, same reasoning as screenGeoNameEntry's own
+    // picker: "Weiter als Marlene" reads onboardingMode at the moment it is
+    // clicked, so choosing a mode (or leaving Standard preselected, I9)
+    // costs no extra tap and no extra screen.
+    el('h2', {}, [t('modePickerLead')]),
+    renderModePicker(onboardingMode, (m) => { onboardingMode = m }, 'wot-mode-start'),
   ])
   clear(root)
   root.append(
@@ -953,15 +1007,23 @@ function screenStart(): void {
   )
 }
 
-async function seedPersona(id: string, displayName: string, role: 'holder' | 'seeker'): Promise<void> {
+async function seedPersona(id: string, displayName: string, role: 'holder' | 'seeker', mode: Mode): Promise<void> {
   const persona = PERSONAS.find((p) => p.id === id)
   const threads: ChatThread[] = []
   if (role === 'holder') {
     // The holder carries the neighbourhood group, and one direct chat that is
     // excluded by default so the opt-out is visible rather than asserted.
+    //
+    // Sicher (handover): "inventory not in scope until you put something in
+    // it deliberately". A seeded demo group is fixture content she did not
+    // just sit down and type, same reasoning the inventorySeed override
+    // below applies -- so it starts OFF for a Sicher pick, not on. Standard
+    // and Pro keep the app's own existing default (a group starts visible;
+    // see types.ts's ChatThread.included doc comment for why that default
+    // is deliberately the opposite of a 1-on-1 thread's).
     const group = detectAndParse('Otta Graetzl & Alltag.txt', seedGroupRaw)
     group.title = 'Otta Grätzl & Alltag'
-    group.included = true
+    group.included = mode !== 'sicher'
     threads.push(group)
     const direct = detectAndParse('Klaus.txt', SEED_DIRECT_IOS)
     direct.title = 'Klaus'
@@ -999,12 +1061,19 @@ async function seedPersona(id: string, displayName: string, role: 'holder' | 'se
   // get their own id/createdAt fresh each time rather than reusing the
   // template's.
   const profile = persona ? { ...persona.profile, languages: [...persona.profile.languages] } : { displayName, bio: '', neighbourhood: '', languages: [] }
+  // Same Sicher reasoning as the group thread above: a seeded inventory
+  // entry is fixture content, not something she just typed in herself, so
+  // it starts OFF for Sicher. addInventoryItem() (state.ts) -- what runs
+  // when she types a NEW entry in later, on any mode -- is deliberately
+  // untouched by this: that one really is typed in on purpose, just now.
   const inventory = (persona?.inventorySeed ?? []).map((seed) => ({
     ...seed,
     id: randomId(8),
     createdAt: new Date().toISOString(),
+    included: mode === 'sicher' ? false : seed.included,
   }))
   state = { me: { id, displayName }, threads, peers, profile, inventory, queryLog: [] }
+  applyModePosture(state, mode)
   await saveState(state)
   // The ordinary first-visit case for the one-scan connect-link ceremony
   // (connect_link.ts): a brand-new phone was still on the persona picker
@@ -1061,8 +1130,17 @@ const DEMO_NONCE: Record<string, string> = {
  * calling `initRelaySession()` from two places for the one boot event this
  * function exists to handle was always the wrong shape, so it is removed at
  * the source rather than left as a now-inert duplicate.
+ *
+ * `mode`: as of the three-modes feature, Jakob picks his own mode too, on
+ * screenModePick, BEFORE this runs -- boot() no longer calls this directly;
+ * see pendingJakobSeedKind's own doc comment. He starts with no threads and
+ * no inventory here, so a mode choice has nothing to apply a seed-time
+ * default to yet; it still governs everything he does from `home` onward
+ * (screenAsk's free-text card, incoming free-text asks, and -- once he has
+ * a real trust edge to a second-brain-holding peer, not this scenario --
+ * whether a second hop is offered).
  */
-async function seedJakob(): Promise<void> {
+async function seedJakob(mode: Mode): Promise<void> {
   state = {
     me: { id: 'jakob', displayName: 'Jakob' },
     threads: [],
@@ -1071,6 +1149,7 @@ async function seedJakob(): Promise<void> {
     inventory: [],
     queryLog: [],
   }
+  applyModePosture(state, mode)
   await saveState(state)
 }
 
@@ -1103,7 +1182,7 @@ function unnamedConnectionLabel(place: string): string {
   return place ? `${t('geoMetAt')} ${place}, ${when}` : `${t('geoMetOn')} ${when}`
 }
 
-async function seedGeoGuest(rawName: string, rawPlace = ''): Promise<void> {
+async function seedGeoGuest(rawName: string, rawPlace = '', mode: Mode): Promise<void> {
   const place = rawPlace.trim().slice(0, 40)
   const displayName = rawName.trim().slice(0, 60) || unnamedConnectionLabel(place)
   state = {
@@ -1114,6 +1193,7 @@ async function seedGeoGuest(rawName: string, rawPlace = ''): Promise<void> {
     inventory: [],
     queryLog: [],
   }
+  applyModePosture(state, mode)
   await saveState(state)
   if (pendingConnectLink) {
     await completeConnectLinkIfPending()
@@ -1145,7 +1225,7 @@ async function seedGeoGuest(rawName: string, rawPlace = ''): Promise<void> {
  * QueryEnvelope -- I8's "no hop reveals more than a direct request" made
  * concrete in code, not just in the wire schema).
  */
-async function seedSecondHopRoot(): Promise<void> {
+async function seedSecondHopRoot(mode: Mode): Promise<void> {
   state = {
     me: { id: 'jakob', displayName: 'Jakob' },
     threads: [],
@@ -1155,10 +1235,15 @@ async function seedSecondHopRoot(): Promise<void> {
       id: randomId(8),
       text: JAKOB_LADDER_INVENTORY_TEXT,
       createdAt: new Date().toISOString(),
-      included: true,
+      // Same Sicher reasoning as seedPersona's inventorySeed override: this
+      // is fixture content standing in for "Jakob's real ladder", not
+      // something he just typed in this session, so a Sicher pick starts it
+      // OFF until he deliberately switches it on.
+      included: mode !== 'sicher',
     }],
     queryLog: [],
   }
+  applyModePosture(state, mode)
   await saveState(state)
   void initRelaySession()
 }
@@ -1178,7 +1263,7 @@ async function seedSecondHopRoot(): Promise<void> {
  * routes here with a pending link -- gets no note either, the same safe
  * default as B.
  */
-async function seedSecondHopGuest(rawName: string): Promise<void> {
+async function seedSecondHopGuest(rawName: string, mode: Mode): Promise<void> {
   const displayName = rawName.trim().slice(0, 60) || unnamedConnectionLabel('')
   const isFirstHop = pendingConnectLink?.from.id === 'jakob'
   state = {
@@ -1213,6 +1298,7 @@ async function seedSecondHopGuest(rawName: string): Promise<void> {
         }
       : {}),
   }
+  applyModePosture(state, mode)
   await saveState(state)
   if (pendingConnectLink) {
     await completeConnectLinkIfPending()
@@ -1241,7 +1327,7 @@ function screenSecondHopNameEntry(): void {
     autofocus: true,
     style: 'width:100%;border-radius:14px;border:1px solid var(--line);background:var(--bg-raised);color:var(--ink);padding:12px;font:inherit;margin-bottom:14px',
   }) as HTMLInputElement
-  const submit = (): void => { void seedSecondHopGuest(nameInput.value) }
+  const submit = (): void => { void seedSecondHopGuest(nameInput.value, onboardingMode) }
   nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit() })
   const body = el('div', {}, [
     el('h1', {}, [t('geoNameTitle')]),
@@ -1251,6 +1337,9 @@ function screenSecondHopNameEntry(): void {
     ]),
     nameInput,
     el('p', { class: 'note' }, [t('geoNameOptional')]),
+    el('h2', {}, [t('modePickerLead')]),
+    renderModePicker(onboardingMode, (m) => { onboardingMode = m }, 'wot-mode-secondhop'),
+    el('p', { class: 'note' }, [t('modePickerNote')]),
     el('button', { class: 'btn primary', onclick: submit }, [t('geoNameSend')]),
   ])
   clear(root)
@@ -1265,6 +1354,58 @@ function screenSecondHopNameEntry(): void {
     ]),
     el('main', {}, [body]),
   )
+}
+
+/**
+ * Demo 20/21 only (mode.ts's geologengasse/secondHop scenarios): Jakob's own
+ * laptop, the one device in this app that used to auto-seed straight to
+ * `home` with no screen in between at all (boot() below). He picks his mode
+ * here, exactly as a guest picks hers on the name-entry screens above --
+ * see pendingJakobSeedKind's own doc comment for why the actual seed call is
+ * deferred until now. Only ever renders on a fresh device (no state on
+ * disk) or right after "Demo zurücksetzen"; a returning session's `state`
+ * already exists, so boot() sends it straight to `home` as before and this
+ * screen never appears.
+ */
+function screenModePick(): void {
+  const submit = (): void => { void finishJakobOnboarding(onboardingMode) }
+  const body = el('div', {}, [
+    el('h1', {}, [t('modePickerLead')]),
+    renderModePicker(onboardingMode, (m) => { onboardingMode = m }, 'wot-mode-jakob'),
+    el('p', { class: 'note' }, [t('modePickerNote')]),
+    el('button', { class: 'btn primary', onclick: submit }, [t('modePickerContinue')]),
+  ])
+  clear(root)
+  root.append(
+    el('div', { class: 'topbar' }, [
+      el('div', { class: 'who' }, [t('appName')]),
+      el('button', { class: 'langtoggle', onclick: () => { toggleLang(); render() } }, [
+        getLang() === 'de' ? el('b', {}, ['DE']) : document.createTextNode('DE'),
+        document.createTextNode(' / '),
+        getLang() === 'en' ? el('b', {}, ['EN']) : document.createTextNode('EN'),
+      ]),
+    ]),
+    el('main', {}, [body]),
+  )
+}
+
+/** Runs the seed function boot() deferred, now that Jakob has actually
+ *  picked a mode -- see pendingJakobSeedKind's own doc comment. Mirrors
+ *  boot()'s own former sequence exactly (seed, then bring up the relay,
+ *  then go home) so demo 20/21's post-boot behaviour is unchanged, only its
+ *  timing relative to this one extra screen. */
+async function finishJakobOnboarding(mode: Mode): Promise<void> {
+  const kind = pendingJakobSeedKind
+  pendingJakobSeedKind = null
+  if (kind === 'geo') await seedJakob(mode)
+  else if (kind === 'secondHop') await seedSecondHopRoot(mode)
+  // seedSecondHopRoot() already brings its own relay channel up; seedJakob()
+  // deliberately does not (see that function's own doc comment on the past
+  // double-init bug). bringUpRelayChannel() is single-flight regardless, so
+  // calling this unconditionally here is harmless for both, and is what
+  // boot() itself used to guarantee before this screen existed.
+  void initRelaySession()
+  go('home')
 }
 
 // ---------------------------------------------------------------------------
@@ -1312,6 +1453,15 @@ function screenHome(): void {
   const geo = wotScenario() === 'geologengasse'
   const body = el('div', {}, [
     el('h1', {}, [t('appName')]),
+    // Visible "without hunting for it" (handover's own requirement), one
+    // tap from wherever it can actually be changed. Same modeTitleKey()
+    // helper screens/profile.ts uses for its own heading, so the two never
+    // drift apart.
+    el('button', {
+      class: 'btn quiet',
+      style: 'text-align:left',
+      onclick: () => go('profile'),
+    }, [t('modeCurrentLabel') + ': ' + t(modeTitleKey(deviceMode(s)))]),
     ...(geo ? pendingAcceptRequests.map(pendingRequestCard) : []),
     geo
       ? el('div', { class: 'card' }, [
@@ -1468,6 +1618,14 @@ async function onImport(input: HTMLInputElement): Promise<void> {
     const th = detectAndParse(f.name, raw)
     if (!th.messages.length) throw new Error('no messages')
     th.title = f.name.replace(/\.[^.]+$/, '').replace(/^WhatsApp Chat (mit|with) /i, '')
+    // Sicher (handover): "inventory not in scope until you put something in
+    // it deliberately". A bulk import adds a whole thread's worth of
+    // messages at once, none individually curated -- the opposite of typing
+    // one inventory line on purpose -- so it starts OFF for a Sicher
+    // device, overriding the parser's own group/direct default (see
+    // parse/*.ts's own `included = kind !== 'direct'`). Standard and Pro
+    // keep that existing default unchanged.
+    if (deviceMode(s) === 'sicher') th.included = false
     s.threads.push(th)
     await saveState(s)
   } catch {
@@ -2172,9 +2330,28 @@ const UNRESOLVED_TEMPLATE: QueryTemplate = {
  * place both runConsentCeremony (manual scan) and handleAmbientQuery
  * (relay/webrtc auto-delivery) do this lookup, so a free-text query is
  * matchable from either entry point without duplicating the branch.
+ *
+ * Sicher (handover-three-modes.md): a free-text ask never resolves on THIS
+ * device, regardless of who sent it or which transport carried it -- `q`'s
+ * own words are never even matched against anything here, let alone shown.
+ * Returning `undefined` (rather than a pre-branch decline in each caller)
+ * is deliberate: it means a refused free-text ask folds into the EXACT SAME
+ * "unresolvable template" path a corrupt/unknown templateId already takes
+ * in both callers -- classifyIncomingQuery's own `templateResolved: false`
+ * branch (silent 'no-match' on the ambient path) and
+ * runSecondHopRelayCeremony's own `if (!tpl)` branch (resolved 'direct',
+ * held to the SAME uniform deadline a Sicher device's direct switch already
+ * uses -- see applyModePosture/modeSwitchDefaults, state.ts) -- rather than
+ * a new, differently-timed "declined" path. A device asking on Sicher's
+ * own behalf never even builds a free-text ask in the first place (see
+ * screenAsk's own gate on the SAME `deviceMode(s)`), so this only ever
+ * matters for an ask arriving from a peer running Standard or Pro.
  */
 function resolveIncomingTemplate(q: QueryEnvelope): QueryTemplate | undefined {
-  if (q.freeText) return freeTextTemplate(q.freeText)
+  if (q.freeText) {
+    if (state && deviceMode(state) === 'sicher') return undefined
+    return freeTextTemplate(q.freeText)
+  }
   return resolveTemplate(q.templateId)
 }
 
@@ -2326,11 +2503,23 @@ function screenAsk(): void {
     // fixed template, through the same consent gate. Shown first: this is
     // the capability the owner asked for by name.
     //
-    // Shown in every mode including demo 20. It was briefly held back there
-    // while demo 20 was being demonstrated and this path had no browser
-    // pass; it has one now, so withholding it would only hide the feature
-    // from the scenario built to show it.
-    el('div', { class: 'card' }, [
+    // Shown in every mode including demo 20 -- except Sicher (handover:
+    // "only the fixed questions, nothing free-text"). Free text sends the
+    // asker's own words verbatim to every connected device (askWith()'s
+    // broadcast branch); a Sicher asker does not compose one in the first
+    // place, so nobody on the other end can be put on the spot by THIS
+    // device's own words. See resolveIncomingTemplate's own gate for the
+    // matching protection on the RECEIVING side (a Sicher device never
+    // surfaces a free-text ask either, regardless of who sent it).
+    //
+    // NOTE for demo 21 (secondHop): scenario B (the ladder) is asked
+    // exclusively via free text. Picking Sicher on a secondHop guest device
+    // removes this card and therefore that story -- deliberate, not a bug,
+    // but worth knowing before switching a live-demo phone to Sicher
+    // mid-show. Scenario A (the accommodation template below) is
+    // unaffected, since it is a fixed template either way.
+    deviceMode(s) !== 'sicher'
+      ? el('div', { class: 'card' }, [
           el('h3', {}, [t('askFreeTextTitle')]),
           el('p', { class: 'note' }, [t('askFreeTextPrivacy')]),
           freeTextInput,
@@ -2339,7 +2528,8 @@ function screenAsk(): void {
             ...(peer ? {} : { disabled: true }),
             onclick: submitFreeText,
           }, [t('askFreeTextSubmit')]),
-        ]),
+        ])
+      : null,
     ...templatesForScenario().map((tpl: QueryTemplate) =>
       el('div', { class: 'card' }, [
         el('h3', {}, [tpl.title[lang]]),
@@ -2883,9 +3073,16 @@ async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
   //    the delay is here so the machine's answer time does not depend on whether
   //    anything was found.
   const t0 = Date.now()
+  // Sicher may be why `tpl` is undefined here (a free-text ask this device
+  // refuses to resolve, see resolveIncomingTemplate's own gate), not only a
+  // genuinely corrupt/unknown templateId. Either way the honest thing to
+  // show is UNRESOLVED_TEMPLATE's own "Unbekannte Anfrage" wording, never
+  // the raw wire id (q.templateId is always the fixed free-text sentinel in
+  // the Sicher case, which would read as a technical leak on a manual-scan
+  // screen the audience is not technical enough to make sense of).
   shell(t('navAnswer'), el('div', {}, [
     el('h1', {}, [q.from.displayName + ' ' + t('askedYou')]),
-    el('p', { class: 'lead' }, ['„' + (tpl ? tpl.question[lang] : q.templateId) + '“']),
+    el('p', { class: 'lead' }, ['„' + (tpl ? tpl.question[lang] : UNRESOLVED_TEMPLATE.question[lang]) + '“']),
     el('p', {}, [el('span', { class: 'spin' }), document.createTextNode(' ' + t('checking'))]),
   ]))
 
@@ -3236,7 +3433,11 @@ async function runSecondHopRelayCeremony(q: QueryEnvelope): Promise<void> {
 
   shell(t('navAnswer'), el('div', {}, [
     el('h1', {}, [q.from.displayName + ' ' + t('askedYou')]),
-    el('p', { class: 'lead' }, ['„' + (tpl ? tpl.question[lang] : q.templateId) + '“']),
+    // Same reasoning as runConsentCeremony's own fix: `tpl` can be
+    // undefined here because THIS device is Sicher and refused to resolve
+    // a free-text ask, not only for a corrupt/unknown templateId -- show
+    // the honest "Unbekannte Anfrage" wording, never the raw wire id.
+    el('p', { class: 'lead' }, ['„' + (tpl ? tpl.question[lang] : UNRESOLVED_TEMPLATE.question[lang]) + '“']),
     el('p', {}, [el('span', { class: 'spin' }), document.createTextNode(' ' + t('checking'))]),
   ]))
 
@@ -3274,7 +3475,13 @@ async function runSecondHopRelayCeremony(q: QueryEnvelope): Promise<void> {
   // and therefore which owner -- actually scored, since matchTemplate()'s
   // own contract sorts hits by score descending and prune() (above)
   // preserves that order.
-  const eligibleNotes = (!q.relayed ? s.secondBrainNotes ?? [] : [])
+  // Sicher (handover-three-modes.md): "nothing travels a second hop." A
+  // Sicher device never offers to relay, whether it would go on to decline
+  // or forward -- folded in here, alongside the existing depth cap
+  // (`!q.relayed`), rather than as a later decision the person would
+  // otherwise have to make and then decline. That is the whole point: a
+  // Sicher relayer is never put in the position of having to decide at all.
+  const eligibleNotes = (!q.relayed && deviceMode(s) !== 'sicher' ? s.secondBrainNotes ?? [] : [])
     .map((note) => ({ note, ownerPeer: s.peers.find((p) => p.id === note.ownerPeerId && p.did && p.id !== q.from.id) }))
     .filter((x): x is { note: SecondBrainNote; ownerPeer: Peer } => Boolean(x.ownerPeer))
   const noteMatch: MatchResult = eligibleNotes.length
@@ -4158,20 +4365,27 @@ async function boot(): Promise<void> {
   // no state AND no pending connect link IS the laptop opening this build
   // for the first time -- an invited phone always arrives WITH a connect
   // link (screenGeoNameEntry handles that case via the ordinary
-  // `screen = 'start'` path below). Auto-seeding here, rather than adding a
-  // silent branch inside screenStart(), is what keeps screenStart() itself
-  // simple: by the time it could ever render in this scenario, a connect
-  // link is always pending.
+  // `screen = 'start'` path below).
+  //
+  // Three modes (handover-three-modes.md): Jakob picks his mode too, on
+  // every device including this one -- so the seed call itself is deferred
+  // to screenModePick's own "Los geht's" button (finishJakobOnboarding),
+  // not run here. This only records WHICH seed function is waiting
+  // (pendingJakobSeedKind) and routes to that screen instead of seeding
+  // directly. An invited phone is unaffected: it always has a
+  // pendingConnectLink, so neither branch below ever fires for it, and its
+  // own mode choice lives inline on screenGeoNameEntry/
+  // screenSecondHopNameEntry instead.
   if (!state && wotScenario() === 'geologengasse' && !pendingConnectLink) {
-    await seedJakob()
+    pendingJakobSeedKind = 'geo'
   }
   // Demo 21 (secondHop): same reasoning, same shape -- Jakob's laptop is
   // this chain's root too, the only device that ever opens this build with
   // no state and no pending link.
   if (!state && wotScenario() === 'secondHop' && !pendingConnectLink) {
-    await seedSecondHopRoot()
+    pendingJakobSeedKind = 'secondHop'
   }
-  screen = state ? 'home' : 'start'
+  screen = state ? 'home' : (pendingJakobSeedKind ? 'modePick' : 'start')
   render()
   // A returning session (state already on disk) that ALSO happens to have
   // opened this tab via a fresh connect link -- unusual (the ordinary case

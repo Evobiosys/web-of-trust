@@ -569,6 +569,41 @@ const S: Table = {
     en: 'Off (default): any answer where one of your notes was involved at all -- whether you forwarded it or not -- takes up to 30 seconds, so nobody can tell from timing that you reached out to someone else. On: such answers come back as fast as possible; whoever asked can roughly tell that you relayed.',
   },
 
+  // Three modes at onboarding (DEVLOG/handover-three-modes.md). German
+  // copy says what HAPPENS TO THE PERSON, never which switch it flips.
+  modePickerLead: {
+    de: 'Wie möchtest du gefragt werden können?',
+    en: 'How do you want to be askable?',
+  },
+  modePickerNote: {
+    de: 'Du kannst das später jederzeit unter „Mein Profil“ ändern.',
+    en: 'You can change this any time later, under "My profile".',
+  },
+  modeDefaultBadge: { de: '(vorausgewählt)', en: '(preselected)' },
+  modePickerContinue: { de: 'Los geht’s', en: 'Get started' },
+  modeCurrentLabel: { de: 'Aktueller Modus', en: 'Current mode' },
+
+  modeSicherTitle:    { de: 'Sicher', en: 'Safe' },
+  modeSicherTagline:  { de: 'Am stärksten geschützt.', en: 'Most protected.' },
+  modeSicherDesc: {
+    de: 'Du bekommst nur die vorbereiteten Fragen zu sehen, nie eine Frage in freien Worten. Es kann dir nicht passieren, dass dir unvorbereitet etwas sehr Persönliches gestellt wird. Eine Frage, die über dich an jemand anderen weiterläuft, wird nie weitergegeben. Was du früher eingetragen hast, ist erst sichtbar, wenn du es einzeln freigibst. Und egal was du antwortest, es dauert bei dir immer gleich lange, damit niemand daraus etwas ablesen kann.',
+    en: 'You only ever get shown the prepared questions, never a question in someone else’s own free words. Nobody can catch you off guard with something very personal. A question that could travel on through you to someone else never gets passed on. Anything you entered earlier stays hidden until you switch it on one by one. And whatever you answer, it always takes the same amount of time on your side, so nobody can read anything into that.',
+  },
+
+  modeStandardTitle:   { de: 'Standard', en: 'Standard' },
+  modeStandardTagline: { de: 'Empfohlen. Fast so geschützt wie Sicher.', en: 'Recommended. Nearly as protected as Safe.' },
+  modeStandardDesc: {
+    de: 'Du kannst auch in freien Worten gefragt werden, nicht nur mit den vorbereiteten Fragen. Deine eigene Antwort geht so schnell wie möglich raus, ehrlich gesagt heißt das: wer fragt, kann daraus grob ablesen, wie lange du gebraucht hast. Reichst du eine Frage für jemand anderen weiter, bleibt das verborgen, das dauert bei dir immer gleich lange. Eine Frage kann einmal an jemanden weitergereicht werden, den du kennst und dem du vertraust.',
+    en: 'You can also be asked in someone else’s own free words, not only with the prepared questions. Your own answer goes out as fast as possible, and honestly: whoever asked can roughly tell from that how long you needed. If you pass a question on to someone else, that stays hidden, it always takes the same amount of time on your side either way. A question can be passed on once, to someone you know and trust.',
+  },
+
+  modeProTitle:   { de: 'Pro', en: 'Pro' },
+  modeProTagline: { de: 'Für dich, wenn du genau weißt, was du teilst und wie du sprichst.', en: 'For you, if you know exactly what you share and how you speak.' },
+  modeProDesc: {
+    de: 'Du bekommst alles: Fragen in freien Worten, so schnelle Antworten wie möglich, und wenn du eine Frage für jemand anderen weiterreichst, kann man das an der Zeit erkennen. Das ist keine zusätzliche Sicherheit, das ist bewusst gewählte Geschwindigkeit und Offenheit. Du entscheidest selbst, was du teilst und wie du es sagst.',
+    en: 'You get everything: questions in someone else’s own free words, answers as fast as possible, and if you pass a question on to someone else, that can be read off the timing. This is not extra protection, it is speed and openness you are choosing deliberately. You decide for yourself what you share and how you say it.',
+  },
+
   camDenied:      { de: 'Ohne Kamera geht das Scannen nicht. Du kannst den Code auch als Text übertragen.',
                     en: 'Scanning needs the camera. You can also transfer the code as text.' },
   camPaste:       { de: 'Code als Text einfügen', en: 'Paste code as text' },
