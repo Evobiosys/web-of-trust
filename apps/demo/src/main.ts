@@ -600,7 +600,16 @@ async function ensureRelayFallback(): Promise<void> {
  * backs out or switches to the QR fallback, so a late answer does not fire
  * into a screen that has moved on.
  */
-const RELAY_ANSWER_TIMEOUT_MS = 20_000
+// Three minutes, not twenty seconds.
+//
+// This is not a network timeout, it is how long the ASKING device waits for a
+// PERSON to make up their mind. Twenty seconds is fine for a machine and far
+// too short for someone who is mid-conversation, looking at the preview and
+// deciding whether to give a stranger their address. Live, the asker saw
+// "Keine Antwort übers Netz" while the answer was still being considered --
+// which reads as broken, and worse, invites the asker to conclude something
+// about a decision that had not been made yet.
+const RELAY_ANSWER_TIMEOUT_MS = 180_000
 
 /** How long to wait for an answer over an already-open webrtc data channel
  *  before treating it as failed. Shorter than the relay's timeout: there is
@@ -610,7 +619,7 @@ const RELAY_ANSWER_TIMEOUT_MS = 20_000
  *  yes/no -- 20s stays generous for that human factor while still failing
  *  fast enough that the ladder's automatic fall-through (or demo 3's manual
  *  escape hatch) is not itself a bad experience. */
-const WEBRTC_ANSWER_TIMEOUT_MS = 20_000
+const WEBRTC_ANSWER_TIMEOUT_MS = 180_000 // same reasoning as RELAY_ANSWER_TIMEOUT_MS above
 
 function waitForAnswer(qid: string, timeoutMs: number): { promise: Promise<AnswerEnvelope | null>; cancel: () => void } {
   let done = false
@@ -2274,6 +2283,13 @@ async function sendAnswerOverWebrtc(
   }
   // Strictly after the send above -- see pushLocalShare's doc comment.
   if (outcome === 'shared') pushLocalShare(tpl, match)
+  // Demo 20 opens the conversation by itself: "the chat window should again
+  // open". Long enough to read the confirmation, short enough that nobody has
+  // to work out which button continues. Scoped to this scenario so the other
+  // demos keep the screen their runbook describes, including its QR fallback.
+  const toChat = wotScenario() === 'geologengasse'
+    ? setTimeout(() => { if (screen === 'answer') go('link') }, 2600)
+    : undefined
   // Same "sent" screen shape (and the SAME strings) as sendAnswerOverRelay --
   // identical wording and structure regardless of outcome (I3), and
   // transport-neutral wording since both rungs use it.
@@ -2291,9 +2307,9 @@ async function sendAnswerOverWebrtc(
     // He asked for this to land him in the conversation, not home: the next
     // thing he does in real life is tell the person the exact house number.
     // See DEVLOG/handover-chat-signal.md item 1.
-    el('button', { class: 'btn', onclick: () => go('link') }, [t('done')]),
+    el('button', { class: 'btn primary', onclick: () => { clearTimeout(toChat); go('link') } }, [t('navChatNow')]),
   ])
-  shell(t('navAnswer'), body, { back: () => go('home') })
+  shell(t('navAnswer'), body, { back: () => { clearTimeout(toChat); go('home') } })
 }
 
 async function sendAnswerOverRelay(
@@ -2322,6 +2338,15 @@ async function sendAnswerOverRelay(
   }
   // Strictly after the send above -- see pushLocalShare's doc comment.
   if (outcome === 'shared') pushLocalShare(tpl, match)
+  // Demo 20 opens the conversation by itself: "the chat window should again
+  // open". Long enough to read the confirmation, short enough that nobody has
+  // to work out which button continues. Scoped to this scenario so the other
+  // demos keep the screen their runbook describes, including its QR fallback.
+  // Only auto-open when nobody else is waiting: a queued second question is
+  // the more urgent thing on screen and must not be swept away by a timer.
+  const toChat = wotScenario() === 'geologengasse' && pendingGeoQueries.length === 0
+    ? setTimeout(() => { if (screen === 'answer') go('link') }, 2600)
+    : undefined
   // This confirmation screen is the SAME for every outcome -- it only ever
   // says "sent", never what was sent or whether anything was found.
   const moreQueued = wotScenario() === 'geologengasse' && pendingGeoQueries.length > 0
@@ -2340,12 +2365,15 @@ async function sendAnswerOverRelay(
     // straight to it instead of forcing a detour through home. Never
     // renders for any other demo (pendingGeoQueries is always empty there).
     moreQueued
-      ? el('button', { class: 'btn primary', onclick: () => go('answer') }, [t('geoNextQuery')])
+      ? el('button', { class: 'btn primary', onclick: () => { clearTimeout(toChat); go('answer') } }, [t('geoNextQuery')])
       : null,
     // Land in the conversation, not home -- see the item-1 note above.
-    el('button', { class: 'btn', onclick: () => go('link') }, [t('done')]),
+    el('button', {
+      class: moreQueued ? 'btn' : 'btn primary',
+      onclick: () => { clearTimeout(toChat); go('link') },
+    }, [t('navChatNow')]),
   ])
-  shell(t('navAnswer'), body, { back: () => go('home') })
+  shell(t('navAnswer'), body, { back: () => { clearTimeout(toChat); go('home') } })
 }
 
 // ---------------------------------------------------------------------------
