@@ -636,9 +636,12 @@ function screenHome(): void {
     el('button', { class: 'btn', onclick: () => go('answer') }, [t('navAnswer')]),
     // Only in the modes that actually hold a connection. In qr mode there is
     // nothing to test and nothing to type into.
-    wotMode() !== 'qr'
-      ? el('button', { class: 'btn', onclick: () => go('link') }, [
-          t('navLink') + (unreadChat ? ` (${unreadChat})` : ''),
+    // Straight into the conversation. The fastest way to believe a connection
+    // is real is to type a word on one device and see it on the other, so this
+    // is one tap from the first screen, not buried.
+    wotMode() !== 'qr' && peer
+      ? el('button', { class: 'btn primary', onclick: () => go('link') }, [
+          t('navChatNow') + (unreadChat ? ` (${unreadChat})` : ''),
         ])
       : null,
     el('button', { class: 'btn quiet', onclick: () => go('chats') }, [
@@ -786,6 +789,9 @@ function screenConnect(): void {
     relay ? el('p', { class: 'note' }, [t('connectLinkExplain')]) : null,
     el('button', { class: relay ? 'btn' : 'btn primary', onclick: () => void showMyConnectCode() }, [t('showMyCode')]),
     el('button', { class: 'btn', onclick: () => void scanConnectCode() }, [t('scanTheirCode')]),
+    wotMode() !== 'qr' && peer
+      ? el('button', { class: 'btn primary', onclick: () => go('link') }, [t('navChatNow')])
+      : null,
     webrtc && peer ? el('div', { class: 'card' }, [
       el('h3', {}, [t('webrtcCardTitle')]),
       el('p', { class: 'note' }, [t('webrtcExplain')]),
@@ -831,7 +837,15 @@ async function showMyConnectCode(): Promise<void> {
   // output to demo 1's.
   const did = needsRelayIdentity() ? (await ensureRelayIdentity(s)).did : undefined
   const payload = encodeForQr({ v: 1, t: 'connect', from: s.me, nonce, ...(did ? { did } : {}) })
-  await showCodeScreen(t('showMyCode'), payload, t('connectLead'), () => go('connect'))
+  // Showing a code proves nothing on its own: something still has to come
+  // back. Reported from the room as "we have essentially only proven a QR code
+  // scanning". So the showing device carries the other half of the ceremony on
+  // the same screen -- one tap to the scan view, which has both a camera and a
+  // paste box -- instead of leaving the person on a dead end with a picture.
+  await showCodeScreen(t('showMyCode'), payload, t('connectLead'), () => go('connect'), {
+    label: t('scanTheirCode'),
+    action: () => void scanConnectCode(),
+  }, t('showMyCodeFootnote'))
   // Remember our own nonce so a later scan can complete the pair.
   const p = s.peers[0]
   if (p) { p.nonceSelf = nonce; await saveState(s) }
@@ -926,6 +940,9 @@ function scanSucceeded(peerName: string): void {
     ]),
     el('p', {}, [t('scanOkNext')]),
     el('button', { class: 'btn primary', onclick: () => void showMyConnectCode() }, [t('showMyCode')]),
+    wotMode() !== 'qr'
+      ? el('button', { class: 'btn', onclick: () => go('link') }, [t('navChatNow')])
+      : null,
     el('button', { class: 'btn quiet', onclick: () => go('home') }, [t('back')]),
   ])
   shell(t('navConnect'), body, { back: () => go('home') })

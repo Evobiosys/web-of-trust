@@ -125,6 +125,11 @@ const S: Table = {
   // The live-link screen: a probe and a conversation, so "Verbunden seit …"
   // stops being a claim the person has to take on faith.
   navLink:        { de: 'Verbindung prüfen', en: 'Check the connection' },
+  navChatNow:     { de: 'Jetzt schreiben', en: 'Write now' },
+  showMyCodeFootnote: {
+    de: 'Ein gezeigter Code allein verbindet noch nichts. Entweder das andere Gerät meldet sich von selbst zurück, oder ihr scannt hier seinen Code.',
+    en: 'Showing a code connects nothing by itself. Either the other device reports back on its own, or you scan its code here.',
+  },
   linkLead:       { de: 'Hier siehst du, ob die Verbindung wirklich steht. Drück auf Prüfen, oder tipp etwas und schau auf das andere Gerät.', en: 'This is where you see whether the connection is really up. Press test, or type something and look at the other device.' },
   linkTestBtn:    { de: 'Verbindung prüfen', en: 'Test the connection' },
   linkTesting:    { de: 'Läuft …', en: 'Testing …' },
