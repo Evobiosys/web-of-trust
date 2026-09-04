@@ -542,30 +542,76 @@ async function initRelaySession(): Promise<void> {
   await bringUpRelayChannel(state)
 }
 
+/**
+ * Single-flight guard for {@link bringUpRelayChannel} -- root-caused
+ * 2026-09-04 (the "second guest" relay reliability bug). Every caller
+ * (`initRelaySession()`, `ensureRelayFallback()`,
+ * `completeConnectLinkIfPending()`) used to guard its own call with a plain
+ * `if (relayChannel) return`, but `bringUpRelayChannel` does not assign the
+ * module-level `relayChannel` until AFTER its first `await`
+ * (`ensureRelayIdentity`). That left a window, between "check passed" and
+ * "`relayChannel` actually set", in which a SECOND caller's identical guard
+ * also passed -- exactly what happened on Jakob's laptop: `seedJakob()`
+ * fires `initRelaySession()` without awaiting it, and `boot()`
+ * unconditionally fires `initRelaySession()` again immediately afterward for
+ * the same fresh boot. Both calls landed in that window, so `main.ts` built
+ * TWO independent `RelayChannel` instances -- two independent WebSocket
+ * drains, each separately authenticating as the SAME did:peer:2 (once
+ * `relay_identity.ts`'s own single-flight fix closed the identity half of
+ * this race). `relay_server.ts` keeps exactly one live drain per DID and
+ * closes the prior connection the moment a new one authenticates
+ * (`handleAuth`'s `prior.close()`), so the two channels then fought
+ * indefinitely over that one slot -- reconnecting, displacing each other,
+ * and racing their own un-acked-wire redelivery -- which is what actually
+ * produced the observed symptoms: a pending-request card that sometimes
+ * never renders, and a broadcast query that sometimes never reaches, or
+ * reaches twice, whichever peer's wire happened to land mid-fight. Proven
+ * live: instrumenting `WebSocket` in a real two-guest Playwright run against
+ * the deployed demo showed Jakob's page opening a second `/relay/drain`
+ * socket 9ms after the first, both authenticating, the first getting
+ * displaced and closed, then reconnecting a third time ~1s later on its own
+ * backoff -- all before any guest had even sent a wire.
+ *
+ * The fix: `bringUpRelayChannel` itself is now single-flight, keyed on a
+ * promise created and stored SYNCHRONOUSLY (no await before the store), so a
+ * second call landing anywhere inside the first call's execution -- no
+ * matter which caller, present or future -- awaits and returns the exact
+ * same channel instead of building a second one. The callers' own
+ * `if (relayChannel)` guards are left in place as a harmless fast path (skip
+ * the call entirely once a channel already exists), not because they are
+ * still load-bearing for correctness.
+ */
+let relayChannelReady: Promise<void> | null = null
+
 /** Shared by initRelaySession() (relay/ladder mode, automatic) and
- *  ensureRelayFallback() (webrtc mode, manual escape hatch). */
+ *  ensureRelayFallback() (webrtc mode, manual escape hatch). Single-flight --
+ *  see {@link relayChannelReady}'s doc comment. */
 async function bringUpRelayChannel(s: DeviceState): Promise<void> {
-  const identity = await ensureRelayIdentity(s)
-  const channel = createRelayChannel()
-  relayChannel = channel
-  channel.onStatus((status, at) => {
-    relayStatus = status
-    relayStatusAt = at
-    updateRelayStatusBadge()
-  })
-  // The one-scan connect-link ceremony's bootstrap sink (connect_link.ts) --
-  // harmless to register unconditionally: it only ever recognises a
-  // `connect-ack` payload, and every ordinary encrypted wire fails that
-  // check silently (see handleRawWire's doc comment).
-  channel.onRawWire(handleRawWire)
-  await registerRelaySink()
-  try {
-    await channel.connect(identity)
-  } catch {
-    // The status badge already reflects this ('disconnected'); relay.ts's
-    // channel keeps retrying with backoff in the background regardless, and
-    // onStatus will report 'connected' the moment a later attempt succeeds.
-  }
+  if (relayChannelReady) return relayChannelReady
+  relayChannelReady = (async () => {
+    const identity = await ensureRelayIdentity(s)
+    const channel = createRelayChannel()
+    relayChannel = channel
+    channel.onStatus((status, at) => {
+      relayStatus = status
+      relayStatusAt = at
+      updateRelayStatusBadge()
+    })
+    // The one-scan connect-link ceremony's bootstrap sink (connect_link.ts) --
+    // harmless to register unconditionally: it only ever recognises a
+    // `connect-ack` payload, and every ordinary encrypted wire fails that
+    // check silently (see handleRawWire's doc comment).
+    channel.onRawWire(handleRawWire)
+    await registerRelaySink()
+    try {
+      await channel.connect(identity)
+    } catch {
+      // The status badge already reflects this ('disconnected'); relay.ts's
+      // channel keeps retrying with backoff in the background regardless, and
+      // onStatus will report 'connected' the moment a later attempt succeeds.
+    }
+  })()
+  return relayChannelReady
 }
 
 /**
@@ -909,6 +955,21 @@ const DEMO_NONCE: Record<string, string> = {
  * and no pending connect link -- i.e. this IS the laptop opening the demo
  * for the first time, not a phone that just scanned a link (that case is
  * seedGeoGuest() below).
+ *
+ * Deliberately does NOT itself call `initRelaySession()`. It used to
+ * (`void initRelaySession()` at the end, fire-and-forget) -- but `boot()`
+ * ALSO calls `initRelaySession()` unconditionally right after `await
+ * seedJakob()` returns (its trailing `if (state && pendingConnectLink) {…}
+ * else { void initRelaySession() }`, and `pendingConnectLink` is always null
+ * whenever `seedJakob()` runs at all -- see boot()'s own guard). Firing it
+ * from both places raced two concurrent `bringUpRelayChannel()` calls on
+ * the SAME boot, which is what actually caused the "second guest" relay bug
+ * (root-caused 2026-09-04 -- see `relayChannelReady`'s doc comment for the
+ * full mechanism). `bringUpRelayChannel()` is now single-flight regardless,
+ * so a second call here would be harmless, not merely redundant -- but
+ * calling `initRelaySession()` from two places for the one boot event this
+ * function exists to handle was always the wrong shape, so it is removed at
+ * the source rather than left as a now-inert duplicate.
  */
 async function seedJakob(): Promise<void> {
   state = {
@@ -920,7 +981,6 @@ async function seedJakob(): Promise<void> {
     queryLog: [],
   }
   await saveState(state)
-  void initRelaySession()
 }
 
 /**
