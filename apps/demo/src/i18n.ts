@@ -126,6 +126,9 @@ const S: Table = {
   // stops being a claim the person has to take on faith.
   navLink:        { de: 'Verbindung prüfen', en: 'Check the connection' },
   navChatNow:     { de: 'Jetzt schreiben', en: 'Write now' },
+  linkNowConnected: { de: 'Verbunden', en: 'Connected' },
+  netGrew:        { de: 'Dein Netz', en: 'Your web' },
+  netPeople:      { de: 'Personen', en: 'people' },
   invitedBy:      { de: 'Eine Einladung von', en: 'An invitation from' },
   invitedByNote:  {
     de: 'Der Link, den du geöffnet hast, verbindet dich mit diesem Gerät. Wähl unten aus, wer du in dieser Demo sein willst, dann steht die Verbindung von selbst.',

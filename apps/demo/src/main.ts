@@ -249,6 +249,19 @@ let pendingPing: { id: string; sentAt: number; resolve: (ms: number) => void } |
  * Throws when nothing is connected, so a caller can say so rather than
  * silently dropping the message.
  */
+/**
+ * Send to ONE named peer, rather than to whoever happens to be `peers[0]`.
+ *
+ * Needed the moment several people are paired at once: accepting Kaja has to
+ * tell Kaja, not whoever joined first. `sendOverActiveTransport` below stays
+ * as the convenience wrapper for the single-peer demos.
+ */
+async function sendToPeer(peer: Peer, env: Envelope): Promise<void> {
+  if (webrtcChannel && webrtcChannel.isOpen()) { webrtcChannel.send(env); return }
+  if (!relayChannel || !peer.did) throw new Error(t('noConnection'))
+  await relayChannel.send(peer.did, env, await pairKey(peer))
+}
+
 async function sendOverActiveTransport(env: Envelope): Promise<'webrtc' | 'relay'> {
   if (webrtcChannel && webrtcChannel.isOpen()) {
     webrtcChannel.send(env)
@@ -313,6 +326,17 @@ function handleIncomingEnvelope(env: Envelope, _fromDid?: string): void {
     return
   }
   if (env.t === 'ping') {
+    // Demo 20, guest side. This device sent a request and then had no way to
+    // learn it had been confirmed, so it sat on "Anfrage gesendet" while it
+    // was already connected. The first thing that arrives from a DID it knows
+    // can only mean the other side accepted, so treat it as the signal and
+    // land the person in the conversation with the name of who confirmed.
+    const st = state
+    if (wotScenario() === 'geologengasse' && st && st.me.id !== 'jakob' && screen !== 'link') {
+      const from = st.peers.find((x) => x.did === _fromDid) ?? st.peers[0]
+      justAccepted = from?.displayName ?? null
+      go('link')
+    }
     if (!env.back) {
       // Someone is testing the line. Answer immediately and say nothing about
       // it on screen: the test belongs to whoever pressed the button.
@@ -429,8 +453,24 @@ async function acceptPendingRequest(did: string): Promise<void> {
   })
   await saveState(s)
   await registerRelaySink()
-  render()
+
+  // Tell the person they are in. Until this, the guest device had no signal at
+  // all that the tap had happened, so it sat on a "request sent" screen
+  // indefinitely while it was in fact already connected. Any envelope from a
+  // DID the guest knows is proof of acceptance, so a probe is enough and no
+  // new wire type is needed.
+  const accepted = s.peers.find((x) => x.did === req.did)
+  if (accepted) {
+    try { await sendToPeer(accepted, { v: 1, t: 'ping', id: randomId(10), back: false }) }
+    catch { /* the bubble and the peer are already real; a lost hello is not fatal */ }
+  }
+  justAccepted = req.from.displayName
+  go('link')
 }
+
+/** Name of the person accepted a moment ago, so the chat screen can open with
+ *  "Verbunden mit X" instead of silently appearing. Cleared once shown. */
+let justAccepted: string | null = null
 
 function declinePendingRequest(did: string): void {
   pendingAcceptRequests = pendingAcceptRequests.filter((r) => r.did !== did)
@@ -622,7 +662,37 @@ function shell(title: string, body: HTMLElement, opts: { back?: () => void } = {
       lang === 'en' ? el('b', {}, ['EN']) : document.createTextNode('EN'),
     ]),
   ])
+  const nb = netBubble()
   root.append(bar, el('main', {}, [body]))
+  if (nb) root.append(nb)
+}
+
+
+/**
+ * The little corner marker showing the web growing.
+ *
+ * Deliberately a small thing at the edge, not a banner across the top: the
+ * owner asked for something "not on top of everything, but a bubble on the
+ * side". It pulses when the count goes up, which is the only moment it has
+ * anything to say, and a tap opens the full graph. Demo 20 only, since it is
+ * the only scenario where the number can be more than one.
+ */
+let lastPeerCount = 0
+function netBubble(): HTMLElement | null {
+  if (wotScenario() !== 'geologengasse' || !state) return null
+  const n = state.peers.length
+  if (n === 0) return null
+  const grew = n > lastPeerCount
+  lastPeerCount = n
+  const bubble = el('button', {
+    class: 'netbubble' + (grew ? ' grew' : ''),
+    onclick: () => go('graph'),
+    'aria-label': t('netGrew'),
+  }, [
+    el('b', {}, [String(n)]),
+    el('small', {}, [n === 1 ? t('netGrew') : t('netPeople')]),
+  ])
+  return bubble
 }
 
 function go(s: Screen): void { screen = s; render() }
@@ -2311,6 +2381,17 @@ function screenLink(): void {
   unreadChat = 0
   const s = state as DeviceState
   const peer = s.peers[0]
+  // Shown once, right after a confirmation, on whichever side just learned
+  // about it. A connection that completes silently reads as one that did not
+  // complete at all -- the whole reason this banner exists.
+  const banner = justAccepted
+    ? el('div', { class: 'outcome shared' }, [
+        el('div', { class: 'glyph' }, ['\u2713']),
+        el('b', {}, [t('linkNowConnected')]),
+        el('span', {}, [t('scanOkWith') + ' ' + justAccepted]),
+      ])
+    : null
+  justAccepted = null
   const result = el('div', {})
   const input = el('textarea', {
     rows: 2,
@@ -2370,6 +2451,7 @@ function screenLink(): void {
 
   const body = el('div', {}, [
     el('h1', {}, [t('navLink')]),
+    banner,
     el('p', { class: 'lead' }, [t('linkLead')]),
     el('button', { class: 'btn primary', onclick: () => void test() }, [t('linkTestBtn')]),
     result,
