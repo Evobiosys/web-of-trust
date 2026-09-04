@@ -47,6 +47,27 @@
  *       deterministic-IV-from-qid scheme makes their raw ciphertext differ
  *       even though the plaintext underneath is identical -- see THE PROOF
  *       below for why that is not a gap).
+ *   (8) TIMING WIRING (the fixed-at-receipt dispatch pattern): legs 1-7
+ *       above prove CONTENT byte-identity but never exercised the deadline
+ *       itself -- an earlier version of main.ts's ceremony called
+ *       `settleAt(receivedAt, RELAY_DEADLINE_MS)` from INSIDE each ending,
+ *       AFTER a human had already decided; `settleAt` resolves immediately
+ *       once its target instant has already passed (gate.ts's own doc
+ *       comment says so), so any ending reached after a human took longer
+ *       than the window fired EARLY, at whatever moment the human acted --
+ *       turning B's own received-at timestamp into a hop-count oracle. The
+ *       fix (main.ts's `createRelayDispatch`) arms ONE timer at RECEIPT,
+ *       before any human interaction, and a `resolve()` call only ever
+ *       updates what will be sent when that timer fires -- a resolve that
+ *       arrives after the timer already fired is simply too late. This leg
+ *       reproduces that exact pattern (with a short LOCAL deadline, not the
+ *       real 30s constant -- already pinned separately by
+ *       test/second_hop_timing.test.ts's fake-timer test -- to keep this
+ *       live run fast) against the real relay, twice: once with an
+ *       immediate resolve (must still wait for the deadline, not fire
+ *       early) and once with a resolve deliberately delayed PAST the
+ *       deadline (must already have sent "nothing" by then, with the late
+ *       resolve producing no second message).
  *
  * THE PROOF: legs (2)-(6) must all decrypt, under the real live A<->B pair
  * key, to the IDENTICAL all-zero plaintext, despite five structurally
@@ -345,6 +366,75 @@ async function main() {
   const env7b = await aHandlesQuery(q7b, { jakobConsents: false })
   ok('leg 7 (same qid, live relay both ways): "A declines" and "Jakob declines" are BYTE-IDENTICAL ciphertext',
     env7a.body === env7b.body, `${env7a.body.slice(0, 32)}... vs ${env7b.body.slice(0, 32)}...`)
+
+  // ===== Leg 8: TIMING WIRING (fixed-at-receipt dispatch, real relay) ======
+  // Reproduces main.ts's createRelayDispatch pattern directly: a timer is
+  // armed HERE, at receipt, BEFORE any "human" decision -- resolve() only
+  // ever updates what gets sent when that timer fires; it never sends
+  // anything itself. A short local deadline (not the real 30s constant)
+  // keeps this live leg fast.
+  const TEST_DEADLINE_MS = 2000
+  function createTestDispatch(qid, receivedAt) {
+    let dispatched = false
+    let sentAt = null
+    let resolved = null
+    const firePromise = new Promise((resolveFire) => {
+      setTimeout(async () => {
+        dispatched = true
+        const payload = resolved
+        const jsonBytes = truncateSharedJson(payload ?? { from: '', templateId: 'x', items: [] })
+        const plaintext = maskAnswerPlaintext(Boolean(payload), jsonBytes)
+        const envelope = await sealAnswerEnvelope(qid, plaintext, keyAB)
+        sentAt = Date.now()
+        await aChannel.send(bId.did, envelope, keyAB)
+        resolveFire()
+      }, Math.max(0, receivedAt + TEST_DEADLINE_MS - Date.now()))
+    })
+    return {
+      resolve(payload) { if (!dispatched) resolved = payload },
+      firePromise,
+      get dispatchedAt() { return sentAt },
+    }
+  }
+
+  // 8a: FAST resolve -- must still wait for the deadline, not fire early.
+  const q8a = { ...q1, qid: `qid-2hop-leg8a-${Math.random().toString(36).slice(2, 10)}` }
+  const receivedAt8a = Date.now()
+  const dispatch8a = createTestDispatch(q8a.qid, receivedAt8a)
+  dispatch8a.resolve({ from: 'Jakob', templateId: 'x', items: [{ text: 'sofort', when: 'jetzt', context: 'test' }] })
+  await dispatch8a.firePromise
+  const elapsed8a = dispatch8a.dispatchedAt - receivedAt8a
+  ok('leg 8a (fast resolve): send happened at-or-after the fixed deadline, not immediately',
+    elapsed8a >= TEST_DEADLINE_MS - 50, `elapsed=${elapsed8a}ms, deadline=${TEST_DEADLINE_MS}ms`)
+  await waitFor(() => bAnswers.some((e) => e.qid === q8a.qid), DELIVERY_TIMEOUT_MS)
+  const decoded8a = await interpret(bAnswers.find((e) => e.qid === q8a.qid), keyAB)
+  ok('leg 8a: content resolved before the deadline DOES reach B', decoded8a.outcome === 'shared')
+
+  // 8b: SLOW resolve -- deliberately arrives AFTER the deadline already
+  // fired. The dispatch must already have sent "nothing"; the late
+  // resolve() call must be a documented no-op, never a second message.
+  const q8b = { ...q1, qid: `qid-2hop-leg8b-${Math.random().toString(36).slice(2, 10)}` }
+  const receivedAt8b = Date.now()
+  const dispatch8b = createTestDispatch(q8b.qid, receivedAt8b)
+  await new Promise((r) => setTimeout(r, TEST_DEADLINE_MS + 200)) // wait past the window, then poll for fire()
+  // completing (its own async seal+network-send work runs after the deadline
+  // instant itself, so poll rather than assume it finished within +200ms).
+  await waitFor(() => dispatch8b.dispatchedAt !== null, DELIVERY_TIMEOUT_MS)
+  const dispatchedBeforeLateResolve = dispatch8b.dispatchedAt
+  ok('leg 8b: the shared timer already fired BEFORE the slow decision arrived', dispatchedBeforeLateResolve !== null)
+  dispatch8b.resolve({ from: 'Jakob', templateId: 'x', items: [{ text: 'zu spät', when: 'jetzt', context: 'test' }] })
+  await dispatch8b.firePromise
+  await waitFor(() => bAnswers.some((e) => e.qid === q8b.qid), DELIVERY_TIMEOUT_MS)
+  const b8bAnswers = bAnswers.filter((e) => e.qid === q8b.qid)
+  ok('leg 8b: exactly ONE envelope reached B for this qid -- no second message from the late resolve',
+    b8bAnswers.length === 1, `count=${b8bAnswers.length}`)
+  const decoded8b = await interpret(b8bAnswers[0], keyAB)
+  ok('leg 8b: B\'s outcome is "nothing" -- the late "yes" never overrides what the deadline already sent',
+    decoded8b.outcome === 'nothing')
+  ok('leg 8b: sent at-or-just-after the fixed deadline, not when the late resolve ran',
+    dispatchedBeforeLateResolve - receivedAt8b < TEST_DEADLINE_MS + 800,
+    `sent at t+${dispatchedBeforeLateResolve - receivedAt8b}ms`)
+  nothingBodies.leg8b_late_resolve_is_noop = b8bAnswers[0].body
 
   // ===== THE PROOF: every "nothing" cause decrypts to the identical
   // all-zero plaintext, independently, under the real A<->B pair key -- the

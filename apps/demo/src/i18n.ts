@@ -489,6 +489,15 @@ const S: Table = {
     de: 'Das dauert bis zu 30 Sekunden, unabhängig davon, was am Ende herauskommt oder wie weit die Frage gekommen ist.',
     en: 'This takes up to 30 seconds either way, regardless of the outcome or how far the question travelled.',
   },
+  // A's own screen, shown the instant she has tapped a decision (or Jakob's
+  // round trip has concluded) but before the shared 30-second window has
+  // actually elapsed -- see main.ts's renderSecondHopPendingScreen doc
+  // comment for why this exists (closing the stale-clickable-card gap) and
+  // why it deliberately says nothing about outcome or distance travelled.
+  secondHopPending: {
+    de: 'Deine Entscheidung ist vorgemerkt. Sie wird zum selben Zeitpunkt verschickt wie jede andere Antwort auf diese Frage, unabhängig davon, was sie enthält.',
+    en: 'Your decision is recorded. It will be sent at the same moment as any other answer to this question, regardless of what it contains.',
+  },
   // B's result screen, only when the true answerer differs from the peer B
   // asked directly (screenResult's own guard) -- the named introduction
   // made visible (D23).

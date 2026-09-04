@@ -2036,6 +2036,16 @@ function screenAsk(): void {
   }
   freeTextInput.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') submitFreeText() })
   const secondHop = wotScenario() === 'secondHop'
+  // Both sentences below are addressed to "your question" travelling
+  // through an intermediary you already trust to reach someone you don't --
+  // that is only ever TRUE from B's own ask screen. `secondHop` alone is a
+  // build-time flag shared by all three devices in this scenario; gating on
+  // it alone put a false claim on Jakob's own ask screen ("your question
+  // does not go straight to Jakob" -- shown to Jakob himself) and on A's
+  // own ask screen when she asks Jakob directly (no relay involved at all
+  // in that call). The leaf asker is the one device that is neither Jakob
+  // nor the note-holding intermediary.
+  const isLeafAsker = secondHop && s.me.id !== 'jakob' && !s.secondBrainNote
   const body = el('div', {}, [
     el('h1', {}, [t('askTitle')]),
     el('p', { class: 'lead' }, [t(wotScenario() === 'geologengasse' ? 'askLeadGeo' : 'askLead')]),
@@ -2044,10 +2054,10 @@ function screenAsk(): void {
     // anything, not only once a relay has already happened. See
     // i18n.ts's secondHopAskHonesty doc comment for why "Jakob" is named
     // directly in THIS demo's own copy.
-    secondHop
+    isLeafAsker
       ? el('p', { class: 'note' }, [t('secondHopAskHonesty').replace(/\{who\}/g, peer?.displayName ?? t('appName'))])
       : null,
-    secondHop && peer ? el('p', { class: 'note' }, [t('secondHopChainHonesty')]) : null,
+    isLeafAsker && peer ? el('p', { class: 'note' }, [t('secondHopChainHonesty')]) : null,
     !peer ? el('div', { class: 'err' }, [t('noConnection')]) : null,
     peer && wotMode() === 'relay' && !relayReady
       ? el('p', { class: 'note' }, [t('relayNoPeerDid')])
@@ -2726,12 +2736,134 @@ function secondBrainThread(s: DeviceState, note: SecondBrainNote): ChatThread {
   }
 }
 
+/** What every second-hop ending holds, never sends directly -- see
+ *  createRelayDispatch's own doc comment just below. `receivedAt` is
+ *  exposed so a caller that itself needs to bound a further wait
+ *  (forwardToOwner's own wait for Jakob's answer) can compute "how much of
+ *  the shared window is left" without threading a second copy of the same
+ *  timestamp through by hand. */
+interface RelayDispatch {
+  resolve: (outcome: LocalOutcome, envelope: AnswerEnvelope, onSent?: () => void) => void
+  /** Convenience wrapper around `resolve()` for a caller holding a
+   *  SharedPayload (or null) rather than an already-sealed envelope --
+   *  see createRelayDispatch's own implementation of it. */
+  resolvePayload: (payload: SharedPayload | null, outcome: LocalOutcome) => Promise<void>
+  receivedAt: number
+}
+
+/**
+ * One-shot, fixed-time dispatcher for A's single answer to B on this hop.
+ * Armed HERE, at receipt (`receivedAt`), and fires at exactly `receivedAt +
+ * RELAY_DEADLINE_MS` REGARDLESS of whether, or when, a human on this device
+ * has decided anything -- the same shape `packages/agent-daemon`'s
+ * `scheduleAt`/`dispatchOwnerStatus` already uses (content read at fire
+ * time, but fire time fixed at receipt, never pushed out by how long a
+ * human takes to tap a button or by how long Jakob's own round trip takes).
+ *
+ * Earlier versions of this file called `settleAt(receivedAt,
+ * RELAY_DEADLINE_MS)` from INSIDE each ending, AFTER a human had already
+ * decided. That is broken: `settleAt` resolves immediately once its target
+ * instant has already passed (gate.ts's own doc comment on it says so), so
+ * any ending reached after a human took longer than the window to decide
+ * fired EARLY, at whatever moment the human happened to act -- turning B's
+ * own received-at timestamp into exactly the hop-count oracle I3 exists to
+ * rule out ("arrived at 30.0s" = automatic nothing, "arrived later" = a
+ * human, somewhere, was involved). Arming the timer here, once, before any
+ * human interaction can happen, removes that: `resolve()` only ever updates
+ * what WILL be sent when the timer fires; it never itself triggers a send,
+ * and a `resolve()` that arrives after the timer already fired is simply
+ * too late, exactly like Jakob answering after the deadline already was.
+ */
+function createRelayDispatch(
+  q: QueryEnvelope, peer: Peer | null, receivedAt: number,
+): RelayDispatch {
+  const s = state as DeviceState
+  let dispatched = false
+  let resolved: { outcome: LocalOutcome; envelope: AnswerEnvelope; onSent?: () => void } | null = null
+
+  const fire = async (): Promise<void> => {
+    if (dispatched) return
+    dispatched = true
+
+    let outcome: LocalOutcome
+    let envelope: AnswerEnvelope
+    let onSent: (() => void) | undefined
+    if (resolved) {
+      outcome = resolved.outcome
+      envelope = resolved.envelope
+      onSent = resolved.onSent
+    } else {
+      // Nobody resolved anything before the deadline (no eligible note, no
+      // template, or a human simply never answered the prompt) -- the exact
+      // same wire ending as a genuine no-match anywhere else in this app,
+      // built through the same mask trick, never a separate code path.
+      outcome = 'no-match'
+      const key = peer ? await pairKey(peer) : await derivePairKey(q.qid, q.qid)
+      const jsonBytes = truncateSharedJson({ from: '', templateId: q.templateId, items: [] })
+      const plaintext = maskAnswerPlaintext(false, jsonBytes)
+      envelope = await sealAnswerEnvelope(q.qid, plaintext, key)
+    }
+
+    return logAndDispatch(s, {
+      at: Date.now(),
+      fromDisplayName: q.from.displayName,
+      fromId: q.from.id,
+      text: q.freeText ?? tpl_question_fallback(q),
+      outcome,
+    }, async () => {
+      if (!(peer?.did && relayChannel)) return
+      const key = peer ? await pairKey(peer) : await derivePairKey(q.qid, q.qid)
+      try {
+        await relayChannel.send(peer.did, envelope, key)
+      } catch {
+        // Delivery failed outright -- a transport fact, not a content signal
+        // (same reasoning as sendAnswerOverRelay's own catch block).
+        return
+      }
+      onSent?.()
+      renderSecondHopSentScreen()
+    })
+  }
+
+  const remaining = Math.max(0, receivedAt + RELAY_DEADLINE_MS - Date.now())
+  setTimeout(() => { void fire() }, remaining)
+
+  return {
+    resolve(outcome, envelope, onSent) {
+      if (dispatched) return // too late -- see this function's own doc comment
+      resolved = { outcome, envelope, onSent }
+    },
+    async resolvePayload(payload, outcome) {
+      // Convenience for callers that hold a SharedPayload rather than an
+      // already-sealed envelope (forwardToOwner's relay-success ending) --
+      // same key this dispatch's own fire() will use (`peer` is the SAME
+      // closed-over value both places read), so sealing here vs. sealing
+      // inside fire() produces byte-identical output either way; doing it
+      // here just lets forwardToOwner hand over a fully-built resolution
+      // rather than reaching back into this closure for the key.
+      if (dispatched) return // too late -- see resolve()'s own doc comment
+      const key = peer ? await pairKey(peer) : await derivePairKey(q.qid, q.qid)
+      const jsonBytes = truncateSharedJson(payload ?? { from: '', templateId: q.templateId, items: [] })
+      const plaintext = maskAnswerPlaintext(Boolean(payload), jsonBytes)
+      const envelope = await sealAnswerEnvelope(q.qid, plaintext, key)
+      if (dispatched) return // the timer could have fired while we awaited above
+      resolved = {
+        outcome,
+        envelope,
+        onSent: payload ? () => pushLocalShareItems(payload.from, payload.templateId, payload.items) : undefined,
+      }
+    },
+    receivedAt,
+  }
+}
+
 /**
  * Entry point for a query arriving on the relaying hop's own device
  * (handleAmbientQuery routes here). `receivedAt` is the ONE deadline
- * anchor every ending below is held to (gate.ts's RELAY_DEADLINE_MS doc
- * comment) -- captured here, at the top, before anything else runs, and
- * threaded through every branch rather than re-read later.
+ * anchor every ending below is held to, via `createRelayDispatch` above --
+ * captured here, at the top, before anything else runs (including before
+ * any human has looked at the screen), and the dispatch it arms is the
+ * ONLY thing that ever sends A's answer to B.
  *
  * Three endings, in the order they are tried:
  *  1. A real DIRECT match against A's own stuff (threadsInScope() -- empty
@@ -2739,11 +2871,14 @@ function secondBrainThread(s: DeviceState, note: SecondBrainNote): ChatThread {
  *     uses, not stubbed out).
  *  2. A RELAY match against A's second-brain note (D16's shape: note must
  *     exist, the query must not already be a relay itself -- I8's depth
- *     cap -- and the noted owner must be a LIVE, reachable peer, checked
- *     here, never assumed from the note's mere existence).
+ *     cap -- the noted owner must be a LIVE, reachable peer, and the noted
+ *     owner must not be the requester themselves -- forwarding B's question
+ *     back to B, or Jakob's own question back to Jakob, is never offered,
+ *     same reasoning as the daemon's own sender-exclusion in its relay
+ *     logic).
  *  3. Nothing -- no direct match and no eligible note -- same ending as a
- *     below-threshold match anywhere else in this app, held to the same
- *     fixed deadline as the other two.
+ *     below-threshold match anywhere else in this app, resolved via the
+ *     dispatch's own built-in "nobody resolved anything" fallback.
  */
 async function runSecondHopRelayCeremony(q: QueryEnvelope): Promise<void> {
   const s = state as DeviceState
@@ -2751,6 +2886,7 @@ async function runSecondHopRelayCeremony(q: QueryEnvelope): Promise<void> {
   const tpl = resolveIncomingTemplate(q)
   const lang = getLang()
   const peer = s.peers.find((p) => p.id === q.from.id) ?? null
+  const dispatch = createRelayDispatch(q, peer, receivedAt)
 
   shell(t('navAnswer'), el('div', {}, [
     el('h1', {}, [q.from.displayName + ' ' + t('askedYou')]),
@@ -2759,49 +2895,60 @@ async function runSecondHopRelayCeremony(q: QueryEnvelope): Promise<void> {
   ]))
 
   if (!tpl) {
-    await emitAnswer(q, UNRESOLVED_TEMPLATE, { hits: [], distinctAuthors: 0, aboveThreshold: false }, false, peer, {
-      deadline: { t0: receivedAt, budgetMs: RELAY_DEADLINE_MS },
-    })
+    // Nothing to resolve -- the dispatch's own deadline fallback covers this.
     return
   }
 
   const directMatch = prune(matchTemplate(tpl, threadsInScope(s)))
   if (directMatch.aboveThreshold) {
-    renderSecondHopDirectCard(q, tpl, directMatch, peer, receivedAt)
+    renderSecondHopDirectCard(q, tpl, directMatch, peer, dispatch)
     return
   }
 
   // D16's guard, made concrete here: a note whose owner has no live,
-  // reachable peer edge is never even offered as relay-eligible -- folded
-  // into the exact same "nothing" ending a genuine no-match gets, not a
-  // separate code path, so nothing about an unreachable owner is ever
-  // distinguishable on the wire (same reasoning as daemon.ts's own D16 fix).
+  // reachable peer edge -- OR whose owner IS the requester themselves --
+  // is never even offered as relay-eligible, folded into the exact same
+  // "nothing" ending a genuine no-match gets, not a separate code path, so
+  // neither case is ever distinguishable on the wire (same reasoning as
+  // daemon.ts's own D16 fix).
   const note = !q.relayed ? s.secondBrainNote : undefined
-  const ownerPeer = note ? s.peers.find((p) => p.id === note.ownerPeerId && p.did) : undefined
+  const ownerPeer = note
+    ? s.peers.find((p) => p.id === note.ownerPeerId && p.did && p.id !== q.from.id)
+    : undefined
   const noteMatch: MatchResult = note && ownerPeer
     ? prune(matchTemplate(tpl, [secondBrainThread(s, note)]))
     : { hits: [], distinctAuthors: 0, aboveThreshold: false }
 
   if (note && ownerPeer && noteMatch.aboveThreshold) {
-    renderSecondHopRelayCard(q, tpl, noteMatch, note, ownerPeer, peer, receivedAt)
+    renderSecondHopRelayCard(q, tpl, noteMatch, note, ownerPeer, peer, dispatch)
     return
   }
 
-  await emitAnswer(q, tpl, { hits: [], distinctAuthors: 0, aboveThreshold: false }, false, peer, {
-    deadline: { t0: receivedAt, budgetMs: RELAY_DEADLINE_MS },
-  })
+  // Nothing eligible -- the dispatch's own deadline fallback covers this.
 }
 
-/** A real match against A's OWN stuff -- structurally identical to
- *  runConsentCeremony's own share card, just held to RELAY_DEADLINE_MS
- *  instead of GATE_BUDGET_MS so it cannot be timed apart from the relay
- *  branch below (point 4 of the handover: EVERY ending on this hop, not
- *  only the relay ones, shares the one fixed deadline). */
+/**
+ * A real match against A's OWN stuff. Reuses `decide()` for content
+ * (unchanged, byte-identical to what every other demo already sends), but
+ * does NOT send it itself -- the resulting `{outcome, envelope}` is only
+ * ever handed to `dispatch.resolve()`, which holds it until the shared
+ * fixed deadline armed by `createRelayDispatch` fires (point 4 of the
+ * handover: EVERY ending on this hop, not only the relay ones, shares the
+ * one fixed deadline, regardless of how quickly or slowly A herself taps).
+ */
 function renderSecondHopDirectCard(
-  q: QueryEnvelope, tpl: QueryTemplate, match: MatchResult, peer: Peer | null, receivedAt: number,
+  q: QueryEnvelope, tpl: QueryTemplate, match: MatchResult, peer: Peer | null, dispatch: RelayDispatch,
 ): void {
+  const s = state as DeviceState
   const finish = (consent: boolean): void => {
-    void emitAnswer(q, tpl, match, consent, peer, { deadline: { t0: receivedAt, budgetMs: RELAY_DEADLINE_MS } })
+    void (async () => {
+      const key = peer ? await pairKey(peer) : await derivePairKey(q.qid, q.qid)
+      const { outcome, envelope } = await decide({
+        query: q, template: tpl, match, consent, blocked: peer?.blocked ?? true, key, identity: s.me,
+      })
+      dispatch.resolve(outcome, envelope, outcome === 'shared' ? () => pushLocalShare(tpl, match) : undefined)
+      renderSecondHopPendingScreen()
+    })()
   }
   const body = el('div', {}, [
     el('h1', {}, [q.from.displayName + ' ' + t('askedYou')]),
@@ -2828,8 +2975,9 @@ function renderSecondHopDirectCard(
  */
 function renderSecondHopRelayCard(
   q: QueryEnvelope, tpl: QueryTemplate, noteMatch: MatchResult, note: SecondBrainNote, ownerPeer: Peer,
-  peer: Peer | null, receivedAt: number,
+  peer: Peer | null, dispatch: RelayDispatch,
 ): void {
+  const s = state as DeviceState
   const declineRelay = (): void => {
     // A chooses not to forward at all. Same wire ending as a genuine
     // no-match (decide()'s own mask trick, gate.ts's module doc) -- the
@@ -2837,10 +2985,22 @@ function renderSecondHopRelayCard(
     // noteMatch is A's own real, honestly-timestamped hit against her own
     // note (not a relayed payload -- see gate.ts's truncateSharedJson doc
     // comment for why that distinction matters and where it stops applying).
-    void emitAnswer(q, tpl, noteMatch, false, peer, { deadline: { t0: receivedAt, budgetMs: RELAY_DEADLINE_MS } })
+    // Held to the shared deadline via dispatch.resolve(), same as every
+    // other ending on this hop -- never sent the moment A taps.
+    void (async () => {
+      const key = peer ? await pairKey(peer) : await derivePairKey(q.qid, q.qid)
+      const { outcome, envelope } = await decide({
+        query: q, template: tpl, match: noteMatch, consent: false, blocked: peer?.blocked ?? true, key,
+        identity: s.me,
+      })
+      dispatch.resolve(outcome, envelope)
+      renderSecondHopPendingScreen()
+    })()
   }
   const wantsRelay = (): void => {
-    void forwardToOwner(q, note, ownerPeer, peer, receivedAt)
+    // forwardToOwner renders its own "forwarding" screen immediately below;
+    // no separate pending screen needed here.
+    void forwardToOwner(q, note, ownerPeer, dispatch)
   }
   const body = el('div', {}, [
     el('h1', {}, [q.from.displayName + ' ' + t('askedYou')]),
@@ -2868,11 +3028,32 @@ function renderSecondHopRelayCard(
  * privately knows.
  *
  * A's OWN screen is honest about what is happening (owner's fixed point 2:
- * A is a knowing participant); nothing here is sent to B until
- * sendSecondHopFinalAnswer's fixed deadline fires.
+ * A is a knowing participant); nothing here is sent to B directly -- the
+ * result of this function is only ever handed to `dispatch.resolve()`,
+ * which holds it until the shared fixed deadline `createRelayDispatch`
+ * armed at receipt fires. If Jakob answers after that deadline has already
+ * fired, `resolve()` below is simply too late (its own doc comment) -- no
+ * second message to B, the same discipline D15 already established for the
+ * daemon's own relay path ("nothing, then something" is a pattern that
+ * occurs ONLY on a relay, and I8 forbids a relay revealing more than a
+ * direct request would).
+ *
+ * Uses gate.ts's own byte-construction primitives directly
+ * (maskAnswerPlaintext / truncateSharedJson / sealAnswerEnvelope), NOT
+ * decide() -- there is no local MatchResult here to build a payload from;
+ * what exists, on success, is a SharedPayload that already arrived,
+ * pre-built, from Jakob's OWN decide() call, and is carried onward VERBATIM
+ * (see truncateSharedJson's doc comment for why not recomputing `coarseWhen`
+ * matters). Byte-identity for every "nothing" cause (declined relay, no
+ * note, Jakob declined, Jakob had nothing, Jakob never answered in time)
+ * follows from `maskAnswerPlaintext`'s existing mask trick: `wouldShare`
+ * false makes `jsonBytes` irrelevant to the output, so every one of those
+ * five callers converges on the identical all-zero plaintext, the identical
+ * IV (deterministic from `q.qid`), and therefore identical ciphertext --
+ * see test/second_hop_gate.test.ts for the assertion.
  */
 async function forwardToOwner(
-  q: QueryEnvelope, note: SecondBrainNote, ownerPeer: Peer, peer: Peer | null, receivedAt: number,
+  q: QueryEnvelope, note: SecondBrainNote, ownerPeer: Peer, dispatch: RelayDispatch,
 ): Promise<void> {
   const s = state as DeviceState
   shell(t('navAnswer'), el('div', {}, [
@@ -2897,7 +3078,7 @@ async function forwardToOwner(
   let jakobDecoded: DecodedAnswer | null = null
   if (ownerPeer.did && relayChannel) {
     const ownerKey = await pairKey(ownerPeer)
-    const remaining = Math.max(0, receivedAt + RELAY_DEADLINE_MS - Date.now())
+    const remaining = Math.max(0, dispatch.receivedAt + RELAY_DEADLINE_MS - Date.now())
     const waiter = waitForAnswer(downstreamQid, remaining)
     try {
       await relayChannel.send(ownerPeer.did, forwardQ, ownerKey)
@@ -2909,76 +3090,14 @@ async function forwardToOwner(
     }
   }
 
-  await sendSecondHopFinalAnswer(q, peer, receivedAt, jakobDecoded, note)
-}
-
-/**
- * The ONE place A's final AnswerEnvelope to B is built and sent on the
- * relay path. `settleAt` below always waits until `receivedAt +
- * RELAY_DEADLINE_MS` and every byte is computed AFTER that resolves, from
- * whatever `jakobDecoded` says AT THAT MOMENT -- never from when Jakob's
- * answer (if any) actually arrived. If Jakob answers after this point, this
- * function is simply never called again for this `q` (see forwardToOwner's
- * own bounded wait, capped to the same deadline) -- no second message to B,
- * the same discipline D15 already established for the daemon's own relay
- * path ("nothing, then something" is a pattern that occurs ONLY on a relay,
- * and I8 forbids a relay revealing more than a direct request would).
- *
- * Uses gate.ts's own byte-construction primitives directly
- * (maskAnswerPlaintext / truncateSharedJson / sealAnswerEnvelope), NOT
- * decide() -- there is no local MatchResult here to build a payload from;
- * what exists, on success, is a SharedPayload that already arrived,
- * pre-built, from Jakob's OWN decide() call, and is carried onward VERBATIM
- * (see truncateSharedJson's doc comment for why not recomputing `coarseWhen`
- * matters). Byte-identity for every "nothing" cause (declined relay, no
- * note, Jakob declined, Jakob had nothing, Jakob never answered in time)
- * follows from `maskAnswerPlaintext`'s existing mask trick: `wouldShare`
- * false makes `jsonBytes` irrelevant to the output, so every one of those
- * five callers converges on the identical all-zero plaintext, the identical
- * IV (deterministic from `q.qid`), and therefore identical ciphertext --
- * see test/second_hop_gate.test.ts for the assertion.
- */
-async function sendSecondHopFinalAnswer(
-  q: QueryEnvelope,
-  peer: Peer | null,
-  receivedAt: number,
-  jakobDecoded: DecodedAnswer | null,
-  note: SecondBrainNote,
-): Promise<void> {
-  const s = state as DeviceState
-  await settleAt(receivedAt, RELAY_DEADLINE_MS)
-
   const shared = jakobDecoded?.outcome === 'shared' ? jakobDecoded.shared : undefined
   const payload: SharedPayload | null = shared
     ? { from: shared.from || note.ownerDisplayName, templateId: q.templateId, items: shared.items }
     : null
   const localOutcome: LocalOutcome = payload ? 'relayed' : 'relay-nothing'
 
-  const key = peer ? await pairKey(peer) : await derivePairKey(q.qid, q.qid)
-  const jsonBytes = truncateSharedJson(payload ?? { from: '', templateId: q.templateId, items: [] })
-  const plaintext = maskAnswerPlaintext(Boolean(payload), jsonBytes)
-  const envelope = await sealAnswerEnvelope(q.qid, plaintext, key)
-
-  return logAndDispatch(s, {
-    at: Date.now(),
-    fromDisplayName: q.from.displayName,
-    fromId: q.from.id,
-    text: q.freeText ?? tpl_question_fallback(q),
-    outcome: localOutcome,
-  }, async () => {
-    if (!(peer?.did && relayChannel)) return
-    try {
-      await relayChannel.send(peer.did, envelope, key)
-    } catch {
-      // Delivery failed outright -- a transport fact, not a content signal
-      // (same reasoning as sendAnswerOverRelay's own catch block). B's own
-      // RELAY_ANSWER_TIMEOUT_MS (180s -- comfortably longer than this hop's
-      // own 30s window) degrades on its own; nothing else to do here.
-      return
-    }
-    if (payload) pushLocalShareItems(payload.from, payload.templateId, payload.items)
-    renderSecondHopSentScreen()
-  })
+  renderSecondHopPendingScreen()
+  await dispatch.resolvePayload(payload, localOutcome)
 }
 
 /** `q.freeText` is always present for this demo's own free-text ask, but a
@@ -2995,6 +3114,23 @@ function tpl_question_fallback(q: QueryEnvelope): string {
  *  (relayAnswerSent/relayAnswerSentSub/identicalNote): the wording must not
  *  depend on outcome there either, and there is no reason for demo 21 to
  *  say it differently. */
+/**
+ * Shown the moment A has tapped a decision (or Jakob's round trip has
+ * concluded) but BEFORE the shared fixed deadline has actually fired --
+ * closes the stale-UI gap the fixed-deadline dispatch otherwise opens: A's
+ * card would sit there, still showing clickable buttons for up to 30
+ * seconds after being tapped, if nothing replaced it. Deliberately does NOT
+ * say anything about how far the question travelled or what will be sent --
+ * only that a decision has been recorded and will go out on the same
+ * schedule as every other one (secondHopPending's own i18n doc comment).
+ */
+function renderSecondHopPendingScreen(): void {
+  const body = el('div', {}, [
+    el('p', {}, [el('span', { class: 'spin' }), document.createTextNode(' ' + t('secondHopPending'))]),
+  ])
+  shell(t('navAnswer'), body)
+}
+
 function renderSecondHopSentScreen(): void {
   const body = el('div', {}, [
     el('div', { class: 'outcome shared' }, [
@@ -3051,21 +3187,19 @@ async function emitAnswer(
   peer: Peer | null,
   opts: {
     silent?: boolean
-    /**
-     * Demo 21 only: hold the send to a FIXED point in time (`t0 + budgetMs`)
-     * rather than to `Date.now() + GATE_BUDGET_MS` measured from whenever
-     * THIS call happens to run. `t0` should be the moment the query was
-     * RECEIVED, not the moment a human finished deciding what to do about
-     * it -- see gate.ts's RELAY_DEADLINE_MS doc comment for why that
-     * distinction is the entire point. Omitted (every call site before this
-     * option existed): unchanged behaviour, `t0 = Date.now()` here,
-     * `budgetMs = GATE_BUDGET_MS`.
-     */
-    deadline?: { t0: number; budgetMs: number }
   } = {},
 ): Promise<void> {
+  // Demo 21 (secondHop) does NOT route through this function at all -- see
+  // createRelayDispatch's own doc comment for why a fixed-at-receipt
+  // deadline cannot be layered on top of a per-call `t0` here: any ending
+  // reached after a human has already taken longer than the window to
+  // decide would fire the moment THIS call finally runs, not at the shared
+  // instant every other ending on that hop is held to (settleAt's own doc
+  // comment: it resolves immediately once its target instant has already
+  // passed). An earlier version of this option tried exactly that and was
+  // wrong for it; runSecondHopRelayCeremony's own dispatcher is the fix.
   const silent = opts.silent ?? false
-  const t0 = opts.deadline?.t0 ?? Date.now()
+  const t0 = Date.now()
   if (!silent) {
     shell(t('navAnswer'), el('div', {}, [
       el('p', {}, [el('span', { class: 'spin' }), document.createTextNode(' ' + t('checking'))]),
@@ -3085,7 +3219,7 @@ async function emitAnswer(
     key,
     identity: state?.me,
   })
-  await settleAt(t0, opts.deadline?.budgetMs ?? GATE_BUDGET_MS)
+  await settleAt(t0, GATE_BUDGET_MS)
 
   // The transport choice below never depends on `outcome`/`consent` -- only
   // on whether we know a network address for this peer at all (which rung is

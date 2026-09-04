@@ -112,23 +112,48 @@ for why that is correct rather than an oversight.
 
 ## The timing fork (docs/two-hop-decisions.md §4), and what was chosen
 
+**Correction (see DECISIONS.md D26): this section originally described a
+mechanism that did not actually deliver what it claimed.** The first version
+of this feature called `settleAt(receivedAt, RELAY_DEADLINE_MS)` from INSIDE
+each ending, AFTER a human had already decided -- `settleAt` resolves
+immediately once its target instant has already passed, so any ending
+reached after a human deliberated longer than the window fired the moment
+that human acted, not at the fixed deadline. This reopened the exact
+hop-count oracle the deadline exists to close, and it was caught only by a
+second review pass, not by the original test suite (no test had ever called
+the timing path with an already-elapsed `t0`). The description below is the
+CORRECTED mechanism, as shipped; D26 has the full account of the bug.
+
 The design doc found that `apps/demo`'s answer model -- one synchronous round
 trip B is watching happen, no representation for "still travelling to hop
 2" -- forces a choice between inventing a new waiting state or holding B's
 answer to the deadline of the existing round trip. **Chosen: the second.**
 
-`gate.ts`'s new `RELAY_DEADLINE_MS = 30_000` (this project's own already-
-stated I3 default -- CLAUDE.md: "default 30 s, no jitter" -- reused, not
-invented) is the ONE anchor every ending on A's hop is held to:
-`emitAnswer`'s new optional `opts.deadline` override, and
-`sendSecondHopFinalAnswer`'s own `settleAt`, both compute their content AT
-FIRE TIME, never earlier, from whatever is known at that instant. This is
-deliberately NOT scoped to only the relay-attempted paths -- A's own direct
-match (had this demo's seed given her one) is held to the identical
-deadline, so "A answered directly" and "A relayed and got nothing" cannot be
-told apart by the clock either. A late answer from Jakob, arriving after the
-deadline, gets no second message to B (D15's own discipline, followed
-exactly): recorded locally, dropped, full stop.
+`gate.ts`'s `RELAY_DEADLINE_MS = 30_000` (this project's own already-stated
+I3 default -- CLAUDE.md: "default 30 s, no jitter" -- reused, not invented)
+is the ONE anchor every ending on A's hop is held to -- now via `main.ts`'s
+`createRelayDispatch(q, peer, receivedAt)`, which arms a single `setTimeout`
+at `receivedAt + RELAY_DEADLINE_MS` BEFORE any human interaction can happen
+(the same shape `packages/agent-daemon`'s `scheduleAt`/`dispatchOwnerStatus`
+already uses: content read at fire time, fire time fixed at receipt). Every
+ending -- A's own direct match (`decide()`), a declined relay (`decide()`),
+a completed or timed-out Jakob round trip (`dispatch.resolvePayload()`) --
+only ever calls `dispatch.resolve()`/`resolvePayload()`, which UPDATES what
+will be sent; it never sends anything itself. A resolve arriving after the
+timer already fired is a documented no-op: the "nothing" already went out,
+and the late decision is simply too late -- exactly like Jakob answering
+after the deadline already was. This is deliberately NOT scoped to only the
+relay-attempted paths -- A's own direct match (had this demo's seed given
+her one) is held to the identical deadline, so "A answered directly" and "A
+relayed and got nothing" cannot be told apart by the clock either.
+
+**UI consequence, handled explicitly:** holding the send to a fixed point
+regardless of tap time means a card left on screen after being tapped would
+sit there, still clickable, for up to the remainder of the window.
+`renderSecondHopPendingScreen()` replaces it the instant a decision is
+recorded, saying only that the decision is noted and will be sent on the
+same schedule as any other answer -- never what the outcome is or how far
+the question travelled.
 
 **Why Jakob's own hop needs no new timing discipline.** I3 (indistinguishable
 no) is a promise to the ASKER -- the one party who cannot otherwise infer
@@ -167,14 +192,21 @@ timestamp was rejected as a factual-error risk, not just an inefficiency).
 **Live, three real devices, real network** (`test/e2e/second_hop.mjs`,
 `npx tsx test/e2e/second_hop.mjs` against `https://questhub.eco`): Jakob, A,
 and B as three independent `did:peer:2` identities on three independent
-relay drain connections. Seven legs -- success; A declines to relay; Jakob
+relay drain connections. Legs 1-7: success; A declines to relay; Jakob
 declines; Jakob has nothing; the I8 depth-cap guard (an already-`relayed:
 true` query reaching A must never trigger a second forward, confirmed by
 watching Jakob's channel receive NOTHING for that leg); a genuine unrelated
 no-match; and one leg that pins a SINGLE qid across two different
 nothing-causes to prove the strict ciphertext-byte-identity claim against
 real bytes that crossed the live relay twice, not only the pure-function
-proof. **21/21 assertions pass.** Full run:
+proof. **Leg 8 (added post-D26)** reproduces the fixed `createRelayDispatch`
+pattern directly against the live relay with a short local deadline: 8a
+proves a resolve reached BEFORE the deadline still waits for it, rather than
+firing early; 8b proves a resolve arriving AFTER the deadline already fired
+is a no-op -- exactly one envelope reaches B, its content is "nothing," not
+the late decision. This is the leg that would have caught D26's bug; it did
+not exist in the branch that shipped the bug. **30/30 assertions pass.**
+Full run:
 
 ```
 second_hop: targeting https://questhub.eco
@@ -185,29 +217,44 @@ second_hop: targeting https://questhub.eco
   PASS  leg 2 (A declines to relay): NOTHING was ever sent to Jakob's channel
   PASS  leg 5 (I8 depth cap, relayed: true incoming): NOTHING was ever sent to Jakob's channel
   PASS  leg 7 (same qid, live relay both ways): "A declines" and "Jakob declines" are BYTE-IDENTICAL ciphertext
-  PASS  leg2_a_declines / leg3_jakob_declines / leg4_jakob_no_match / leg5_depth_cap / leg6_genuine_no_match:
-        each decrypts under the real A<->B pair key, interpret() reads "nothing", and the PLAINTEXT is
-        byte-identical to every other one of the five
+  PASS  leg 8a (fast resolve): send happened at-or-after the fixed deadline, not immediately
+  PASS  leg 8a: content resolved before the deadline DOES reach B
+  PASS  leg 8b: the shared timer already fired BEFORE the slow decision arrived
+  PASS  leg 8b: exactly ONE envelope reached B for this qid -- no second message from the late resolve
+  PASS  leg 8b: B's outcome is "nothing" -- the late "yes" never overrides what the deadline already sent
+  PASS  leg 8b: sent at-or-just-after the fixed deadline, not when the late resolve ran
+  PASS  leg2_a_declines / leg3_jakob_declines / leg4_jakob_no_match / leg5_depth_cap / leg6_genuine_no_match /
+        leg8b_late_resolve_is_noop: each decrypts under the real A<->B pair key, interpret() reads "nothing",
+        and the PLAINTEXT is byte-identical to every other one of the six
   PASS  leg 1 (success) plaintext is DIFFERENT from every nothing cause
 
-Total wall time: ~8.8s. All assertions passed.
+Total wall time: ~13.2s. All assertions passed.
 ```
 
 Timing proof, injected clock, no real 30-second wait (`test/second_hop_timing.test.ts`):
 a near-instant decision and a near-full-window decision both resolve at the
-identical wall-clock instant `t0 + RELAY_DEADLINE_MS`.
+identical wall-clock instant `t0 + RELAY_DEADLINE_MS`. This test proves
+`settleAt` itself is correct in isolation -- it does NOT, and never did,
+prove that `main.ts` calls it at the right moment; that was D26's gap, now
+closed by e2e leg 8 above, which exercises the real wiring rather than the
+primitive alone.
 
 ## Regression
 
-- `tsc --noEmit`: clean.
-- `vitest run`: **309 passed** (was 300 before this branch; +9: 4 in
-  `second_hop_gate.test.ts`, 2 in `second_hop_timing.test.ts`, 3 new
-  `relayed`-field cases in `wire.test.ts`).
+- `tsc --noEmit`: clean, before AND after the D26 fix.
+- `vitest run`: **309 passed**, unchanged by the D26 fix (was 300 before this
+  branch; +9: 4 in `second_hop_gate.test.ts`, 2 in
+  `second_hop_timing.test.ts`, 3 new `relayed`-field cases in
+  `wire.test.ts`). No vitest file needed changing for D26 -- the bug was in
+  `main.ts`'s wiring, not in any pure function these tests exercise; the new
+  coverage for it lives in the e2e script instead (leg 8, above).
 - `seven_steps.mjs` against a fresh demo-1 build (`WOT_BASE=/`, no scenario,
   no mode): **23/23**, unchanged.
 - `vite build` succeeds for demo 1 (default), demo 20
   (`VITE_WOT_SCENARIO=geologengasse`), and demo 21
-  (`VITE_WOT_SCENARIO=secondHop`) configurations.
+  (`VITE_WOT_SCENARIO=secondHop`) configurations, before and after D26 --
+  identical bundle size after the fix (323.72 kB), confirming no dead weight
+  from the removed `emitAnswer` `opts.deadline` override was left behind.
 - Demo 20's own flow, checked two ways since no dedicated automated script
   exists for it (noted honestly, not papered over): (a) a Playwright pass
   against a real demo-20 build confirms `geoChainHonesty` still renders,
@@ -218,7 +265,25 @@ identical wall-clock instant `t0 + RELAY_DEADLINE_MS`.
   I extended) are the SAME shared code every other regression check above
   already exercises, so `seven_steps.mjs` and the live `second_hop.mjs` run
   are indirect but real coverage of exactly the functions this branch
-  touched.
+  touched. Demo 20 does not route through `createRelayDispatch` at all (it
+  is not the `secondHop` scenario), so D26's bug never applied to it and the
+  fix touches none of its code paths.
+
+**Two smaller findings from the same review pass, both fixed (DECISIONS.md
+D26 has the full account):**
+- `secondHopAskHonesty`/`secondHopChainHonesty` on `screenAsk()` were gated
+  on the scenario flag alone, a build-time value shared by all three
+  devices -- rendering a false claim on Jakob's own ask screen ("your
+  question does not go straight to Jakob," shown to Jakob) and on A's ask
+  screen when she asks Jakob directly (no relay involved in that call at
+  all). Now gated on `isLeafAsker` (`s.me.id !== 'jakob' && !s.secondBrainNote`),
+  true only for B.
+- A device could have offered to relay a question back to its own
+  requester (Jakob asking A something matching her note about Jakob would
+  have rendered a relay offer to forward Jakob's own question back to
+  Jakob). `runSecondHopRelayCeremony`'s owner-peer lookup now excludes
+  `p.id === q.from.id`, the same sender-exclusion reasoning D14's own relay
+  logic already applies elsewhere in this app.
 
 ## What could not be closed, stated plainly
 
