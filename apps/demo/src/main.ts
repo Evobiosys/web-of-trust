@@ -739,8 +739,15 @@ function screenGeoNameEntry(): void {
     autofocus: true,
     style: 'width:100%;border-radius:14px;border:1px solid var(--line);background:var(--bg-raised);color:var(--ink);padding:12px;font:inherit;margin-bottom:14px',
   }) as HTMLInputElement
-  const submit = (): void => { void seedGeoGuest(nameInput.value) }
+  const placeInput = el('input', {
+    type: 'text',
+    class: 'field',
+    placeholder: t('geoPlacePh'),
+    style: 'width:100%;border-radius:14px;border:1px solid var(--line);background:var(--bg-raised);color:var(--ink);padding:12px;font:inherit;margin-bottom:14px',
+  }) as HTMLInputElement
+  const submit = (): void => { void seedGeoGuest(nameInput.value, placeInput.value) }
   nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit() })
+  placeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit() })
   const body = el('div', {}, [
     el('h1', {}, [t('geoNameTitle')]),
     el('div', { class: 'card' }, [
@@ -748,6 +755,8 @@ function screenGeoNameEntry(): void {
       el('p', {}, [t('geoInvitedNote')]),
     ]),
     nameInput,
+    placeInput,
+    el('p', { class: 'note' }, [t('geoNameOptional')]),
     el('button', { class: 'btn primary', onclick: submit }, [t('geoNameSend')]),
   ])
   clear(root)
@@ -921,9 +930,28 @@ async function seedJakob(): Promise<void> {
  * the guest already knows who they are requesting to connect to; Jakob is
  * the one who has to decide whether to let them in).
  */
-async function seedGeoGuest(rawName: string): Promise<void> {
-  const displayName = rawName.trim().slice(0, 60)
-  if (!displayName) return
+/**
+ * What to call a connection nobody named.
+ *
+ * The name is optional on purpose: someone scanning a stranger's code at an
+ * event may not want to type a name, and forcing one is both a friction and a
+ * small coercion. So an unnamed connection is labelled by WHEN it was made,
+ * and by WHERE only if the person typed a place themselves.
+ *
+ * No geolocation. Turning coordinates into a place name means asking a third
+ * party where this person is, which is precisely the thing this app tells
+ * people it does not do. A free-text "beim Konzert" is more useful anyway,
+ * and it stays on the device.
+ */
+function unnamedConnectionLabel(place: string): string {
+  const when = new Date().toLocaleString(getLang() === 'de' ? 'de-AT' : 'en-GB',
+    { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return place ? `${t('geoMetAt')} ${place}, ${when}` : `${t('geoMetOn')} ${when}`
+}
+
+async function seedGeoGuest(rawName: string, rawPlace = ''): Promise<void> {
+  const place = rawPlace.trim().slice(0, 40)
+  const displayName = rawName.trim().slice(0, 60) || unnamedConnectionLabel(place)
   state = {
     me: { id: randomId(8), displayName },
     threads: [],

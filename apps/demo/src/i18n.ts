@@ -308,6 +308,15 @@ const S: Table = {
   geoNameTitle:   { de: 'Wie heißt du?', en: 'What is your name?' },
   geoNamePh:      { de: 'Dein Name', en: 'Your name' },
   geoNameSend:    { de: 'Anfrage senden', en: 'Send request' },
+  geoPlacePh:     { de: 'Wo trefft ihr euch? (freiwillig)', en: 'Where are you meeting? (optional)' },
+  geoNameOptional:{
+    de: 'Beides ist freiwillig. Ohne Namen heißt die Verbindung einfach nach dem Zeitpunkt, an dem ihr sie gemacht habt. Der Ort wird nicht gemessen, sondern nur das, was du hier hineinschreibst.',
+    en: 'Both are optional. With no name, the connection is simply called after the moment you made it. The place is not measured, only what you type here.',
+  },
+  // A noun, not a verb: this string gets composed after "Verbunden mit",
+  // and "Verbunden mit Verbunden am ..." is what the first draft produced.
+  geoMetOn:       { de: 'Gerät vom', en: 'Device from' },
+  geoMetAt:       { de: 'Gerät,', en: 'Device,' },
   geoRequestSentTitle: { de: 'Anfrage gesendet', en: 'Request sent' },
   geoRequestSentBody: {
     de: 'Die andere Seite muss die Anfrage noch bestätigen. Sobald das passiert, seid ihr verbunden.',
