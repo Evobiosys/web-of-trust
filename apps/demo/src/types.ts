@@ -210,7 +210,26 @@ export interface ConnectAckEnvelope {
   did: string
 }
 
-/** QR 2: B asks. Carries the template id and the nonce, never free text. */
+/**
+ * QR 2: B asks. Carries the template id and the nonce -- and, as of "call
+ * into the web" (In die Runde fragen), OPTIONALLY a free-text ask instead of
+ * one of the five fixed templates.
+ *
+ * `freeText` present means: `templateId` is the fixed sentinel
+ * `FREE_TEXT_TEMPLATE_ID` (data/free_text_query.ts), `templateVersion` is
+ * always 1, and the receiving device builds its own QueryTemplate from
+ * `freeText` via `freeTextTemplate()` rather than looking `templateId` up in
+ * `data/templates.ts`'s fixed catalogue. Kept as an addition to the existing
+ * required `templateId`/`templateVersion` fields, not a replacement, so every
+ * function that already reads those two fields (gate.ts's `buildSharedJsonBytes`,
+ * the wire parser, every test fixture) keeps working unmodified for a
+ * free-text query too.
+ *
+ * Bounded the same way ChatEnvelope.text is (wire.ts's CHAT_MAX_LEN):
+ * free text is the one open-ended field this envelope can carry, and the
+ * asking UI must say plainly that it crosses to the other device verbatim
+ * (types.ts cannot enforce that half -- see screenAsk's free-text card).
+ */
 export interface QueryEnvelope {
   v: 1
   t: 'query'
@@ -220,7 +239,16 @@ export interface QueryEnvelope {
   /** Unique per ask. Also the AEAD nonce for the answer. */
   qid: string
   issuedAt: number
+  /** Present only for a free-text ask. See this interface's doc comment. */
+  freeText?: string
 }
+
+/** Bound for QueryEnvelope.freeText, same reasoning as wire.ts's CHAT_MAX_LEN
+ *  for ChatEnvelope.text: the boundary must reject an oversized value rather
+ *  than trust a sender's restraint. Defined here (not wire.ts) so gate.ts and
+ *  data/free_text_query.ts can reference it without importing the wire
+ *  parser. */
+export const FREE_TEXT_MAX_LEN = 200
 
 /**
  * QR 3: A answers.
@@ -306,4 +334,58 @@ export interface SharedItem {
   when: string
   /** Which group it came from, or 'eine Gruppe' if the user chose to blur it. */
   context: string
+}
+
+// ---------------------------------------------------------------------------
+// The local query log (I6 Auditability, CLAUDE.md) -- "Protokoll"
+// ---------------------------------------------------------------------------
+
+/**
+ * One row of the local, never-transmitted record of every query this device
+ * has RECEIVED. Lives in DeviceState.queryLog (state.ts), persisted the same
+ * way as `inventory`/`threads`, and read only by screenLog() in main.ts.
+ *
+ * Deliberately narrow. It records what THIS device was asked and what THIS
+ * device decided -- nothing about any other device, ever, because there is
+ * nothing here that could name one: a query only ever names its own asker
+ * (`fromDisplayName`/`fromId`), the one thing this device already legitimately
+ * knows per I4 (contextual consent: the owner sees asker identity + request
+ * text before deciding anything). Logging it locally does not teach the
+ * asker, or any other peer, anything they could not already have caused this
+ * device to know.
+ *
+ * `outcome` reuses LocalOutcome verbatim on purpose (see that type's doc
+ * comment: "Reasons live only on the answering device. They are never
+ * serialised."). A log entry MUST NEVER be built from, or fed into, anything
+ * that crosses the wire -- gate.ts's AnswerEnvelope has no field for it and
+ * never will (test/gate_identity.test.ts pins AnswerEnvelope's shape shut).
+ * main.ts's emitAnswer() appends the log entry AFTER the answer has already
+ * been sent (or shown as a QR), specifically so that however long writing
+ * this entry takes can never shift when the wire message goes out -- see
+ * emitAnswer's doc comment.
+ *
+ * What is deliberately NOT stored: `match.hits` themselves. Only the label
+ * (`outcome`) is kept, never the matched content. Two reasons: it keeps every
+ * entry the same shape/size regardless of how many hits fired (no local
+ * signal that could vary by outcome the way the wire's byte-padding already
+ * guards against), and it means this log is not a second place chat content
+ * ends up retained -- "was ich habe"/imported chats remain the one copy.
+ */
+export interface QueryLogEntry {
+  id: string
+  /** THIS device's own clock, when the query was received. Never the
+   *  asker's `issuedAt` -- that is untrusted input (see PingEnvelope.ts,
+   *  same discipline). */
+  at: number
+  fromDisplayName: string
+  fromId: string
+  /** What was asked, verbatim: the free-text ask, or the template's German
+   *  question. Exactly what this device was shown before deciding -- I4
+   *  already grants the owner this much, so recording it locally adds
+   *  nothing new. */
+  text: string
+  /** What this device did about it. See LocalOutcome and this interface's
+   *  doc comment on why it is safe to keep this granular locally even though
+   *  the wire may never distinguish it. */
+  outcome: LocalOutcome
 }

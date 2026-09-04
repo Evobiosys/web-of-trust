@@ -3,20 +3,23 @@ import { initI18n, t, getLang, toggleLang } from './i18n'
 import { el, clear, coarseWhen } from './ui/dom'
 import { renderQr, keepAwake } from './ui/qr'
 import { scanQr, cameraPlausible } from './ui/scanner'
-import { loadState, saveState, resetAll, threadsInScope, upsertPeer, PERSONAS } from './state'
+import { loadState, saveState, resetAll, threadsInScope, upsertPeer, appendQueryLog, PERSONAS } from './state'
 import type { DeviceState, Peer } from './state'
 import { renderProfile } from './screens/profile'
 import { renderInventory } from './screens/inventory'
 import { detectAndParse } from './parse/index'
 import { matchTemplate } from './match/lexical'
 import { TEMPLATES, getTemplate } from './data/templates'
+import { freeTextTemplate } from './data/free_text_query'
+import { classifyIncomingQuery } from './incoming_query'
 import { decide, interpret, settleAt, GATE_BUDGET_MS } from './gate'
 import { derivePairKey, deriveEcdhPairKey, randomId } from './crypto'
 import { encodeForQr, decodeFromQr } from './wire'
 import type { Envelope } from './wire'
 import { SEED_DIRECT_IOS } from './data/seed_direct'
 import seedGroupRaw from './data/seed-wien-wohnen.txt?raw'
-import type { ChatThread, QueryEnvelope, AnswerEnvelope, MatchResult, QueryTemplate, Identity } from './types'
+import type { ChatThread, QueryEnvelope, AnswerEnvelope, MatchResult, QueryTemplate, Identity, LocalOutcome } from './types'
+import { FREE_TEXT_MAX_LEN } from './types'
 import { wotMode, wotScenario } from './mode'
 import { createRelayChannel } from './relay'
 import type { RelayChannel, RelayStatus } from './relay'
@@ -39,7 +42,7 @@ const root = document.getElementById('app') as HTMLElement
 let state: DeviceState | null = null
 let releaseWake: () => void = () => {}
 
-type Screen = 'start' | 'home' | 'chats' | 'profile' | 'inventory' | 'connect' | 'ask' | 'answer' | 'link' | 'graph'
+type Screen = 'start' | 'home' | 'chats' | 'profile' | 'inventory' | 'connect' | 'ask' | 'answer' | 'link' | 'graph' | 'log'
 let screen: Screen = 'start'
 
 // ---------------------------------------------------------------------------
@@ -73,8 +76,17 @@ let pendingGeoQueries: QueryEnvelope[] = []
  *  See handleIncomingEnvelope's query branch for why this, not `screen`, is
  *  the correct "is a human decision pending right now" signal. */
 let geoCeremonyBusy = false
-/** The one query this device is currently waiting on an answer for, if any. */
-let awaitingAnswer: { qid: string; resolve: (env: AnswerEnvelope) => void } | null = null
+/**
+ * Every query this device is currently waiting on an answer for, keyed by
+ * qid. A plain Map rather than the single-slot `{qid,resolve}|null` this
+ * replaced: askNetwork() (In die Runde fragen) sends a distinct qid to EACH
+ * connected peer and waits on all of them concurrently, which the old single
+ * slot could not represent (a second concurrent wait would silently steal
+ * the first one's resolution). The single-peer ask functions
+ * (askOverRelay/askOverWebrtc) use the exact same map with one entry, so
+ * their behaviour is unchanged.
+ */
+const awaitingAnswers = new Map<string, (env: AnswerEnvelope) => void>()
 
 /**
  * The one-scan connect link (connect_link.ts): parsed once, at module load,
@@ -195,36 +207,32 @@ function updateRelayStatusBadge(): void {
  * (relay.ts), so a stale registration here means inbound wires silently
  * fail to decrypt and are never acked.
  *
- * Two shapes, picked by scenario:
- *
- *  - Every OTHER demo (default scenario): unchanged from before demo 20 --
- *    exactly one peer (`peers[0]`), one fixed key, registered once.
- *  - Demo 20 (`wotScenario() === 'geologengasse'`): Jakob's laptop can hold
- *    several peers at once (the excited relative, then her friends, each
- *    pairing separately -- see the coordinator's scope note this function
- *    exists to satisfy). relay.ts's `onEnvelope` now accepts a
- *    `PairKeyResolver` for exactly this: instead of one fixed key, a
- *    function that looks the right peer up by the wire's cleartext sender
- *    DID and derives THEIR pair key. It closes over `state` (not a copy of
- *    `state.peers`), so peers accepted after this registration are found
- *    too without needing to re-register -- `acceptPendingRequest()` still
- *    calls this again anyway, belt-and-suspenders, see its own doc comment.
+ * ALWAYS uses relay.ts's `PairKeyResolver` shape (a function that looks the
+ * right peer up by the wire's cleartext sender DID and derives THEIR pair
+ * key), not a single fixed key for `peers[0]`. Originally this branched by
+ * scenario -- every other demo pinned one peer, only demo 20's geologengasse
+ * scenario (Jakob's laptop, which can hold several peers at once, each
+ * pairing separately -- see the coordinator's scope note this function
+ * exists to satisfy) used the resolver. "Call into the web" (In die Runde
+ * fragen, main.ts's askNetwork()) needs the SAME multi-peer capability in
+ * the DEFAULT scenario too -- an asker can be paired to more than one holder
+ * and broadcast to all of them -- so the resolver is now unconditional. It
+ * closes over `state` (not a copy of `state.peers`), so peers accepted after
+ * this registration are found too without needing to re-register --
+ * `acceptPendingRequest()` still calls this again anyway, belt-and-suspenders,
+ * see its own doc comment. For the single-peer case (every demo before this
+ * change) this is behaviourally identical to the old fixed-key branch: the
+ * resolver finds the one peer by did and derives the one key, same as
+ * before.
  */
 async function registerRelaySink(): Promise<void> {
   if (!relayChannel || !state) return
-  if (wotScenario() === 'geologengasse') {
-    const s = state
-    relayChannel.onEnvelope(async (fromDid: string) => {
-      const peer = s.peers.find((p) => p.did === fromDid)
-      if (!peer) return null
-      return pairKey(peer)
-    }, handleIncomingEnvelope)
-    return
-  }
-  const peer = state.peers[0]
-  if (!peer) return
-  const key = await pairKey(peer)
-  relayChannel.onEnvelope(key, handleIncomingEnvelope)
+  const s = state
+  relayChannel.onEnvelope(async (fromDid: string) => {
+    const peer = s.peers.find((p) => p.did === fromDid)
+    if (!peer) return null
+    return pairKey(peer)
+  }, handleIncomingEnvelope)
 }
 
 /**
@@ -283,37 +291,15 @@ async function sendOverActiveTransport(env: Envelope): Promise<'webrtc' | 'relay
  *  channel is ever created there). */
 function handleIncomingEnvelope(env: Envelope, _fromDid?: string): void {
   if (env.t === 'answer') {
-    if (awaitingAnswer && env.qid === awaitingAnswer.qid) awaitingAnswer.resolve(env)
+    const resolve = awaitingAnswers.get(env.qid)
+    if (resolve) resolve(env)
     return
   }
   if (env.t === 'query') {
-    if (wotScenario() === 'geologengasse') {
-      // Several peers can query Jakob independently -- queue rather than
-      // clobber a ceremony already on screen. runConsentCeremony's own
-      // `finish()` looks up the ANSWERING peer by `q.from.id`
-      // (`s.peers.find(p => p.id === q.from.id)`), never `peers[0]`, so this
-      // already routes the answer back to whoever actually asked.
-      pendingGeoQueries.push(env)
-      // `screen === 'answer'` is NOT a reliable "a ceremony is actively on
-      // screen right now" signal on its own: runConsentCeremony() and
-      // emitAnswer() draw the checking/consent/outcome beats with direct
-      // shell() calls, never going through go(), so `screen` sits frozen at
-      // 'answer' for the ENTIRE ceremony including its final "Antwort
-      // gesendet" confirmation -- found by testing two guests asking close
-      // together: the second query queued silently and stayed invisible
-      // because this check saw 'answer' and did nothing. `geoCeremonyBusy`
-      // is the real signal: true only while a consent decision is actually
-      // pending a human tap. Idle elsewhere OR sitting on an already-
-      // finished confirmation screen -> safe to (re)route here now.
-      if (!geoCeremonyBusy) go('answer')
-      return
-    }
-    // Default scenario: nothing here narrows this to the peer that is
-    // actually paired -- these demos pair exactly one peer at a time
-    // (state.ts's Peer[0] convention), so any arriving query is by
-    // construction from that one peer.
-    pendingIncomingQuery = env
-    go('answer')
+    // Ambient arrival (relay/webrtc, nobody chose to scan anything): matched
+    // first, interrupted only if that match earns it. See
+    // handleAmbientQuery's own doc comment and incoming_query.ts.
+    void handleAmbientQuery(env)
     return
   }
   if (env.t === 'chat') {
@@ -614,24 +600,21 @@ function waitForAnswer(qid: string, timeoutMs: number): { promise: Promise<Answe
   const timer = setTimeout(() => {
     if (done) return
     done = true
-    if (awaitingAnswer?.qid === qid) awaitingAnswer = null
+    awaitingAnswers.delete(qid)
     resolveFn(null)
   }, timeoutMs)
-  awaitingAnswer = {
-    qid,
-    resolve: (env) => {
-      if (done) return
-      done = true
-      clearTimeout(timer)
-      awaitingAnswer = null
-      resolveFn(env)
-    },
-  }
+  awaitingAnswers.set(qid, (env) => {
+    if (done) return
+    done = true
+    clearTimeout(timer)
+    awaitingAnswers.delete(qid)
+    resolveFn(env)
+  })
   const cancel = (): void => {
     if (done) return
     done = true
     clearTimeout(timer)
-    if (awaitingAnswer?.qid === qid) awaitingAnswer = null
+    awaitingAnswers.delete(qid)
     resolveFn(null)
   }
   return { promise, cancel }
@@ -708,6 +691,7 @@ function render(): void {
     case 'answer':  return screenAnswer()
     case 'link':    return screenLink()
     case 'graph':   return screenGraph()
+    case 'log':     return screenLog()
     default:        return screenHome()
   }
 }
@@ -865,7 +849,7 @@ async function seedPersona(id: string, displayName: string, role: 'holder' | 'se
     id: randomId(8),
     createdAt: new Date().toISOString(),
   }))
-  state = { me: { id, displayName }, threads, peers, profile, inventory }
+  state = { me: { id, displayName }, threads, peers, profile, inventory, queryLog: [] }
   await saveState(state)
   // The ordinary first-visit case for the one-scan connect-link ceremony
   // (connect_link.ts): a brand-new phone was still on the persona picker
@@ -915,6 +899,7 @@ async function seedJakob(): Promise<void> {
     peers: [],
     profile: { displayName: 'Jakob', bio: '', neighbourhood: 'Wien', languages: ['Deutsch'] },
     inventory: [],
+    queryLog: [],
   }
   await saveState(state)
   void initRelaySession()
@@ -958,6 +943,7 @@ async function seedGeoGuest(rawName: string, rawPlace = ''): Promise<void> {
     peers: [],
     profile: { displayName, bio: '', neighbourhood: '', languages: [] },
     inventory: [],
+    queryLog: [],
   }
   await saveState(state)
   if (pendingConnectLink) {
@@ -1054,6 +1040,9 @@ function screenHome(): void {
       t('navInventory') + ' (' + s.inventory.length + ')',
     ]),
     el('button', { class: 'btn quiet', onclick: () => go('profile') }, [t('navProfile')]),
+    el('button', { class: 'btn quiet', onclick: () => go('log') }, [
+      t('navLog') + ' (' + s.queryLog.length + ')',
+    ]),
     el('div', { class: 'note' }, [
       el('button', {
         class: 'btn danger',
@@ -1160,6 +1149,56 @@ function screenInventory(): void {
   const s = state as DeviceState
   const body = renderInventory(s, () => void saveState(s), () => go('inventory'))
   shell(t('navInventory'), body, { back: () => go('home') })
+}
+
+// ---------------------------------------------------------------------------
+// Protokoll: the local, never-transmitted query log (I6 Auditability)
+// ---------------------------------------------------------------------------
+
+function logOutcomeLabel(o: LocalOutcome): string {
+  switch (o) {
+    case 'shared': return t('logOutcomeShared')
+    case 'declined': return t('logOutcomeDeclined')
+    case 'below-k': return t('logOutcomeBelowK')
+    case 'no-match': return t('logOutcomeNoMatch')
+    case 'blocked': return t('logOutcomeBlocked')
+  }
+}
+
+/**
+ * "Protokoll": every query this device has been asked, newest first, and
+ * what this device did about it. Nothing here was ever sent anywhere -- see
+ * types.ts's QueryLogEntry doc comment and this feature's report for the
+ * full argument that this screen cannot become a side channel. No refresh
+ * button and no polling: emitAnswer() re-renders this screen live if it is
+ * already open when an entry is appended, same convention as the chat
+ * screen's incoming-message handling.
+ */
+function screenLog(): void {
+  const s = state as DeviceState
+  const lang = getLang()
+  const entries = [...s.queryLog].reverse()
+  const fmt = (at: number): string =>
+    new Date(at).toLocaleString(lang === 'de' ? 'de-AT' : 'en-GB', {
+      day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit',
+    })
+  const body = el('div', {}, [
+    el('h1', {}, [t('navLog')]),
+    el('p', { class: 'lead' }, [t('logLead')]),
+    entries.length
+      ? el('div', {}, entries.map((e) =>
+          el('div', { class: 'card' }, [
+            el('p', {}, [
+              el('b', {}, [e.fromDisplayName]),
+              document.createTextNode(' · ' + fmt(e.at)),
+            ]),
+            el('p', { class: 'quote' }, ['„' + e.text + '“']),
+            el('p', { class: 'note' }, [logOutcomeLabel(e.outcome)]),
+          ]),
+        ))
+      : el('p', {}, [t('logEmpty')]),
+  ])
+  shell(t('navLog'), body, { back: () => go('home') })
 }
 
 // ---------------------------------------------------------------------------
@@ -1680,12 +1719,135 @@ function resolveTemplate(id: string): QueryTemplate | undefined {
   return templatesForScenario().find((tpl) => tpl.id === id) ?? getTemplate(id)
 }
 
+/**
+ * Filler QueryTemplate for a query this device could not resolve into a real
+ * question at all (a corrupt/unknown templateId, and no freeText to fall
+ * back to -- should not happen from this app's own askWith()/askNetwork(),
+ * only from a malformed or stale peer). gate.ts's `decide()` requires a
+ * `template: QueryTemplate` to build its always-computed "what would we
+ * share" JSON from (see gate.ts's module doc on why that happens
+ * unconditionally); this fills that slot with an empty, matchless template so
+ * decide() still runs and still produces a byte-identical PASS, rather than
+ * emitAnswer() needing a second, template-less code path. Its `matchTerms`
+ * is empty, so `matchTemplate` against it always returns zero hits --
+ * `handleAmbientQuery` never even calls the matcher in this case (the real
+ * MatchResult stays the zero-init default), this exists purely so `decide()`
+ * has an `id` to embed in its (never-shared, since aboveThreshold is always
+ * false here) payload.
+ */
+const UNRESOLVED_TEMPLATE: QueryTemplate = {
+  id: 'wot.unresolved',
+  version: 1,
+  category: 'unresolved',
+  title: { de: 'Unbekannte Anfrage', en: 'Unknown request' },
+  question: { de: 'Unbekannte Anfrage', en: 'Unknown request' },
+  matchTerms: [],
+  boostTerms: [],
+  excludeTerms: [],
+  minScore: 1,
+  kThreshold: 1,
+  sensitivity: 'low',
+  ttlSeconds: 0,
+}
+
+/**
+ * Resolve a QueryEnvelope into the QueryTemplate it should be matched
+ * against -- a free-text ask (types.ts's QueryEnvelope.freeText) via
+ * freeTextTemplate(), or a fixed template via resolveTemplate(). The ONE
+ * place both runConsentCeremony (manual scan) and handleAmbientQuery
+ * (relay/webrtc auto-delivery) do this lookup, so a free-text query is
+ * matchable from either entry point without duplicating the branch.
+ */
+function resolveIncomingTemplate(q: QueryEnvelope): QueryTemplate | undefined {
+  if (q.freeText) return freeTextTemplate(q.freeText)
+  return resolveTemplate(q.templateId)
+}
+
+/**
+ * The entry point for a query that arrived AMBIENTLY: over an already-open
+ * relay/webrtc channel, with nobody having chosen to scan anything (see
+ * handleIncomingEnvelope's `query` branch, the only caller). A manual QR
+ * scan (scanQuery(), screenAnswer's "Frage scannen" button -- demo 1's whole
+ * flow, and still how demo 2's "scan instead" fallback works) goes straight
+ * to runConsentCeremony() unconditionally, on purpose: choosing to scan IS
+ * choosing to look, so there is no "silent" version of that path and none is
+ * needed -- see incoming_query.ts's module doc comment.
+ *
+ * Runs the SAME match a manual scan would run, BEFORE deciding whether to
+ * interrupt at all -- classifyIncomingQuery() (incoming_query.ts) is the one
+ * function that turns a match into "surface" or "silent", used here and
+ * nowhere else, so the acceptance test asserts on the actual decision this
+ * app makes rather than recomputing a proxy for it.
+ *
+ * A surfaced query queues/navigates exactly as the old unconditional path
+ * did (geo queue, or the default scenario's single pending-query slot) --
+ * runConsentCeremony() re-resolves the template and re-runs the match itself
+ * once the human is actually looking; the small duplicate work is the price
+ * of not having to thread a precomputed MatchResult through go('answer')'s
+ * screen transition, and keeps runConsentCeremony's own tested behaviour
+ * completely unchanged for the manual-scan path.
+ *
+ * A silent query is answered automatically here -- `consent: false`, exactly
+ * as if a human had tapped "Nein" -- and logged. No shell()/go() call
+ * anywhere on this branch; see emitAnswer's `opts.silent`.
+ */
+async function handleAmbientQuery(q: QueryEnvelope): Promise<void> {
+  const s = state
+  if (!s) return
+  const tpl = resolveIncomingTemplate(q)
+  const peer = s.peers.find((p) => p.id === q.from.id) ?? null
+  const blocked = peer?.blocked ?? true
+
+  let match: MatchResult = { hits: [], distinctAuthors: 0, aboveThreshold: false }
+  if (tpl) {
+    match = isAddressBearingTemplate(tpl) ? matchAccommodation() : prune(matchTemplate(tpl, threadsInScope(s)))
+  }
+
+  const { surface } = classifyIncomingQuery(match, blocked, Boolean(tpl))
+
+  if (surface) {
+    if (wotScenario() === 'geologengasse') {
+      // Several peers can query Jakob independently -- queue rather than
+      // clobber a ceremony already on screen. See the removed inline
+      // version of this comment (git history) for the full `geoCeremonyBusy`
+      // reasoning; unchanged here.
+      pendingGeoQueries.push(q)
+      if (!geoCeremonyBusy) go('answer')
+      return
+    }
+    // Default scenario: several peers can now be paired at once (the whole
+    // point of askNetwork()'s broadcast), so a second peer's query arriving
+    // while the first is mid-ceremony is a real case, not just demo 20's.
+    // The single `pendingIncomingQuery` slot only ever holds the NEXT one to
+    // show; screenAnswer() drains it the same way it always did. A query
+    // that arrives while a ceremony is already on screen simply overwrites
+    // the slot with itself if nothing has consumed the previous one yet --
+    // acceptable for a demo (this app pairs at most a handful of peers), and
+    // strictly better than the alternative of silently dropping it.
+    pendingIncomingQuery = q
+    if (screen !== 'answer') go('answer')
+    return
+  }
+
+  await emitAnswer(q, tpl ?? UNRESOLVED_TEMPLATE, match, false, peer, { silent: true })
+}
+
 function screenAsk(): void {
   const s = state as DeviceState
   const lang = getLang()
   const peer = s.peers[0]
   const relayReady = wotMode() === 'relay' && Boolean(peer?.did)
   const webrtcNotOpen = (wotMode() === 'webrtc' || wotMode() === 'ladder') && !webrtcChannel?.isOpen()
+  const freeTextInput = el('input', {
+    type: 'text',
+    placeholder: t('askFreeTextPlaceholder'),
+    maxlength: String(FREE_TEXT_MAX_LEN),
+  }) as HTMLInputElement
+  const submitFreeText = () => {
+    const text = freeTextInput.value.trim()
+    if (text) void askWith(freeTextTemplate(text), text)
+  }
+  freeTextInput.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') submitFreeText() })
   const body = el('div', {}, [
     el('h1', {}, [t('askTitle')]),
     el('p', { class: 'lead' }, [t('askLead')]),
@@ -1701,6 +1863,21 @@ function screenAsk(): void {
     peer && wotMode() === 'webrtc' && webrtcNotOpen
       ? el('p', { class: 'note' }, [t('webrtcCardTitle') + ': ' + t('noConnection')])
       : null,
+    // "In die Runde fragen": free text, not one of the five fixed templates
+    // below -- travels to every connected peer (askWith()'s broadcast
+    // branch), matched against inventory AND chat content exactly like a
+    // fixed template, through the same consent gate. Shown first: this is
+    // the capability the owner asked for by name.
+    el('div', { class: 'card' }, [
+      el('h3', {}, [t('askFreeTextTitle')]),
+      el('p', { class: 'note' }, [t('askFreeTextPrivacy')]),
+      freeTextInput,
+      el('button', {
+        class: 'btn primary',
+        ...(peer ? {} : { disabled: true }),
+        onclick: submitFreeText,
+      }, [t('askFreeTextSubmit')]),
+    ]),
     ...templatesForScenario().map((tpl: QueryTemplate) =>
       el('div', { class: 'card' }, [
         el('h3', {}, [tpl.title[lang]]),
@@ -1717,16 +1894,37 @@ function screenAsk(): void {
   shell(t('navAsk'), body, { back: () => go('home') })
 }
 
-async function askWith(tpl: QueryTemplate): Promise<void> {
+/**
+ * `freeText`, when present, is the "In die Runde fragen" ask -- see
+ * screenAsk()'s free-text card. Every OTHER call site (the five template
+ * cards) omits it, so this stays byte-for-byte the same dispatch those demos
+ * already exercise.
+ *
+ * Broadcast: if more than one peer is reachable over the relay, this asks
+ * ALL of them (askNetwork(), each with its own qid) rather than only
+ * `peers[0]` -- "the query goes to every connected peer, not just the
+ * first." Every demo before this change pairs exactly one peer, so
+ * `relayPeers.length > 1` is never true there and this branch is a pure
+ * addition, not a behaviour change, for demos 1/2/3/6. webrtc/ladder/qr keep
+ * addressing `peers[0]` only: a single already-open data channel or a QR
+ * code only ever reaches one peer regardless of how many are paired.
+ */
+async function askWith(tpl: QueryTemplate, freeText?: string): Promise<void> {
   const s = state as DeviceState
+  const mode = wotMode()
+  const relayPeers = mode === 'relay' ? s.peers.filter((p) => p.did) : []
+  if (relayChannel && relayPeers.length > 1) {
+    await askNetwork(tpl, freeText, relayPeers)
+    return
+  }
   const peer = s.peers[0]
   if (!peer) return
   const q: QueryEnvelope = {
     v: 1, t: 'query', from: s.me,
     templateId: tpl.id, templateVersion: tpl.version,
     qid: randomId(12), issuedAt: Date.now(),
+    ...(freeText ? { freeText } : {}),
   }
-  const mode = wotMode()
   if (mode === 'relay' && peer.did && relayChannel) {
     lastRung = 'relay'
     await askOverRelay(tpl, q, peer)
@@ -1756,6 +1954,107 @@ async function askWith(tpl: QueryTemplate): Promise<void> {
   }
   lastRung = 'qr'
   await askViaQr(tpl, q, peer)
+}
+
+/**
+ * "In die Runde fragen" / "call into the web": send the SAME question to
+ * EVERY given peer, each over its own qid (waitForAnswer's Map keys on qid,
+ * see that function's doc comment for why one qid per peer rather than a
+ * shared one), and wait for all of them.
+ *
+ * I2 discipline on the waiting screen: no live per-peer breakdown ("Marlene:
+ * nothing yet, Ben: answered"). That would let the asker time WHICH named
+ * peer produced nothing vs is still thinking, which is exactly the kind of
+ * per-peer response state I2 says the asker-facing UI must never show before
+ * consent. A single static "asked N people" count is the only thing this
+ * screen says while waiting.
+ *
+ * Once every peer has answered or timed out: any peer whose answer decoded
+ * to 'shared' is shown, by name (the asker already knows who they asked --
+ * this is not a new leak, see the report's I2/I3 reasoning). A peer who
+ * answered 'nothing' or never answered at all is never mentioned
+ * individually, so nobody outside this function -- and nobody reading the
+ * result screen -- can tell those two cases apart for any one named peer.
+ */
+async function askNetwork(tpl: QueryTemplate, freeText: string | undefined, peers: Peer[]): Promise<void> {
+  const s = state as DeviceState
+  lastRung = 'relay'
+  const requests = peers.map((peer) => ({
+    peer,
+    q: {
+      v: 1 as const, t: 'query' as const, from: s.me,
+      templateId: tpl.id, templateVersion: tpl.version,
+      qid: randomId(12), issuedAt: Date.now(),
+      ...(freeText ? { freeText } : {}),
+    } as QueryEnvelope,
+  }))
+
+  const body = el('div', {}, [
+    el('h1', {}, [tpl.title[getLang()]]),
+    el('p', { class: 'lead' }, ['„' + tpl.question[getLang()] + '“']),
+    el('div', { class: 'card' }, [
+      el('p', {}, [
+        el('span', { class: 'spin' }),
+        document.createTextNode(' ' + t('networkAskInFlight').replace('{n}', String(peers.length))),
+      ]),
+      mountRelayStatusBadge(),
+    ]),
+    el('button', { class: 'btn quiet', onclick: () => go('ask') }, [t('back')]),
+  ])
+  shell(t('navAsk'), body, { back: () => go('ask') })
+
+  const results = await Promise.all(requests.map(async ({ peer, q }) => {
+    const waiter = waitForAnswer(q.qid, RELAY_ANSWER_TIMEOUT_MS)
+    try {
+      await sendToPeer(peer, q)
+    } catch {
+      waiter.cancel()
+      return { peer, decoded: null as Awaited<ReturnType<typeof interpret>> | null }
+    }
+    const env = await waiter.promise
+    if (!env) return { peer, decoded: null }
+    const key = await pairKey(peer)
+    const decoded = await interpret(env, key)
+    return { peer, decoded }
+  }))
+
+  screenNetworkResult(results, peers.length)
+}
+
+/** Result screen for askNetwork(). See that function's doc comment for the
+ *  I2 reasoning behind showing only the peers who actually shared. */
+function screenNetworkResult(
+  results: { peer: Peer; decoded: Awaited<ReturnType<typeof interpret>> | null }[],
+  askedCount: number,
+): void {
+  const shared = results.filter((r) => r.decoded?.outcome === 'shared')
+  const body = el('div', {}, [
+    shared.length
+      ? el('div', {}, shared.flatMap((r) => {
+          const items = r.decoded?.shared?.items ?? []
+          return [
+            el('div', { class: 'outcome shared' }, [
+              el('div', { class: 'glyph' }, ['✓']),
+              el('b', {}, [t('outShared')]),
+              el('span', {}, [r.peer.displayName + ' ' + t('outSharedSub')]),
+            ]),
+            ...items.map((item) =>
+              el('div', { class: 'quote' }, [
+                item.text,
+                el('footer', {}, [t('fromChat') + ' ' + item.context + ' · ' + item.when]),
+              ]),
+            ),
+          ]
+        }))
+      : el('div', { class: 'outcome nothing' }, [
+          el('div', { class: 'glyph' }, ['—']),
+          el('b', {}, [t('outNothing')]),
+          el('span', {}, [t('outNothingSub')]),
+        ]),
+    el('p', { class: 'note' }, [t('networkAskedCount').replace('{n}', String(askedCount))]),
+    el('button', { class: 'btn', onclick: () => go('home') }, [t('done')]),
+  ])
+  shell(t('navAsk'), body, { back: () => go('home') })
 }
 
 async function askViaQr(tpl: QueryTemplate, q: QueryEnvelope, peer: Peer): Promise<void> {
@@ -2037,7 +2336,7 @@ function isAddressBearingTemplate(tpl: QueryTemplate): boolean {
 
 async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
   const s = state as DeviceState
-  const tpl = resolveTemplate(q.templateId)
+  const tpl = resolveIncomingTemplate(q)
   const lang = getLang()
   const geo = wotScenario() === 'geologengasse'
   if (geo) geoCeremonyBusy = true
@@ -2064,7 +2363,18 @@ async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
   }
   await settleAt(t0, GATE_BUDGET_MS)
 
-  if (!tpl) { geoCeremonyBusy = false; go('answer'); return }
+  if (!tpl) {
+    // Unresolvable (corrupt/unknown templateId, no freeText). Still a
+    // received query -- I6 says every one gets logged, this one included --
+    // so it still goes through emitAnswer() rather than being dropped
+    // silently. Not `silent: true`: a human already chose to scan this, so
+    // the existing "answer sent" confirmation screen is the honest thing to
+    // show, same as any other manually-scanned query.
+    const peer = s.peers.find((p) => p.id === q.from.id) ?? null
+    await emitAnswer(q, UNRESOLVED_TEMPLATE, match, false, peer)
+    geoCeremonyBusy = false
+    return
+  }
 
   // 2. The ask. One tap either way, and the same page furniture either way.
   const peer = s.peers.find((p) => p.id === q.from.id) ?? null
@@ -2125,23 +2435,55 @@ async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
   shell(t('navAnswer'), body, { back: () => go('answer') })
 }
 
+/**
+ * Decide, send, and log. Every answered query -- manual QR scan, single-peer
+ * relay/webrtc ask, AND the ambient silent path -- funnels through this one
+ * function, which is what makes "every received query is logged" true by
+ * construction rather than by remembering to call a log function at N call
+ * sites.
+ *
+ * `opts.silent` (set only by handleAmbientQuery() for a query that did not
+ * clear the anonymity floor / was blocked / could not be resolved) suppresses
+ * EVERY render this function or its transport helpers would otherwise do --
+ * the opening "checking" shell, and the send helpers' own success/failure
+ * screens -- not just the first one. A silent send that still flashed
+ * "Antwort gesendet" on success would be the exact demo-breaking bug this
+ * feature exists to avoid, so `silent` is threaded all the way to
+ * sendAnswerOverRelay/sendAnswerOverWebrtc rather than stopping here. Silent
+ * mode implies an ambient transport is already open (relay or webrtc) --
+ * there is no silent QR, a code on screen is definitionally not silent -- so
+ * a silent call that cannot reach any transport simply does not send;
+ * nothing was watching for it to arrive.
+ *
+ * Logging happens LAST, strictly after the transport dispatch has already
+ * returned (i.e. after the wire message has already gone out, or the QR is
+ * already on screen). This is deliberate, not incidental: whatever
+ * `appendQueryLog`/`saveState` cost, it can never shift WHEN the answer left
+ * this device, because it only runs after that already happened. See
+ * types.ts's QueryLogEntry doc comment for the rest of the "this cannot leak"
+ * argument.
+ */
 async function emitAnswer(
   q: QueryEnvelope,
   tpl: QueryTemplate,
   match: MatchResult,
   consent: boolean,
   peer: Peer | null,
+  opts: { silent?: boolean } = {},
 ): Promise<void> {
+  const silent = opts.silent ?? false
   const t0 = Date.now()
-  shell(t('navAnswer'), el('div', {}, [
-    el('p', {}, [el('span', { class: 'spin' }), document.createTextNode(' ' + t('checking'))]),
-  ]))
+  if (!silent) {
+    shell(t('navAnswer'), el('div', {}, [
+      el('p', {}, [el('span', { class: 'spin' }), document.createTextNode(' ' + t('checking'))]),
+    ]))
+  }
   // Without a peer record we cannot derive a key; treat it as blocked, which is
   // one of the four indistinguishable "nothing" reasons.
   const key = peer
     ? await pairKey(peer)
     : await derivePairKey(q.qid, q.qid)
-  const { envelope } = await decide({
+  const { outcome, envelope } = await decide({
     query: q,
     template: tpl,
     match,
@@ -2159,23 +2501,36 @@ async function emitAnswer(
   // holds across every rung added below, not just the original relay branch.
   const mode = wotMode()
   if (mode === 'relay' && peer?.did && relayChannel) {
-    await sendAnswerOverRelay(envelope, peer, key)
-    return
+    await sendAnswerOverRelay(envelope, peer, key, silent)
+  } else if ((mode === 'webrtc' || mode === 'ladder') && webrtcChannel?.isOpen()) {
+    await sendAnswerOverWebrtc(envelope, silent)
+  } else if (mode === 'ladder' && peer?.did && relayChannel) {
+    await sendAnswerOverRelay(envelope, peer, key, silent)
+  } else if (mode === 'webrtc' && useRelayFallback && peer?.did && relayChannel) {
+    await sendAnswerOverRelay(envelope, peer, key, silent)
+  } else if (!silent) {
+    const payload = encodeForQr(envelope)
+    await showCodeScreen(t('showAnswer'), payload, t('answerHint'), () => go('home'), undefined, t('identicalNote'))
   }
-  if ((mode === 'webrtc' || mode === 'ladder') && webrtcChannel?.isOpen()) {
-    await sendAnswerOverWebrtc(envelope)
-    return
+  // else: silent with no reachable ambient transport -- nothing sent, nothing
+  // shown. Should not happen in practice (handleAmbientQuery only runs for a
+  // query that just arrived over an open relay/webrtc channel), but a demo
+  // must never throw on an edge case instead of degrading quietly.
+
+  const s = state
+  if (s) {
+    appendQueryLog(s, {
+      at: Date.now(),
+      fromDisplayName: q.from.displayName,
+      fromId: q.from.id,
+      text: q.freeText ?? tpl.question.de,
+      outcome,
+    })
+    await saveState(s)
+    // Someone reading Protokoll right now should see this arrive live, same
+    // as the chat screen does for an incoming message.
+    if (screen === 'log') render()
   }
-  if (mode === 'ladder' && peer?.did && relayChannel) {
-    await sendAnswerOverRelay(envelope, peer, key)
-    return
-  }
-  if (mode === 'webrtc' && useRelayFallback && peer?.did && relayChannel) {
-    await sendAnswerOverRelay(envelope, peer, key)
-    return
-  }
-  const payload = encodeForQr(envelope)
-  await showCodeScreen(t('showAnswer'), payload, t('answerHint'), () => go('home'), undefined, t('identicalNote'))
 }
 
 /**
@@ -2186,11 +2541,14 @@ async function emitAnswer(
  * regardless of transport. This just moves the same JSON `encodeForQr`
  * produces for a QR code, over the open channel instead.
  */
-async function sendAnswerOverWebrtc(envelope: AnswerEnvelope): Promise<void> {
+async function sendAnswerOverWebrtc(envelope: AnswerEnvelope, silent = false): Promise<void> {
   const channel = webrtcChannel
   if (!channel || !channel.isOpen()) {
     // Should not happen given the gating in emitAnswer() above, but a demo
-    // must never hang on an impossible state -- fall back to the honest QR.
+    // must never hang on an impossible state. Silent mode: nothing reachable
+    // means nothing sent, and definitely no QR fallback -- a code on screen
+    // is not silent. Non-silent: fall back to the honest QR.
+    if (silent) return
     const payload = encodeForQr(envelope)
     await showCodeScreen(t('showAnswer'), payload, t('answerHint'), () => go('home'), undefined, t('identicalNote'))
     return
@@ -2198,6 +2556,7 @@ async function sendAnswerOverWebrtc(envelope: AnswerEnvelope): Promise<void> {
   try {
     channel.send(envelope)
   } catch {
+    if (silent) return
     const payload = encodeForQr(envelope)
     await showCodeScreen(
       t('showAnswer'), payload,
@@ -2206,6 +2565,7 @@ async function sendAnswerOverWebrtc(envelope: AnswerEnvelope): Promise<void> {
     )
     return
   }
+  if (silent) return
   // Same "sent" screen shape (and the SAME strings) as sendAnswerOverRelay --
   // identical wording and structure regardless of outcome (I3), and
   // transport-neutral wording since both rungs use it.
@@ -2225,15 +2585,18 @@ async function sendAnswerOverWebrtc(envelope: AnswerEnvelope): Promise<void> {
   shell(t('navAnswer'), body, { back: () => go('home') })
 }
 
-async function sendAnswerOverRelay(envelope: AnswerEnvelope, peer: Peer, pairKeyForPeer: CryptoKey): Promise<void> {
+async function sendAnswerOverRelay(envelope: AnswerEnvelope, peer: Peer, pairKeyForPeer: CryptoKey, silent = false): Promise<void> {
   const peerDid = peer.did as string
   try {
     await (relayChannel as RelayChannel).send(peerDid, envelope, pairKeyForPeer)
   } catch {
     // Delivery failed outright (network down, relay unreachable) -- this is
     // a transport fact, not a content signal, and it is equally possible
-    // regardless of outcome. Fall back to the honest QR path rather than
-    // claiming a delivery that did not happen.
+    // regardless of outcome. Silent mode: nothing to show, so nothing to do
+    // but swallow it -- a demo device asked ambiently has nobody watching
+    // for a failure screen. Non-silent: fall back to the honest QR path
+    // rather than claiming a delivery that did not happen.
+    if (silent) return
     const payload = encodeForQr(envelope)
     await showCodeScreen(
       t('showAnswer'), payload,
@@ -2242,6 +2605,7 @@ async function sendAnswerOverRelay(envelope: AnswerEnvelope, peer: Peer, pairKey
     )
     return
   }
+  if (silent) return
   // This confirmation screen is the SAME for every outcome -- it only ever
   // says "sent", never what was sent or whether anything was found.
   const moreQueued = wotScenario() === 'geologengasse' && pendingGeoQueries.length > 0

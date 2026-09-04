@@ -26,6 +26,7 @@ const stateWith = (p: Peer[]): DeviceState => ({
   peers: p,
   profile: { displayName: 'Nora', bio: '', neighbourhood: '', languages: [] },
   inventory: [],
+  queryLog: [],
 })
 
 describe('seeded pairing', () => {

@@ -12,7 +12,7 @@
  */
 
 import type { AnswerEnvelope, ChatEnvelope, ConnectAckEnvelope, ConnectEnvelope, PingEnvelope, QueryEnvelope } from './types'
-import { WIRE_VERSION } from './types'
+import { FREE_TEXT_MAX_LEN, WIRE_VERSION } from './types'
 
 /** Free text is the one unbounded field on the wire, so it gets a bound. */
 export const CHAT_MAX_LEN = 500
@@ -56,6 +56,16 @@ function parseQuery(o: Record<string, unknown>): QueryEnvelope | null {
   if (typeof o.templateVersion !== 'number' || !Number.isFinite(o.templateVersion)) return null
   if (!isNonEmptyString(o.qid)) return null
   if (typeof o.issuedAt !== 'number' || !Number.isFinite(o.issuedAt)) return null
+  // `freeText` (the "In die Runde fragen" ask) is OPTIONAL, same convention
+  // as ConnectEnvelope.did above: absent is fine (every existing templated
+  // query), but a present-and-malformed field rejects the whole envelope
+  // rather than being silently dropped -- and it gets the same length bound
+  // ChatEnvelope.text gets below, at this same untrusted-input boundary.
+  if ('freeText' in o) {
+    if (!isNonEmptyString(o.freeText)) return null
+    if (o.freeText.length > FREE_TEXT_MAX_LEN) return null
+  }
+  const freeText = isNonEmptyString(o.freeText) ? o.freeText : undefined
   return {
     v: WIRE_VERSION,
     t: 'query',
@@ -64,6 +74,7 @@ function parseQuery(o: Record<string, unknown>): QueryEnvelope | null {
     templateVersion: o.templateVersion,
     qid: o.qid,
     issuedAt: o.issuedAt,
+    ...(freeText ? { freeText } : {}),
   }
 }
 
