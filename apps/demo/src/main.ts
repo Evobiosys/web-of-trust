@@ -16,7 +16,12 @@ import { encodeForQr, decodeFromQr } from './wire'
 import type { Envelope } from './wire'
 import { SEED_DIRECT_IOS } from './data/seed_direct'
 import seedGroupRaw from './data/seed-wien-wohnen.txt?raw'
-import type { ChatThread, QueryEnvelope, AnswerEnvelope, MatchResult, QueryTemplate, Identity } from './types'
+import type {
+  ChatThread, QueryEnvelope, AnswerEnvelope, MatchResult, QueryTemplate, Identity,
+  DecodedAnswer, LocalOutcome,
+} from './types'
+import { renderMessageList, renderComposer, renderSecurityInfo } from './screens/chat'
+import type { ChatLogEntry } from './screens/chat'
 import { wotMode, wotScenario } from './mode'
 import { createRelayChannel } from './relay'
 import type { RelayChannel, RelayStatus } from './relay'
@@ -236,7 +241,7 @@ async function registerRelaySink(): Promise<void> {
  * the connection works. Closing the tab ends the conversation, which is also
  * the honest thing to tell someone.
  */
-const chatLog: { mine: boolean; text: string; at: number }[] = []
+const chatLog: ChatLogEntry[] = []
 let unreadChat = 0
 let pendingPing: { id: string; sentAt: number; resolve: (ms: number) => void } | null = null
 
@@ -317,7 +322,7 @@ function handleIncomingEnvelope(env: Envelope, _fromDid?: string): void {
     return
   }
   if (env.t === 'chat') {
-    chatLog.push({ mine: false, text: env.text, at: Date.now() })
+    chatLog.push({ kind: 'text', mine: false, text: env.text, at: Date.now() })
     // Only redraw if the person is looking at the conversation. Yanking them
     // out of a consent screen because a message arrived would be worse than
     // the message waiting.
@@ -685,7 +690,10 @@ function netBubble(): HTMLElement | null {
   const grew = n > lastPeerCount
   lastPeerCount = n
   const bubble = el('button', {
-    class: 'netbubble' + (grew ? ' grew' : ''),
+    // The chat screen now pins a composer to the bottom (chat-signal
+    // handover, item 4) -- lift the bubble clear of it there, same fixed
+    // corner everywhere else.
+    class: 'netbubble' + (grew ? ' grew' : '') + (screen === 'link' ? ' above-composer' : ''),
     onclick: () => go('graph'),
     'aria-label': t('netGrew'),
   }, [
@@ -1774,6 +1782,7 @@ async function scanAnswer(q: QueryEnvelope, peer: Peer): Promise<void> {
     if (env.qid !== q.qid) return { ok: false, msg: t('wrongCode') }
     const key = await pairKey(peer)
     const decoded = await interpret(env as AnswerEnvelope, key)
+    pushReceivedShare(decoded)
     screenResult(decoded, peer.displayName)
     return { ok: true }
   }, () => go('ask'))
@@ -1843,6 +1852,7 @@ async function askOverRelay(tpl: QueryTemplate, q: QueryEnvelope, peer: Peer): P
     return
   }
   const decoded = await interpret(env, key)
+  pushReceivedShare(decoded)
   screenResult(decoded, peer.displayName)
 }
 
@@ -1909,6 +1919,7 @@ async function askOverWebrtc(tpl: QueryTemplate, q: QueryEnvelope, peer: Peer): 
     return
   }
   const decoded = await interpret(env, key)
+  pushReceivedShare(decoded)
   screenResult(decoded, peer.displayName)
 }
 
@@ -1932,6 +1943,11 @@ function screenWebrtcAskError(msg: string, tpl: QueryTemplate, q: QueryEnvelope,
 
 function screenResult(decoded: Awaited<ReturnType<typeof interpret>>, peerName: string): void {
   const shared = decoded.outcome === 'shared' ? decoded.shared : undefined
+  // Same conversation the answering device now lands in after sending (see
+  // sendAnswerOverRelay/sendAnswerOverWebrtc) -- he wants both devices to end
+  // up in the chat, not just his own. Never offered in qr mode (demo 1),
+  // which has no live link to land in at all.
+  const canChat = wotMode() !== 'qr' && Boolean(state?.peers[0])
   const body = el('div', {}, [
     el('div', { class: 'outcome ' + (shared ? 'shared' : 'nothing') }, [
       el('div', { class: 'glyph' }, [shared ? '✓' : '—']),
@@ -1949,7 +1965,7 @@ function screenResult(decoded: Awaited<ReturnType<typeof interpret>>, peerName: 
     // screen renders. This IS the demo: the point is not just that a rung 3
     // fallback exists, but that a person can SEE it happened.
     wotMode() === 'ladder' && lastRung ? el('p', { class: 'note' }, [rungBadgeText(lastRung)]) : null,
-    el('button', { class: 'btn', onclick: () => go('home') }, [t('done')]),
+    el('button', { class: 'btn', onclick: () => go(canChat ? 'link' : 'home') }, [t('done')]),
   ])
   shell(t('navAsk'), body, { back: () => go('home') })
 }
@@ -2141,7 +2157,7 @@ async function emitAnswer(
   const key = peer
     ? await pairKey(peer)
     : await derivePairKey(q.qid, q.qid)
-  const { envelope } = await decide({
+  const { outcome, envelope } = await decide({
     query: q,
     template: tpl,
     match,
@@ -2157,25 +2173,70 @@ async function emitAnswer(
   // side channel gate.ts's byte padding exists to close (see gate.ts's module
   // doc and this feature's wire-level test in relay.test.ts). That discipline
   // holds across every rung added below, not just the original relay branch.
+  // `outcome` is threaded through to the send functions purely so THEY can
+  // append a LOCAL chat-log entry strictly AFTER the network send has
+  // already gone out (see pushLocalShare's own doc comment) -- it never
+  // changes which branch below fires or how long any of them take before
+  // sending.
   const mode = wotMode()
   if (mode === 'relay' && peer?.did && relayChannel) {
-    await sendAnswerOverRelay(envelope, peer, key)
+    await sendAnswerOverRelay(envelope, peer, key, outcome, tpl, match)
     return
   }
   if ((mode === 'webrtc' || mode === 'ladder') && webrtcChannel?.isOpen()) {
-    await sendAnswerOverWebrtc(envelope)
+    await sendAnswerOverWebrtc(envelope, outcome, tpl, match)
     return
   }
   if (mode === 'ladder' && peer?.did && relayChannel) {
-    await sendAnswerOverRelay(envelope, peer, key)
+    await sendAnswerOverRelay(envelope, peer, key, outcome, tpl, match)
     return
   }
   if (mode === 'webrtc' && useRelayFallback && peer?.did && relayChannel) {
-    await sendAnswerOverRelay(envelope, peer, key)
+    await sendAnswerOverRelay(envelope, peer, key, outcome, tpl, match)
     return
   }
   const payload = encodeForQr(envelope)
   await showCodeScreen(t('showAnswer'), payload, t('answerHint'), () => go('home'), undefined, t('identicalNote'))
+}
+
+/**
+ * Local-only record of what THIS device just shared, for the chat screen's
+ * "Wohnung geteilt" card -- never sent over any wire (chat-signal handover,
+ * item 2: "do NOT invent a second transport"). Callers must only invoke this
+ * strictly AFTER the answer envelope has already been handed to the
+ * transport (see sendAnswerOverRelay/sendAnswerOverWebrtc below): building
+ * this list costs CPU proportional to `match.hits.length`, and doing that
+ * work before the send -- inside the outcome-independent path emitAnswer
+ * above is careful to keep flat -- would reopen a timing side channel the
+ * asker could in principle observe. Doing it after the send is invisible to
+ * them: the bytes already left.
+ */
+function pushLocalShare(tpl: QueryTemplate, match: MatchResult): void {
+  chatLog.push({
+    kind: 'shared',
+    mine: true,
+    at: Date.now(),
+    shared: {
+      from: state?.me.displayName ?? '',
+      templateId: tpl.id,
+      items: match.hits.map((h) => ({
+        text: h.message.text,
+        when: coarseWhen(h.message.ts, getLang()),
+        context: h.threadTitle,
+      })),
+    },
+  })
+}
+
+/** The asker's mirror of pushLocalShare: the decoded answer already crossed
+ *  the wire (that IS the transport -- see the handover's "let the existing
+ *  answer... carry it"), so this only ever turns something already
+ *  delivered into a chat-log entry. A `nothing` outcome pushes nothing,
+ *  same as it renders nothing on screenResult. */
+function pushReceivedShare(decoded: DecodedAnswer): void {
+  if (decoded.outcome === 'shared' && decoded.shared) {
+    chatLog.push({ kind: 'shared', mine: false, at: Date.now(), shared: decoded.shared })
+  }
 }
 
 /**
@@ -2186,7 +2247,12 @@ async function emitAnswer(
  * regardless of transport. This just moves the same JSON `encodeForQr`
  * produces for a QR code, over the open channel instead.
  */
-async function sendAnswerOverWebrtc(envelope: AnswerEnvelope): Promise<void> {
+async function sendAnswerOverWebrtc(
+  envelope: AnswerEnvelope,
+  outcome: LocalOutcome,
+  tpl: QueryTemplate,
+  match: MatchResult,
+): Promise<void> {
   const channel = webrtcChannel
   if (!channel || !channel.isOpen()) {
     // Should not happen given the gating in emitAnswer() above, but a demo
@@ -2206,6 +2272,8 @@ async function sendAnswerOverWebrtc(envelope: AnswerEnvelope): Promise<void> {
     )
     return
   }
+  // Strictly after the send above -- see pushLocalShare's doc comment.
+  if (outcome === 'shared') pushLocalShare(tpl, match)
   // Same "sent" screen shape (and the SAME strings) as sendAnswerOverRelay --
   // identical wording and structure regardless of outcome (I3), and
   // transport-neutral wording since both rungs use it.
@@ -2220,12 +2288,22 @@ async function sendAnswerOverWebrtc(envelope: AnswerEnvelope): Promise<void> {
       class: 'btn quiet',
       onclick: () => void showCodeScreen(t('showAnswer'), encodeForQr(envelope), t('answerHint'), () => go('home'), undefined, t('identicalNote')),
     }, [t('showQrInstead')]),
-    el('button', { class: 'btn', onclick: () => go('home') }, [t('done')]),
+    // He asked for this to land him in the conversation, not home: the next
+    // thing he does in real life is tell the person the exact house number.
+    // See DEVLOG/handover-chat-signal.md item 1.
+    el('button', { class: 'btn', onclick: () => go('link') }, [t('done')]),
   ])
   shell(t('navAnswer'), body, { back: () => go('home') })
 }
 
-async function sendAnswerOverRelay(envelope: AnswerEnvelope, peer: Peer, pairKeyForPeer: CryptoKey): Promise<void> {
+async function sendAnswerOverRelay(
+  envelope: AnswerEnvelope,
+  peer: Peer,
+  pairKeyForPeer: CryptoKey,
+  outcome: LocalOutcome,
+  tpl: QueryTemplate,
+  match: MatchResult,
+): Promise<void> {
   const peerDid = peer.did as string
   try {
     await (relayChannel as RelayChannel).send(peerDid, envelope, pairKeyForPeer)
@@ -2242,6 +2320,8 @@ async function sendAnswerOverRelay(envelope: AnswerEnvelope, peer: Peer, pairKey
     )
     return
   }
+  // Strictly after the send above -- see pushLocalShare's doc comment.
+  if (outcome === 'shared') pushLocalShare(tpl, match)
   // This confirmation screen is the SAME for every outcome -- it only ever
   // says "sent", never what was sent or whether anything was found.
   const moreQueued = wotScenario() === 'geologengasse' && pendingGeoQueries.length > 0
@@ -2262,7 +2342,8 @@ async function sendAnswerOverRelay(envelope: AnswerEnvelope, peer: Peer, pairKey
     moreQueued
       ? el('button', { class: 'btn primary', onclick: () => go('answer') }, [t('geoNextQuery')])
       : null,
-    el('button', { class: 'btn', onclick: () => go('home') }, [t('done')]),
+    // Land in the conversation, not home -- see the item-1 note above.
+    el('button', { class: 'btn', onclick: () => go('link') }, [t('done')]),
   ])
   shell(t('navAnswer'), body, { back: () => go('home') })
 }
@@ -2420,27 +2501,22 @@ function screenLink(): void {
       ])
     : null
   justAccepted = null
-  const result = el('div', {})
-  const input = el('textarea', {
-    rows: 2,
-    placeholder: t('linkPlaceholder'),
-    style: 'width:100%;border-radius:14px;border:1px solid var(--line);background:var(--bg-raised);color:var(--ink);padding:12px;font:inherit;margin-bottom:10px',
-  }) as HTMLTextAreaElement
 
+  const result = el('div', {})
   const say = (node: HTMLElement): void => { clear(result); result.appendChild(node) }
 
-  const send = async (): Promise<void> => {
-    const text = input.value.trim().slice(0, 500)
-    if (!text) return
-    input.value = ''
-    chatLog.push({ mine: true, text, at: Date.now() })
+  const send = (text: string): void => {
+    chatLog.push({ kind: 'text', mine: true, text, at: Date.now() })
     render()
-    try {
-      await sendOverActiveTransport({ v: 1, t: 'chat', from: s.me, text, ts: Date.now() })
-    } catch (err) {
-      chatLog.push({ mine: true, text: t('linkSendFailed') + ' ' + (err instanceof Error ? err.message : ''), at: Date.now() })
+    void sendOverActiveTransport({ v: 1, t: 'chat', from: s.me, text, ts: Date.now() }).catch((err: unknown) => {
+      chatLog.push({
+        kind: 'text',
+        mine: true,
+        text: t('linkSendFailed') + ' ' + (err instanceof Error ? err.message : ''),
+        at: Date.now(),
+      })
       render()
-    }
+    })
   }
 
   const test = async (): Promise<void> => {
@@ -2465,29 +2541,22 @@ function screenLink(): void {
     ]))
   }
 
-  const bubbles = chatLog.length
-    ? chatLog.map((m) =>
-        el('div', { class: m.mine ? 'quote mine' : 'quote' }, [
-          document.createTextNode(m.text),
-          el('footer', {}, [
-            (m.mine ? t('linkMe') : peer?.displayName ?? '') + ' \u00b7 ' +
-            new Date(m.at).toLocaleTimeString(getLang() === 'de' ? 'de-AT' : 'en-GB'),
-          ]),
-        ]),
-      )
-    : [el('p', {}, [t('linkEmpty')])]
+  // Which of i18n.ts's two existing honesty strings actually describes this
+  // conversation right now: webrtc when the direct channel is open (demo
+  // 3/6), relay otherwise (demo 2/20). Never a new claim of its own -- see
+  // renderSecurityInfo's doc comment.
+  const securityExplain = webrtcChannel?.isOpen() ? t('webrtcExplain') : t('relayExplain')
 
   const body = el('div', {}, [
-    el('h1', {}, [t('navLink')]),
+    el('h1', {}, [peer?.displayName ?? t('navLink')]),
     banner,
-    el('p', { class: 'lead' }, [t('linkLead')]),
-    el('button', { class: 'btn primary', onclick: () => void test() }, [t('linkTestBtn')]),
+    el('div', { class: 'chat-toolbar' }, [
+      el('button', { class: 'btn quiet', onclick: () => void test() }, [t('linkTestBtn')]),
+      renderSecurityInfo(securityExplain),
+    ]),
     result,
-    el('h2', {}, [t('linkChatTitle')]),
-    ...bubbles,
-    input,
-    el('button', { class: 'btn', onclick: () => void send() }, [t('linkSendBtn')]),
-    el('button', { class: 'btn quiet', onclick: () => go('home') }, [t('back')]),
+    renderMessageList(chatLog, resolveTemplate),
+    renderComposer(t('linkPlaceholder'), send),
   ])
   shell(t('navLink'), body, { back: () => go('home') })
 }
