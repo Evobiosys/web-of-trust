@@ -1,20 +1,23 @@
 /**
- * QR wire format: compact JSON serialisation of the three envelope types.
- *
- * `decodeFromQr` is the untrusted-input boundary of the whole demo -- it
- * reads whatever a camera pointed at an arbitrary QR code produced. It must
- * never throw, and it must reject anything that doesn't look exactly like
- * one of the three known envelope shapes (wrong `v`, wrong `t`, missing or
- * mistyped fields).
+ * Wire format: compact JSON serialisation of this app's envelope types
+ * (`Envelope` below). Despite the name, `decodeFromQr` no longer only reads
+ * camera input -- relay.ts's `decryptEnvelope` also hands it plaintext
+ * recovered from an encrypted relay wire, and connect_link.ts hands it a
+ * `connect-ack` payload that travelled the relay UNencrypted (see that
+ * envelope's own doc comment in types.ts for why that is safe). Either way
+ * it stays the untrusted-input boundary of the whole demo: it must never
+ * throw, and it must reject anything that doesn't look exactly like one of
+ * the known envelope shapes (wrong `v`, wrong `t`, missing or mistyped
+ * fields).
  */
 
-import type { AnswerEnvelope, ChatEnvelope, ConnectEnvelope, PingEnvelope, QueryEnvelope } from './types'
+import type { AnswerEnvelope, ChatEnvelope, ConnectAckEnvelope, ConnectEnvelope, PingEnvelope, QueryEnvelope } from './types'
 import { WIRE_VERSION } from './types'
 
 /** Free text is the one unbounded field on the wire, so it gets a bound. */
 export const CHAT_MAX_LEN = 500
 
-export type Envelope = ConnectEnvelope | QueryEnvelope | AnswerEnvelope | ChatEnvelope | PingEnvelope
+export type Envelope = ConnectEnvelope | QueryEnvelope | AnswerEnvelope | ChatEnvelope | PingEnvelope | ConnectAckEnvelope
 
 /** JSON-serialise an envelope for a QR code. */
 export function encodeForQr(env: Envelope): string {
@@ -88,6 +91,14 @@ function parsePing(o: Record<string, unknown>): PingEnvelope | null {
   return { v: WIRE_VERSION, t: 'ping', id: o.id, back: o.back }
 }
 
+function parseConnectAck(o: Record<string, unknown>): ConnectAckEnvelope | null {
+  if (!isIdentity(o.from)) return null
+  // Unlike ConnectEnvelope.did (optional there), `did` is REQUIRED here --
+  // see types.ts's doc comment on ConnectAckEnvelope.
+  if (!isNonEmptyString(o.did)) return null
+  return { v: WIRE_VERSION, t: 'connect-ack', from: o.from, did: o.did }
+}
+
 /**
  * Parse a QR payload back into an envelope. Returns `null` on anything
  * malformed -- truncated JSON, wrong version, wrong/missing `t`, wrong field
@@ -117,6 +128,8 @@ export function decodeFromQr(s: string): Envelope | null {
       return parseChat(o)
     case 'ping':
       return parsePing(o)
+    case 'connect-ack':
+      return parseConnectAck(o)
     default:
       return null
   }

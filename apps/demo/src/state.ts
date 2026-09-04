@@ -39,6 +39,21 @@ export interface Peer {
    * Cleared the moment a real ceremony completes.
    */
   seeded?: boolean
+  /**
+   * How main.ts's `pairKey()` must derive the shared key for this peer.
+   * Absent (or `'nonce'`) means the ORIGINAL two-scan derivation:
+   * `derivePairKey(nonceSelf, noncePeer)` (crypto.ts) -- safe there because
+   * both nonces are exchanged by two cameras in the same room, never over a
+   * network. `'ecdh'` means this peer was paired through the one-scan
+   * connect-link ceremony (connect_link.ts): `nonceSelf`/`noncePeer` are
+   * unused placeholders for that peer (there is no second scan to carry a
+   * nonce back), and the real key comes from X25519 ECDH between `did` and
+   * this device's own identity (crypto.ts's `deriveEcdhPairKey`,
+   * did.ts's `ecdhSharedSecret`) -- see connect_link.ts's module header for
+   * why that substitution is required, not optional, once one nonce has to
+   * cross the relay.
+   */
+  pairing?: 'nonce' | 'ecdh'
 }
 
 export interface DeviceState {

@@ -228,3 +228,33 @@ export function resolveDidPeer(did: string): ResolvedDid {
   if (!serviceEndpoint) throw new Error('did:peer:2 missing a service (S) endpoint')
   return { did, signingPublicKey, keyAgreementPublicKey, serviceEndpoint }
 }
+
+/**
+ * X25519 ECDH shared secret between `identity`'s own key-agreement keypair
+ * and `theirDid`'s resolved key-agreement public key -- the REAL key
+ * agreement the one-scan connect-link ceremony uses instead of
+ * crypto.ts's `derivePairKey` (two plaintext nonces).
+ *
+ * Why this matters (see connect_link.ts's module header for the full
+ * writeup): a nonce that ever crosses the relay -- unavoidable in a
+ * one-scan ceremony, where one side's half of the pairing material must
+ * travel over the network because there is no second scan to carry it back
+ * -- is a nonce the relay has seen, so `derivePairKey(nonceA, nonceB)`
+ * would let the relay compute the same pair key it is supposed to be
+ * excluded from. X25519(myPriv, theirPub) === X25519(theirPriv, myPub): a
+ * did:peer:2's `E` element carries a PUBLIC key, safe to put in a URL or
+ * send in the clear, and the relay learning both parties' DIDs (which it
+ * must, to route -- see relay.ts's module header) never lets it compute
+ * this shared secret, because that needs a PRIVATE key that never leaves
+ * either device.
+ *
+ * Raw bytes only, deliberately: turning this into an AES-GCM `CryptoKey`
+ * is a WebCrypto (HKDF) step, kept in crypto.ts (see its
+ * `deriveEcdhPairKey`) rather than here, the same "key material" /
+ * "WebCrypto operations" split this file and crypto.ts already draw
+ * everywhere else.
+ */
+export function ecdhSharedSecret(identity: Identity, theirDid: string): Uint8Array {
+  const resolved = resolveDidPeer(theirDid)
+  return x25519.getSharedSecret(identity.keyAgreement.secretKey, resolved.keyAgreementPublicKey)
+}

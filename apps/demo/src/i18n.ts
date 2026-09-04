@@ -86,6 +86,37 @@ const S: Table = {
                     en: 'One code, scanned once. After that you know each other.' },
   showMyCode:     { de: 'Meinen Code zeigen', en: 'Show my code' },
   scanTheirCode:  { de: 'Ihren Code scannen', en: 'Scan their code' },
+  // The one-scan connect link (relay mode, connect_link.ts): a QR encoding a
+  // URL, not JSON, so a phone whose camera can only offer to open a link
+  // (GrapheneOS -- no separate scanner app) can actually use it. This is
+  // the PRIMARY connect affordance in relay mode; the two-scan codes above
+  // stay as a fallback.
+  showConnectLink: { de: 'Verbindungslink zeigen', en: 'Show connect link' },
+  connectLinkExplain: {
+    de: 'Ein Link statt eines Codes: die Kamera des anderen Geräts kann ihn direkt öffnen, ganz ohne eigene Scanner-App.',
+    en: 'A link instead of a code: the other device’s camera can open it directly, with no separate scanner app.',
+  },
+  connectLinkHint: {
+    de: 'Zeig diesen Code dem anderen Gerät. Es öffnet die Kamera-App und tippt auf den erkannten Link. Kein zweiter Scan in die andere Richtung nötig: das andere Gerät meldet sich von selbst übers Netz zurück.',
+    en: 'Show this code to the other device. It opens the camera app and taps the link it recognises. No second scan in the other direction needed: the other device reports back over the network by itself.',
+  },
+  // The one place THIS ceremony names what the relay does and does not
+  // learn -- deliberately a different, and more honest, claim than
+  // `relayExplain` below. That one still has to admit "anyone who saw both
+  // codes could compute the same key" because the two-scan ceremony derives
+  // its key from two plaintext nonces. This ceremony derives its key by
+  // real X25519 key agreement (connect_link.ts's module header has the full
+  // reasoning): the relay sees both devices' public identifiers, as it must
+  // to route anything, but that is not enough to compute the shared key,
+  // because that needs a private key that never leaves either device.
+  connectLinkHonesty: {
+    de: 'Dieser Link enthält nur öffentliche Angaben. Der Vermittlungsserver sieht, welche zwei Geräte sich verbinden, kann den Verbindungsschlüssel selbst aber nicht berechnen: dafür wäre ein privater Schlüssel nötig, der nie das Gerät verlässt. Nicht geprüft: ob der Link unterwegs verändert wurde, bevor er gescannt wurde.',
+    en: 'This link contains only public information. The relay server sees which two devices are connecting, but cannot compute the connection key itself: that would need a private key that never leaves the device. Not checked: whether the link was altered before it was scanned.',
+  },
+  connectLinkEphemeralNote: {
+    de: 'Blockiert dieses Gerät dauerhaften Speicher, gilt die Verbindung nur für diesen Besuch.',
+    en: 'If this device blocks persistent storage, the connection lasts only for this visit.',
+  },
   connectedWith:  { de: 'Verbunden mit', en: 'Connected with' },
   noConnection:   { de: 'Noch nicht verbunden.', en: 'Not connected yet.' },
   // Said after a scan actually worked. The camera view used to just close,
