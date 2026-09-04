@@ -160,6 +160,17 @@ const S: Table = {
   linkSendFailed: { de: 'Nicht gesendet:', en: 'Not sent:' },
   linkEmpty:      { de: 'Noch nichts geschrieben.', en: 'Nothing written yet.' },
   linkMe:         { de: 'Ich', en: 'Me' },
+  // The chat's own small info button (chat-signal handover, item 3): opens
+  // whichever of relayExplain/webrtcExplain below actually applies to the
+  // channel this conversation is using right now. Never a new security
+  // claim of its own -- see main.ts's screenLink().
+  chatInfoBtn:    { de: 'Wie ist das gesichert?', en: 'How is this secured?' },
+  // The "what was shared" chat bubble's header: "<Frage-Titel> geteilt",
+  // e.g. "Bleibt euch die Wohnung offen? geteilt" reads oddly, so main.ts
+  // builds it as "<Template-Titel> " + this word, e.g. "Wohnung geteilt" for
+  // demo 20's own template title. Kept as one short word, not a full
+  // sentence, so it composes with every template's title.
+  chatSharedLabel: { de: 'geteilt', en: 'shared' },
   // Shown between catching a code and knowing whether it worked. Accepting a
   // WebRTC offer gathers ICE first, which takes seconds; the camera is already
   // stopped by then, so without this the screen is a dead black rectangle.

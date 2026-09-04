@@ -370,4 +370,167 @@ video.scanner {
   100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
 }
 @media (prefers-reduced-motion: reduce) { .netbubble.grew { animation: none; } }
+/* Lifted clear of the chat screen's pinned composer -- see .composer below. */
+.netbubble.above-composer { bottom: 92px; }
+
+/* ---------- chat (Signal-shaped conversation) ---------- */
+/*
+ * Teal-petrol, deliberately not Signal's blue (see
+ * DEVLOG/handover-chat-signal.md). A second accent pair, kept apart from
+ * --accent/--accent-ink above (still green, still used for the outcome
+ * banner, the switch and every .btn.primary elsewhere) so this one screen's
+ * colour choice never bleeds into the rest of the app. Same contrast
+ * strategy as --accent: a lighter, more saturated tone against the dark
+ * background, a darker one against the light background, each paired with
+ * an ink colour that reads on top of it.
+ */
+:root {
+  --chat-accent: #45c4b8;
+  --chat-accent-ink: #06211e;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --chat-accent: #0e6b63;
+    --chat-accent-ink: #ffffff;
+  }
+}
+:root[data-theme='dark'] {
+  --chat-accent: #45c4b8;
+  --chat-accent-ink: #06211e;
+}
+
+/* The small utility row above the message list: test the connection, or open
+   the security explanation. Two btn-shaped controls sharing a row instead of
+   each claiming a full width -- everything below this is the conversation. */
+.chat-toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: flex-start; }
+.chat-toolbar .btn { width: auto; flex: 1; margin: 0; }
+
+.chat-info { flex: 1; }
+.chat-info summary {
+  list-style: none;
+  cursor: pointer;
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink-dim);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 10px 14px;
+  text-align: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.chat-info summary::-webkit-details-marker { display: none; }
+.chat-info summary::marker { content: ''; }
+.chat-info[open] summary { border-color: var(--chat-accent); color: var(--ink); }
+.chat-info-body {
+  margin-top: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  border: 1px solid var(--line-soft);
+  font-size: 13.5px;
+  color: var(--ink-dim);
+  line-height: 1.55;
+}
+
+/* The conversation: right-aligned tinted bubbles for mine, left-aligned
+   neutral for theirs, tight vertical rhythm, a rounded-corner "tail" instead
+   of a speech-bubble triangle. Layout only -- see app.css's header for why
+   this uses --chat-accent, not --accent. */
+.chat-log { display: flex; flex-direction: column; gap: 6px; margin: 0 0 4px; }
+.bubble-row { display: flex; }
+.bubble-row.mine    { justify-content: flex-end; }
+.bubble-row.theirs  { justify-content: flex-start; }
+
+.bubble {
+  max-width: 80%;
+  padding: 9px 13px 6px;
+  border-radius: 18px;
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.bubble.theirs {
+  background: var(--bg-raised);
+  border: 1px solid var(--line-soft);
+  border-bottom-left-radius: 4px;
+}
+.bubble.mine {
+  background: color-mix(in srgb, var(--chat-accent) 22%, var(--bg-raised));
+  border: 1px solid color-mix(in srgb, var(--chat-accent) 45%, transparent);
+  border-bottom-right-radius: 4px;
+}
+.bubble-time {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--ink-faint);
+  text-align: right;
+}
+
+/* The "what was shared" card: same left/right placement and tint as an
+   ordinary bubble, wider, with its own small header and one block per
+   shared item -- see screens/chat.ts's sharedBubble(). */
+.bubble.shared { max-width: 92%; }
+.bubble-shared-head { font-weight: 700; margin-bottom: 6px; }
+.bubble-shared-item {
+  background: var(--bg-sunken);
+  border-radius: 10px;
+  padding: 8px 10px;
+  margin-top: 6px;
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.bubble-shared-meta { margin-top: 4px; font-size: 11.5px; color: var(--ink-faint); }
+
+/* The composer: pinned to the bottom, the send action beside the field
+   rather than a full-width button underneath -- see this file's own header
+   comment on why that alone changes how the screen reads. */
+.composer {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 10px 0 calc(10px + env(safe-area-inset-bottom));
+  margin-top: 4px;
+  background: var(--bg);
+  border-top: 1px solid var(--line-soft);
+}
+.composer-field {
+  flex: 1;
+  resize: none;
+  min-height: 44px;
+  max-height: 120px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: var(--bg-raised);
+  color: var(--ink);
+  padding: 11px 16px;
+  font: inherit;
+  line-height: 1.35;
+}
+.composer .send {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: var(--chat-accent);
+  color: var(--chat-accent-ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.composer .send:active { transform: scale(.96); }
 
