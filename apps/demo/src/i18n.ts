@@ -126,6 +126,11 @@ const S: Table = {
   // stops being a claim the person has to take on faith.
   navLink:        { de: 'Verbindung prüfen', en: 'Check the connection' },
   navChatNow:     { de: 'Jetzt schreiben', en: 'Write now' },
+  invitedBy:      { de: 'Eine Einladung von', en: 'An invitation from' },
+  invitedByNote:  {
+    de: 'Der Link, den du geöffnet hast, verbindet dich mit diesem Gerät. Wähl unten aus, wer du in dieser Demo sein willst, dann steht die Verbindung von selbst.',
+    en: 'The link you opened connects you with that device. Choose below who you want to be in this demo, and the connection completes by itself.',
+  },
   connectPairTitle:   { de: 'Einander kennenlernen', en: 'Get to know each other' },
   connectPairExplain: {
     de: 'Einmal einen Code austauschen, damit die Geräte wissen, wer der andere ist. Das ist noch keine laufende Verbindung, sondern die Grundlage dafür.',

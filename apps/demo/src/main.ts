@@ -501,8 +501,18 @@ function render(): void {
 
 function screenStart(): void {
   const lang = getLang()
+  // A device that arrived by connect link lands HERE first, not on a
+  // connection. Without this line it reads as a plain start screen and the
+  // person has no idea a pairing is waiting on the other side of the choice.
+  const invitedBy = pendingConnectLink?.from.displayName
   const body = el('div', {}, [
     el('h1', {}, [t('whoAreYou')]),
+    invitedBy
+      ? el('div', { class: 'card' }, [
+          el('h3', {}, [t('invitedBy') + ' ' + invitedBy]),
+          el('p', {}, [t('invitedByNote')]),
+        ])
+      : null,
     el('p', { class: 'lead' }, [t('pickPersona')]),
     ...PERSONAS.map((p) =>
       el('div', { class: 'card' }, [
