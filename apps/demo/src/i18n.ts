@@ -438,17 +438,24 @@ const S: Table = {
     en: 'The link you opened connects you with this device. Enter your name, and you are connected. Being connected does not mean every question gets answered: it only means you can ask.',
   },
   // The design doc's prescribed sentence (docs/two-hop-decisions.md §3),
-  // used verbatim, on B's own ask screen, BEFORE B sends -- this is a
+  // adapted on B's own ask screen, BEFORE B sends -- this is a
   // consent-affecting fact (it may change whether B wants to ask at all),
   // not a status update shown only afterwards. `relayExplain` above stays
   // true and unchanged: this is a DIFFERENT sentence, about a person, not
-  // about the server. `{who}` is the peer B is actually paired with (A);
-  // "Jakob" is named directly because this demo's own topology has exactly
-  // one possible second hop and the audience can see his laptop on the
-  // table -- naming him is not a claim this app makes in general.
+  // about the server. `{who}` is the peer B is actually paired with (A).
+  //
+  // CORRECTED (owner, superseding the design doc's own prescribed wording
+  // and this app's own former D23): the second hop's own name is never
+  // told to B -- an anonymous answer is the default, not a named
+  // introduction (DECISIONS.md D27). This sentence therefore says only the
+  // MECHANISM (one hop possible, {who} reads it first and decides) and
+  // never says WHO that further hop might be, even though this demo's own
+  // topology in fact has exactly one possible second hop and the audience
+  // can see his laptop on the table -- the copy must hold for the general
+  // case this app claims, not lean on staged knowledge of this one cast.
   secondHopAskHonesty: {
-    de: 'Deine Frage geht nicht direkt an Jakob. {who} bekommt sie zuerst zu lesen und entscheidet, ob sie sie weitergibt. Wenn sie das tut, sieht sie auch die Antwort. Der Server sieht in beiden Fällen nur unlesbaren Text; {who} nicht.',
-    en: 'Your question does not go straight to Jakob. {who} reads it first and decides whether to pass it on. If she does, she also sees the answer. The server still sees only unreadable text either way; {who} does not.',
+    de: 'Deine Frage geht nicht direkt an alle, die {who} kennt. {who} bekommt sie zuerst zu lesen und entscheidet, ob sie sie an eine Person weitergibt, die sie selbst kennt. Wenn sie das tut, sieht sie auch die Antwort, du aber erfährst nicht, wer tatsächlich geantwortet hat. Der Server sieht in beiden Fällen nur unlesbaren Text; {who} nicht.',
+    en: 'Your question does not go out to everyone {who} knows. {who} reads it first and decides whether to pass it on to one person they themselves know. If they do, they also see the answer, but you will not learn who actually answered. The server still sees only unreadable text either way; {who} does not.',
   },
   // Same sentence, addressed to A herself (design doc §3 placement 2): at
   // or before the moment she is shown B's question and asked whether to
@@ -469,41 +476,96 @@ const S: Table = {
     de: 'Frage geht an {who}…', en: 'Question going to {who}…',
   },
   // Jakob's own screen, shown BEFORE he decides -- design doc finding 2: he
-  // must know this did not come directly from A, and that answering with
-  // his name means a stranger learns it, before he commits, not after (the
-  // daemon's own shipped order, INTRO after CONSENT, is the mistake this
-  // sentence exists to not repeat). Deliberately does not name B: he does
-  // not need her identity to decide, only that she is not A (design doc §5).
+  // must know this did not come directly from A, before he commits, not
+  // after (the daemon's own shipped order, INTRO after CONSENT, is the
+  // mistake this sentence exists to not repeat). Deliberately does not name
+  // B: he does not need her identity to decide, only that she is not A
+  // (design doc §5).
+  //
+  // CORRECTED (owner, DECISIONS.md D27, supersedes the design doc's own
+  // prescribed wording): the answer is anonymous by default, so Jakob's own
+  // name is NEVER passed on to the stranger who asked, regardless of what
+  // he taps -- there is no "answer and be named" choice any more (that
+  // whole branch, and the buttons that offered it, are gone). This sentence
+  // now says the opposite of what it said before: his name stays with A.
   secondHopNamedIntroNote: {
-    de: 'Diese Frage kommt nicht direkt von {who}. {who} hat sie von jemandem bekommen, den du nicht kennst, und leitet sie dir weiter. Antwortest du und lässt dich nennen, erfährt diese Person deinen Namen.',
-    en: 'This question does not come directly from {who}. {who} received it from someone you do not know and is forwarding it to you. If you answer and allow your name to be given, that person learns your name.',
+    de: 'Diese Frage kommt nicht direkt von {who}. {who} hat sie von jemandem bekommen, den du nicht kennst, und leitet sie dir weiter. Antwortest du, erfährt diese Person nicht, wer du bist -- dein Name bleibt bei {who}.',
+    en: 'This question does not come directly from {who}. {who} received it from someone you do not know and is forwarding it to you. If you answer, that person will not learn who you are -- your name stays with {who}.',
   },
-  secondHopShareNamed:   { de: 'Ja, antworten und mich nennen', en: 'Yes, answer and name me' },
-  secondHopShareUnnamed: { de: 'Ja, aber ohne meinen Namen', en: 'Yes, but without my name' },
   // B's waiting screen (demo 21 only): the wait itself is part of the
-  // demonstration, not a delay to apologise for -- see gate.ts's
-  // RELAY_DEADLINE_MS doc comment. Saying so plainly is the honest
-  // alternative to a generic spinner that would otherwise let elapsed time
-  // read as a hint about how far the question went.
+  // demonstration. CORRECTED for D30's two-switch design: the earlier
+  // version of this string claimed B can "roughly tell how far the
+  // question travelled" -- true only for a SINGLE switch design. With two
+  // independent switches at their own defaults (D28: A's own direct
+  // answers default fast; D30: a RELAY-eligible answer of hers -- decline
+  // or forward, either one -- defaults uniform/~30s, precisely so its OWN
+  // internal timing reveals nothing further), what B can actually and
+  // honestly infer is coarser than "how far": a fast answer usually means
+  // nobody else needed to be asked; a slower one (up to 30 seconds) means
+  // someone else MAY have been asked -- but never who, never whether they
+  // actually had anything, and both switches are each person's own opt-in
+  // to change. Never described as private (it partially is not), never
+  // overclaimed as more precise than it is either.
   secondHopWaitHonesty: {
-    de: 'Das dauert bis zu 30 Sekunden, unabhängig davon, was am Ende herauskommt oder wie weit die Frage gekommen ist.',
-    en: 'This takes up to 30 seconds either way, regardless of the outcome or how far the question travelled.',
+    de: 'Das kann sofort da sein oder bis zu 30 Sekunden dauern. Schnell heißt meist: niemand anderes musste gefragt werden. Langsamer kann heißen, dass noch jemand gefragt wurde -- wer, und ob diese Person überhaupt etwas wusste, erfährst du so oder so nicht.',
+    en: 'This can arrive instantly or take up to 30 seconds. Fast usually means nobody else needed to be asked. Slower can mean someone else was asked -- who, and whether that person knew anything at all, you will not learn either way.',
+  },
+  // Shown on B's waiting screen once roughly RELAY_DEADLINE_MS has passed
+  // with nothing back yet -- see main.ts's runSecondHopRelayCeremony/gate.ts
+  // for why this can genuinely take that long (a real round trip to a
+  // second device, a real human looking at a prompt). Names the STATE
+  // (still being considered) honestly rather than leaving a bare spinner or
+  // a silent timeout -- owner's own principle: a slow answer is reported as
+  // slow, not disguised. Deliberately does not say who is deciding, where
+  // in the chain, or how many hops are involved -- see D28.
+  secondHopStillDeciding: {
+    de: 'Es wird noch überlegt.',
+    en: 'Still being considered.',
   },
   // A's own screen, shown the instant she has tapped a decision (or Jakob's
-  // round trip has concluded) but before the shared 30-second window has
-  // actually elapsed -- see main.ts's renderSecondHopPendingScreen doc
-  // comment for why this exists (closing the stale-clickable-card gap) and
-  // why it deliberately says nothing about outcome or distance travelled.
+  // round trip has concluded) but before her answer to B has actually gone
+  // out -- see main.ts's renderSecondHopPendingScreen doc comment for why
+  // this exists (closing the stale-clickable-card gap). Deliberately says
+  // nothing about outcome; under the fast default this fires almost
+  // immediately, under the uniform opt-in it can sit for up to the shared
+  // window -- true either way without saying which mode is active.
   secondHopPending: {
-    de: 'Deine Entscheidung ist vorgemerkt. Sie wird zum selben Zeitpunkt verschickt wie jede andere Antwort auf diese Frage, unabhängig davon, was sie enthält.',
-    en: 'Your decision is recorded. It will be sent at the same moment as any other answer to this question, regardless of what it contains.',
+    de: 'Deine Entscheidung ist vorgemerkt und wird jetzt verschickt.',
+    en: 'Your decision is recorded and is being sent now.',
   },
-  // B's result screen, only when the true answerer differs from the peer B
-  // asked directly (screenResult's own guard) -- the named introduction
-  // made visible (D23).
-  secondHopAnsweredBy: {
-    de: 'Tatsächlich beantwortet von {who}, eingeführt über {via}.',
-    en: 'Actually answered by {who}, introduced via {via}.',
+  // B's result screen (DECISIONS.md D29): shown ONLY for the accommodation
+  // template's own second-hop answer, where the real address was
+  // deliberately stripped before sending (main.ts's forwardToOwner) --
+  // frames the vaguer answer as intentional, not as a failure to find the
+  // exact place. Never shown for demo 20's own direct answer to the same
+  // question, which still carries the real address as designed.
+  secondHopVaguerAnswer: {
+    de: 'Diese Antwort kam über eine Person, die du nicht kennst. Deshalb siehst du nur diese grobe Angabe, nicht die genaue Adresse. Wer die genaue Adresse braucht, muss dafür direkt verbunden sein.',
+    en: 'This answer came through someone you do not know. That is why you see only this rough description, not the exact address. Getting the exact address requires being directly connected.',
+  },
+  // A's own settings: TWO INDEPENDENT switches (DECISIONS.md D28/D30),
+  // held by two different roles A plays. See state.ts's own doc comment
+  // for the full reasoning; the short version -- the person ANSWERING (a
+  // real match against her own stuff, or a genuine immediate nothing) is
+  // asked, so her switch defaults to fast/honest (D28, the owner's own I9
+  // override). The person RELAYING (an eligible note is in play at all,
+  // whether she declines or forwards) never asked to be involved, so HER
+  // switch defaults the ordinary I9 way: not revealing.
+  secondHopUniformModeDirectLabel: {
+    de: 'Meine eigenen Antworten (kein Weiterleiten) immer gleich lange dauern lassen',
+    en: 'Make my own answers (no relay involved) always take the same amount of time',
+  },
+  secondHopUniformModeDirectHelp: {
+    de: 'Aus (Standard): kommt so schnell wie möglich zurück, wer fragt kann daraus grob ablesen, wie lange es gedauert hat. An: dauert immer bis zu 30 Sekunden.',
+    en: 'Off (default): comes back as fast as possible; whoever asked can roughly tell how long it took. On: always takes up to 30 seconds.',
+  },
+  secondHopRevealRelayLabel: {
+    de: 'Antworten, die ich weiterleite, so schnell wie möglich zurückschicken',
+    en: 'Send answers I relay back as fast as possible',
+  },
+  secondHopRevealRelayHelp: {
+    de: 'Aus (Standard): jede Antwort, bei der eine Notiz von dir im Spiel war -- ob du weitergeleitet hast oder nicht -- dauert bis zu 30 Sekunden, damit niemand am Zeitpunkt erkennen kann, dass du überhaupt jemand anderen gefragt hast. An: solche Antworten kommen so schnell wie möglich zurück, wer fragt kann daraus grob ablesen, dass du weitergeleitet hast.',
+    en: 'Off (default): any answer where one of your notes was involved at all -- whether you forwarded it or not -- takes up to 30 seconds, so nobody can tell from timing that you reached out to someone else. On: such answers come back as fast as possible; whoever asked can roughly tell that you relayed.',
   },
 
   camDenied:      { de: 'Ohne Kamera geht das Scannen nicht. Du kannst den Code auch als Text übertragen.',

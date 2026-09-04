@@ -7,6 +7,50 @@ strictly behind `wotScenario() === 'secondHop'` and, for one small addition
 to the shared consent card, `q.relayed === true` on top of that -- a
 condition that is never true for any build before this one.
 
+## Corrections since the first version of this report (read this first)
+
+Several owner corrections arrived after this report was first written, two
+of which reverse or materially change what is described below. Rather than
+silently rewrite every paragraph they touch, they are recorded here as an
+erratum, and in full in `DECISIONS.md` D27-D30 (append-only, so nothing
+below was edited to hide what actually shipped first):
+
+1. **D27 -- the answer is ANONYMOUS, not a named introduction**, reversing
+   this report's own "two decisions the owner fixed" section below almost
+   entirely on point 1. B never learns who answered. Read D27, not the
+   named-introduction description a few paragraphs down.
+2. **D28/D30 -- FAST is the shipped default**, not the uniform 30-second
+   wait the "timing fork" section below was written around (that section
+   already carries one correction, for the D25->D26 timing-wiring bug; it
+   is now stale a SECOND time, on the default itself). Read D28 and D30 --
+   D30 in particular, because D28 alone (one switch) was superseded within
+   the same day by D30 (two independent switches, different defaults, and
+   an honestly-stated residual the owner specifically asked not to be
+   papered over).
+3. **D29 -- a second-hop accommodation answer never carries the real
+   address**, only an abstraction (city + free window). This did not exist
+   in the first version of this report at all: demo 21 did not carry the
+   accommodation query yet. See the "Scenario A merged" entry in
+   `DECISIONS.md` for why it does now, and D29 for the redaction itself.
+4. **Post-review hardening pass**, done before merge, not part of any owner
+   correction: an `advisor()` review of the D27-D30 work found one real,
+   fixable pre-show risk (a stale-localStorage migration gap on
+   `secondBrainNotes`, now fixed in `state.ts`'s `withDefaults`), one
+   overclaiming sentence in D30 (scoped correctly now), one test-fixture
+   drift in `test/e2e/second_hop.mjs` from the production code it mirrors
+   (fixed), and one encoding bug in leg 9's byte-level address check (latin1
+   substring search on UTF-8 bytes -- fixed to a raw byte search). A fifth
+   suspected issue (relayed content leaking back into A's own direct-match
+   path) was investigated and traced to be NOT live in the current code --
+   see `DECISIONS.md`'s "Post-review hardening" entry, point 5, for the
+   full trace. Nothing here changes D27-D30's decisions themselves.
+
+Everything else below -- the depth cap, the byte-masking mechanism, D24 (the
+intermediary sees what she carries), the general architecture -- still
+holds. Regression counts at the bottom of this report are the FINAL ones,
+after all four corrections plus the hardening pass; earlier counts appear
+only inside the correction call-outs themselves, for the historical record.
+
 ## What landed
 
 Third `WotScenario` value, `'secondHop'` (`apps/demo/src/mode.ts`), built as
@@ -239,7 +283,99 @@ prove that `main.ts` calls it at the right moment; that was D26's gap, now
 closed by e2e leg 8 above, which exercises the real wiring rather than the
 primitive alone.
 
-## Regression
+## Judgment calls the coordinator explicitly asked to be surfaced, not silently resolved
+
+**k = 7.** Answered in full in `DECISIONS.md` D27. Short version: this app's
+second-hop path today runs at the SAME `kThreshold: 1` demo crutch every
+template in this app already ships at (documented in each template's own
+comment as not the production floor). Raising the number alone would not
+reach k=7 for this app's own inventory/note-based content specifically,
+because a second-brain note or an inventory line is structurally
+single-author (`distinctAuthors` capped at 1 by construction) -- getting
+there needs a data-model change (some notion of independent corroboration by
+several people), not a config change. Not attempted here; flagged instead.
+
+**Whether the timing switch is in the right hands.** Answered in
+`DECISIONS.md` D30: split into two switches once the owner pointed out the
+mismatch. The person B directly asked (the answerer) and the person who
+might reach beyond herself (the relayer) are the SAME device in this cast,
+so there was never a wrong-PERSON problem -- but there was a wrong-GRAIN
+one: one switch governing both roles conflated "how fast do I like
+answering when nothing is at stake" with "should this specific act of
+reaching out to someone else be timing-observable," which are different
+questions with different correct defaults. Two switches, two defaults, D30
+has the full reasoning and the honestly-stated residual (the two defaults'
+own difference from each other is itself a coarse signal that cannot be
+fully closed without giving up one of the two decisions the owner actually
+wants).
+
+**Anonymous + address = home address to a stranger.** My own view, for the
+record, alongside the owner's actual resolution (D29): an anonymous SOURCE
+and a PRECISE, individually-identifying piece of content are two different
+axes of exposure, and collapsing them into "anonymity wasn't enough, so
+un-anonymize" would have been the wrong fix -- it would have solved the
+address problem by reopening the one the owner had just closed (D27). The
+better fix is exactly the one taken: keep the source anonymous, and instead
+narrow WHAT crosses a hop it was never scoped for, the same way this whole
+protocol already narrows disclosure by consent and by hop rather than by
+identity per se. Would a named introduction have been defensible instead,
+specifically for this one template? Arguably yes, as a second, independent
+lever -- but it does not need to be reached for here, because the payload
+narrowing alone already removes the specific harm named (a home address
+reaching someone who could physically use it), and adding a second lever on
+top would be solving an already-solved problem at the cost of the general
+anonymous default the owner had just set. I did not change the anonymous
+default; D29's abstraction is the whole fix.
+
+## Regression (FINAL -- after D27, D28, D29, D30, and the post-review hardening pass)
+
+- `tsc --noEmit`: clean.
+- `vitest run`: **311 passed** (was 309 after D26, 310 after D27-D30; +1 net
+  from the hardening pass -- `test/state_secondbrain_migration.test.ts`,
+  proving `withDefaults` migrates a pre-rename `secondBrainNote` (singular)
+  into `secondBrainNotes` (array) for a device that ran an earlier build of
+  this branch).
+- `test/e2e/second_hop.mjs`: **41 assertions, 41 passed, 0 failed** against
+  the live relay (`questhub.eco`), ~16-17s wall time -- counted directly
+  from the run's own output (`grep -c PASS`/`grep -c FAIL`), not hand-
+  tallied. This session's own earlier "40/40" figure (written before this
+  hardening pass, same uncommitted draft) was an uncounted arithmetic slip,
+  not a true prior count: the hardening pass's leg 9 fix (below) rewrote how
+  ONE existing assertion is computed, it did not add or remove an `ok()`
+  call, so the actual total was already 41 before this pass touched
+  anything. One run hit a transient `waitFor` timeout on leg 3 (relay
+  network noise, same class of flake documented earlier in this project's
+  history, unrelated to any code changed here); the immediate retry passed
+  all 41 cleanly.
+- `vite build` succeeds for demo 1, demo 20, and demo 21 (both the
+  address-free default build and the opt-in address-bearing one).
+- **Address-leak check, done rather than assumed** (the coordinator's own
+  past mistake, named explicitly: exporting `VITE_WOT_ADDRESS` for a whole
+  deploy run once leaked it into demo 1/2/3/6): built demo 1, 2, 3, 6, and
+  demo 21's address-free configuration locally with a clearly-fake test
+  address (`TESTADDRESS_DO_NOT_USE_Wienzeile_999_1234_Wien`) NOT set, and
+  demo 20 plus demo 21's opt-in configuration WITH it set, then grepped
+  every resulting `dist/`. Zero matches in the first five; exactly one match
+  each in the two opt-in builds. Confirms `scripts/deploy_wot.sh`'s new
+  demo-21 gate (mirrors demo 20's own, reusing the same `DEPLOY_DEMO20`/
+  `VITE_WOT_ADDRESS` env vars since it is the same secret) actually holds.
+  Re-run a second time, independently, after the hardening pass's `state.ts`
+  change, with a different throwaway test address string -- same result.
+
+**Operational note for tonight's live run.** If any of the three phones
+(Jakob, A, B) has already loaded an earlier build of this branch (a
+rehearsal run), its local `secondBrainNotes` field specifically is now
+migrated automatically on next load -- that one field alone does not need a
+manual reset. This is narrower than "the phone is fine": a rehearsal phone
+also carries peers, a relay identity, and a chat log from whatever it did
+last, none of which this migration touches. Verified via `db.ts`'s `kvSet`
+being a plain structured-clone store with no schema/key validation of its
+own, so a stray legacy field surviving alongside the migrated one is
+harmless (every reader uses the new field only) but is not itself evidence
+that the rest of a phone's state is current. `resetAll` remains
+available as a fallback if anything else about a phone's state looks stale.
+
+## Regression (as it stood after D26, kept for the historical record)
 
 - `tsc --noEmit`: clean, before AND after the D26 fix.
 - `vitest run`: **309 passed**, unchanged by the D26 fix (was 300 before this
@@ -286,6 +422,18 @@ D26 has the full account):**
   logic already applies elsewhere in this app.
 
 ## What could not be closed, stated plainly
+
+**The "In die Runde fragen" -> "Ins Netzwerk rufen" rename.** Applied on
+`main` (commit `bace7e3`, values AND comments/doc strings, across
+`i18n.ts`/`main.ts`/`types.ts`/`wire.ts`/`data/free_text_query.ts`) while
+this branch was already in flight. This branch still says the OLD wording
+in every one of those files -- deliberately NOT touched here, on the
+advisor's own guidance: editing the exact same lines main already renamed
+would only create merge conflict, not progress, and this branch introduces
+no NEW occurrences of the old phrase. Whoever merges/rebases this branch
+onto `main` gets the rename for free from `main`'s own commit; nothing
+further is needed from this branch's side. Flagged here so it is not
+mistaken for an oversight.
 
 **Browser-driven, cross-context confirmation that the CONNECT-LINK ceremony
 completes over the LIVE relay** (Jakob's link opened in one Playwright

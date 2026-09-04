@@ -15,10 +15,15 @@
 #   app.idea2.site/wot/demo21/ a question travels one hop further, with    (apps/demo,
 #                              consent at each hop                         VITE_WOT_MODE=relay,
 #                                                                          VITE_WOT_SCENARIO=secondHop)
-#                              Built and pushed by a plain run, same as demo1/2/3/6: its
-#                              seed content (a ladder, data/second_hop.ts) is generic, not
-#                              the owner's real address the way demo20's is, so it does NOT
-#                              need demo20's opt-in gate. DEVLOG/handover-demo21-two-hop.md.
+#                              A PLAIN run builds and pushes this address-free (VITE_WOT_ADDRESS
+#                              unset here, same as demo1/2/3/6): its own seed content (a ladder,
+#                              data/second_hop.ts) is generic. Since demo 21 now ALSO carries
+#                              demo 20's accommodation query (scenario A -- the flat, the private
+#                              calendar, the real address, reused from data/geologengasse.ts /
+#                              match/accommodation.ts, not copied), it gets a SECOND, opt-in-only
+#                              rebuild inside the SAME DEPLOY_DEMO20 gate below, WITH the address --
+#                              a plain run never includes it, exactly like demo 20 itself.
+#                              DEVLOG/handover-demo21-two-hop.md.
 #   app.idea2.site/wot/demo4/  full app mockup               (demos/app-mockup.html)
 #   app.idea2.site/wot/demo5/  gating prototype              (demos/gating-prototype.html)
 #   app.idea2.site/wot/app/    mobile-UI LAN alpha client    (apps/mobile-ui)
@@ -105,14 +110,19 @@ echo "building and pushing demo6 (base /wot/demo6/, the ladder)"
 ( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo6/ VITE_WOT_MODE=ladder npx vite build >/dev/null )
 push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo6"
 
-echo "building and pushing demo21 (base /wot/demo21/, a question travels one hop further)"
+echo "building and pushing demo21 (base /wot/demo21/, a question travels one hop further, ADDRESS-FREE)"
 ( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo21/ VITE_WOT_MODE=relay VITE_WOT_SCENARIO=secondHop npx vite build >/dev/null )
 push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo21"
 
 # Demo 20 (Jakob's own flat, his own web of trust) is DELIBERATELY opt-in:
 # a plain `./scripts/deploy_wot.sh` run never touches it, never requires
 # VITE_WOT_ADDRESS, and never risks publishing the owner's real address
-# by accident. Build and push it only with:
+# by accident. Demo 21 now ALSO carries the accommodation query (scenario A,
+# reused from demo 20's own modules -- see data/second_hop.ts's own doc
+# comment), so it gets the SAME opt-in treatment: the unconditional build
+# just above never sets VITE_WOT_ADDRESS, and this block rebuilds+repushes
+# demo 21 a SECOND time, WITH the real address, only when opted in --
+# overwriting the address-free push above. Build and push both only with:
 #
 #   DEPLOY_DEMO20=1 VITE_WOT_ADDRESS="Geologengasse <Hausnummer>, 1030 Wien" \
 #     ./scripts/deploy_wot.sh
@@ -121,9 +131,10 @@ push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo21"
 # is a build-time env var and never a literal in this repo -- and read this
 # script's own header comment ("don't publish this") before ever running
 # this block against the public app.idea2.site host: that host is reachable
-# by anyone with the URL, and demo 20's own built bundle necessarily
-# contains the address in cleartext once VITE_WOT_ADDRESS is supplied
-# (a fully client-side app has no other way to answer with it locally).
+# by anyone with the URL, and demo 20's AND demo 21's built bundles
+# necessarily contain the address in cleartext once VITE_WOT_ADDRESS is
+# supplied (a fully client-side app has no other way to answer with it
+# locally).
 if [ "${DEPLOY_DEMO20:-}" = "1" ]; then
   if [ -z "$DEMO20_ADDRESS" ]; then
     echo "DEPLOY_DEMO20=1 but VITE_WOT_ADDRESS is not set -- refusing to build a demo whose whole point is answering with a real address it does not have. See this block's own comment." >&2
@@ -132,8 +143,11 @@ if [ "${DEPLOY_DEMO20:-}" = "1" ]; then
   echo "building and pushing demo20 (base /wot/demo20/, Jakob's own flat)"
   ( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo20/ VITE_WOT_MODE=relay VITE_WOT_SCENARIO=geologengasse VITE_WOT_ADDRESS="$DEMO20_ADDRESS" npx vite build >/dev/null )
   push_dir  "$REPO/apps/demo/dist"             "$REMOTE_APP/demo20"
+  echo "rebuilding and re-pushing demo21 WITH the address (base /wot/demo21/, opt-in only -- overwrites the address-free push above)"
+  ( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo21/ VITE_WOT_MODE=relay VITE_WOT_SCENARIO=secondHop VITE_WOT_ADDRESS="$DEMO20_ADDRESS" npx vite build >/dev/null )
+  push_dir  "$REPO/apps/demo/dist"             "$REMOTE_APP/demo21"
 else
-  echo "skipping demo20 (opt-in only -- set DEPLOY_DEMO20=1 and VITE_WOT_ADDRESS to include it)"
+  echo "skipping demo20, and demo21 stays address-free (opt-in only -- set DEPLOY_DEMO20=1 and VITE_WOT_ADDRESS to include both)"
 fi
 
 # mobile-ui imports @resource-web/app-profiles as a workspace package and

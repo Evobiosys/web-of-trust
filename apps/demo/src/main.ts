@@ -36,10 +36,13 @@ import { buildConnectAck, buildConnectLinkUrl, parseConnectLinkParams } from './
 import type { ConnectLinkParams } from './connect_link'
 import { createWebrtcChannel, decodeRtcPayload, encodeAnswerPayload, encodeOfferPayload } from './webrtc'
 import type { WebrtcChannel, WebrtcStatus } from './webrtc'
-import { ACCOMMODATION_TEMPLATE, ACCOMMODATION_TEMPLATE_ID, accommodationPreviewDe, accommodationPreviewEn, matchAccommodation } from './match/accommodation'
+import {
+  ACCOMMODATION_TEMPLATE, ACCOMMODATION_TEMPLATE_ID, accommodationAbstractText, accommodationPreviewDe,
+  accommodationPreviewEn, matchAccommodation,
+} from './match/accommodation'
 import { SEED_GRAPH_NODES } from './data/geologengasse'
 import type { GraphNode } from './data/geologengasse'
-import { JAKOB_LADDER_INVENTORY_TEXT, A_NOTE_ABOUT_JAKOB_TEXT } from './data/second_hop'
+import { JAKOB_LADDER_INVENTORY_TEXT, A_NOTE_ABOUT_JAKOB_TEXT, A_NOTE_ABOUT_JAKOB_FLAT_TEXT } from './data/second_hop'
 import { RELAY_DEADLINE_MS, maskAnswerPlaintext, truncateSharedJson, sealAnswerEnvelope } from './gate'
 import type { SharedItem, SharedPayload } from './types'
 import type { SecondBrainNote } from './state'
@@ -1044,13 +1047,26 @@ async function seedSecondHopGuest(rawName: string): Promise<void> {
     queryLog: [],
     ...(isFirstHop
       ? {
-          secondBrainNote: {
-            id: randomId(8),
-            text: A_NOTE_ABOUT_JAKOB_TEXT,
-            createdAt: new Date().toISOString(),
-            ownerPeerId: 'jakob',
-            ownerDisplayName: 'Jakob',
-          },
+          // Two separate notes -- scenario B (the ladder) and scenario A
+          // (the flat, reusing demo 20's own material) -- see
+          // data/second_hop.ts's module doc for why these stay two notes
+          // rather than one fused sentence.
+          secondBrainNotes: [
+            {
+              id: randomId(8),
+              text: A_NOTE_ABOUT_JAKOB_TEXT,
+              createdAt: new Date().toISOString(),
+              ownerPeerId: 'jakob',
+              ownerDisplayName: 'Jakob',
+            },
+            {
+              id: randomId(8),
+              text: A_NOTE_ABOUT_JAKOB_FLAT_TEXT,
+              createdAt: new Date().toISOString(),
+              ownerPeerId: 'jakob',
+              ownerDisplayName: 'Jakob',
+            },
+          ],
         }
       : {}),
   }
@@ -1067,7 +1083,7 @@ async function seedSecondHopGuest(rawName: string): Promise<void> {
  * Demo 21's own name-entry screen -- deliberately a SEPARATE function from
  * screenGeoNameEntry rather than a shared one branching on scenario. The two
  * scenarios' seed functions build genuinely different DeviceState shapes
- * (one may carry a secondBrainNote, one never queues pending requests), and
+ * (one may carry secondBrainNotes, one never queues pending requests), and
  * keeping the entry points apart is what makes it impossible for a future
  * edit to one scenario's ceremony to silently reach the other's -- see
  * mode.ts's own doc comment on why `secondHop` is a third value, not a
@@ -1173,6 +1189,41 @@ function screenHome(): void {
           peer?.seeded ? el('p', { class: 'seeded' }, [t('seededNote')]) : null,
           el('button', { class: 'btn', onclick: () => go('connect') }, [t('navConnect')]),
         ]),
+    // Demo 21 (secondHop) only, and only on the ONE device where either
+    // setting means anything: A's own, the sole holder of a second-brain
+    // note in this cast. TWO INDEPENDENT switches (DECISIONS.md D28/D30),
+    // held by two different roles this device plays -- see state.ts's own
+    // doc comment for the full reasoning on why the defaults point in
+    // opposite directions. Both persisted immediately on toggle, read
+    // fresh by createRelayDispatch the next time a query actually arrives.
+    wotScenario() === 'secondHop' && s.secondBrainNotes?.length
+      ? el('div', { class: 'card' }, [
+          el('label', { class: 'row', style: 'display:flex;align-items:center;gap:10px' }, [
+            el('input', {
+              type: 'checkbox',
+              ...(s.secondHopUniformModeDirect ? { checked: true } : {}),
+              onchange: (e: Event) => {
+                s.secondHopUniformModeDirect = (e.currentTarget as HTMLInputElement).checked
+                void saveState(s)
+              },
+            }),
+            el('span', {}, [t('secondHopUniformModeDirectLabel')]),
+          ]),
+          el('p', { class: 'note' }, [t('secondHopUniformModeDirectHelp')]),
+          el('label', { class: 'row', style: 'display:flex;align-items:center;gap:10px;margin-top:10px' }, [
+            el('input', {
+              type: 'checkbox',
+              ...(s.secondHopRevealRelay ? { checked: true } : {}),
+              onchange: (e: Event) => {
+                s.secondHopRevealRelay = (e.currentTarget as HTMLInputElement).checked
+                void saveState(s)
+              },
+            }),
+            el('span', {}, [t('secondHopRevealRelayLabel')]),
+          ]),
+          el('p', { class: 'note' }, [t('secondHopRevealRelayHelp')]),
+        ])
+      : null,
     el('button', { class: 'btn primary', onclick: () => go('ask') }, [t('navAsk')]),
     el('button', { class: 'btn', onclick: () => go('answer') }, [t('navAnswer')]),
     // Only in the modes that actually hold a connection. In qr mode there is
@@ -1761,8 +1812,29 @@ interface GraphBubble {
  *  by construction: render() already re-runs screenGraph() on every state
  *  change (acceptPendingRequest() calls it), so a peer accepted a moment
  *  ago is simply already in this array the next time this function runs. */
+/**
+ * `SEED_GRAPH_NODES` (data/geologengasse.ts) is demo 20's own staged ring-2
+ * cast (Alex's friend, the placeholder bubble) -- statically imported, so it
+ * is always present in the bundle regardless of scenario (this file's own
+ * module doc explains why), but must not visually bleed into a DIFFERENT
+ * scenario's cast. Owner's mutual-consent principle (a person who joined
+ * through A appears in A's own graph as a matter of course, but never in
+ * Jakob's UNLESS both A and that person agree): demo 21 (secondHop) has no
+ * mechanism at all yet for showing a second-ring person to anyone but the
+ * device that actually holds the live peer edge to them (`live` below,
+ * unchanged, is flat ring-1 for every real peer -- B never becomes a peer
+ * of Jakob's, structurally, so he never appears here regardless; see
+ * forwardToOwner's own doc comment on why the forwarded query never carries
+ * B's identity at all), so the default IS satisfied by construction for
+ * this scenario already. What this gate closes is a DIFFERENT, narrower
+ * problem: without it, a secondHop device navigating here would see demo
+ * 20's unrelated Geologengasse neighbours rendered alongside its own real
+ * cast. Scoped to `!== 'secondHop'` rather than `=== 'geologengasse'` so
+ * every OTHER scenario (1/2/3/6/20 and any future one) keeps today's exact
+ * behaviour, byte-identical -- only secondHop's own seed list changes.
+ */
 function graphBubbles(s: DeviceState): GraphBubble[] {
-  const seeded: GraphBubble[] = SEED_GRAPH_NODES.map((n: GraphNode) => ({
+  const seeded: GraphBubble[] = wotScenario() === 'secondHop' ? [] : SEED_GRAPH_NODES.map((n: GraphNode) => ({
     id: n.id,
     label: n.label[getLang()],
     ring: n.ring === 'ring2' ? 2 : 1,
@@ -1873,7 +1945,17 @@ function screenGraph(): void {
  *  as one function used by both screenAsk() and runConsentCeremony()'s
  *  template lookup (via resolveTemplate()) so the two can never drift. */
 function templatesForScenario(): QueryTemplate[] {
-  return wotScenario() === 'geologengasse' ? [ACCOMMODATION_TEMPLATE] : TEMPLATES
+  const scenario = wotScenario()
+  if (scenario === 'geologengasse') return [ACCOMMODATION_TEMPLATE]
+  // Demo 21 (secondHop, "scenario A"): the SAME accommodation template demo
+  // 20 offers, reused directly (not copied) so a query for it, its
+  // matching, and its address-before-consent discipline are all identical
+  // code to demo 20's own -- ADDED to the ordinary catalogue rather than
+  // replacing it, since secondHop's OTHER story ("scenario B", the ladder)
+  // is asked via free text, not a fixed template, and TEMPLATES staying
+  // available costs nothing (they simply never match anything seeded here).
+  if (scenario === 'secondHop') return [ACCOMMODATION_TEMPLATE, ...TEMPLATES]
+  return TEMPLATES
 }
 
 /** getTemplate() (data/templates.ts) only knows the five chat templates --
@@ -2045,7 +2127,7 @@ function screenAsk(): void {
   // own ask screen when she asks Jakob directly (no relay involved at all
   // in that call). The leaf asker is the one device that is neither Jakob
   // nor the note-holding intermediary.
-  const isLeafAsker = secondHop && s.me.id !== 'jakob' && !s.secondBrainNote
+  const isLeafAsker = secondHop && s.me.id !== 'jakob' && !s.secondBrainNotes?.length
   const body = el('div', {}, [
     el('h1', {}, [t('askTitle')]),
     el('p', { class: 'lead' }, [t(wotScenario() === 'geologengasse' ? 'askLeadGeo' : 'askLead')]),
@@ -2094,7 +2176,12 @@ function screenAsk(): void {
       el('div', { class: 'card' }, [
         el('h3', {}, [tpl.title[lang]]),
         el('p', {}, ['„' + tpl.question[lang] + '“']),
-        wotScenario() === 'geologengasse' ? el('p', { class: 'note' }, [t('geoKHonesty')]) : null,
+        // Same honesty disclosure demo 20 shows for its own accommodation
+        // card -- keyed on the TEMPLATE (isAddressBearingTemplate), not the
+        // scenario, so demo 21's own accommodation card (scenario A, same
+        // template, same k=1 crutch) gets it too rather than silently
+        // omitting it just because the scenario differs.
+        isAddressBearingTemplate(tpl) ? el('p', { class: 'note' }, [t('geoKHonesty')]) : null,
         el('button', {
           class: 'btn primary',
           ...(peer ? {} : { disabled: true }),
@@ -2335,24 +2422,47 @@ async function askOverRelay(tpl: QueryTemplate, q: QueryEnvelope, peer: Peer): P
   const channel = relayChannel
 
   const waiter = waitForAnswer(q.qid, RELAY_ANSWER_TIMEOUT_MS)
+  // Demo 21 only (every other caller of askOverRelay -- demo 2, demo 6's
+  // relay rung -- leaves `secondHop` false, so `waitNote` stays null and
+  // the setTimeout below never arms; their behaviour is byte-for-byte
+  // unchanged). `settled` guards both the setTimeout callback and every
+  // early-exit below against mutating a note that may no longer be on
+  // screen.
+  const secondHop = wotScenario() === 'secondHop'
+  let settled = false
+  // The wait itself is part of what this demo shows, not a delay to
+  // explain away -- see gate.ts's RELAY_DEADLINE_MS doc comment and
+  // i18n.ts's secondHopWaitHonesty doc comment. DECISIONS.md D28: fast is
+  // now the default, so this mostly resolves before anyone reads past the
+  // first sentence -- but if a decision is genuinely still outstanding
+  // after roughly RELAY_DEADLINE_MS (uniform mode on the far end, or a
+  // real human still looking at a real prompt), say so honestly rather
+  // than leaving a bare spinner or a silent wait (owner's own principle: a
+  // slow answer is reported as slow, not disguised) -- never naming who is
+  // deciding or where in the chain.
+  const waitNote = secondHop ? el('p', { class: 'note' }, [t('secondHopWaitHonesty')]) : null
+  if (secondHop && waitNote) {
+    setTimeout(() => {
+      if (settled) return
+      clear(waitNote)
+      waitNote.appendChild(document.createTextNode(t('secondHopStillDeciding')))
+    }, RELAY_DEADLINE_MS)
+  }
   const body = el('div', {}, [
     el('h1', {}, [tpl.title[getLang()]]),
     el('p', { class: 'lead' }, ['„' + tpl.question[getLang()] + '“']),
     el('div', { class: 'card' }, [
       el('p', {}, [el('span', { class: 'spin' }), document.createTextNode(' ' + t('relayAskInFlight'))]),
-      // Demo 21 only: the wait itself is part of what this demo shows, not
-      // a delay to explain away -- see gate.ts's RELAY_DEADLINE_MS doc
-      // comment and i18n.ts's secondHopWaitHonesty doc comment.
-      wotScenario() === 'secondHop' ? el('p', { class: 'note' }, [t('secondHopWaitHonesty')]) : null,
+      waitNote,
       // Ladder mode only (demo 6) -- demo 2 never sets wotMode() === 'ladder',
       // so this line never renders there. The visible rung IS the demo.
       wotMode() === 'ladder' ? el('p', { class: 'note' }, [rungBadgeText('relay')]) : null,
       mountRelayStatusBadge(),
     ]),
-    el('button', { class: 'btn quiet', onclick: () => { waiter.cancel(); void askViaQr(tpl, q, peer) } }, [t('showQrInstead')]),
-    el('button', { class: 'btn quiet', onclick: () => { waiter.cancel(); go('ask') } }, [t('back')]),
+    el('button', { class: 'btn quiet', onclick: () => { settled = true; waiter.cancel(); void askViaQr(tpl, q, peer) } }, [t('showQrInstead')]),
+    el('button', { class: 'btn quiet', onclick: () => { settled = true; waiter.cancel(); go('ask') } }, [t('back')]),
   ])
-  shell(t('navAsk'), body, { back: () => { waiter.cancel(); go('ask') } })
+  shell(t('navAsk'), body, { back: () => { settled = true; waiter.cancel(); go('ask') } })
 
   let sendErr: Error | null = null
   const key = await pairKey(peer)
@@ -2363,12 +2473,14 @@ async function askOverRelay(tpl: QueryTemplate, q: QueryEnvelope, peer: Peer): P
   }
 
   if (sendErr) {
+    settled = true
     waiter.cancel()
     screenRelayAskError(t('relaySendFailed'), tpl, q, peer)
     return
   }
 
   const env = await waiter.promise
+  settled = true
   if (!env) {
     screenRelayAskError(t('relayTimeout'), tpl, q, peer)
     return
@@ -2476,21 +2588,31 @@ function screenResult(decoded: Awaited<ReturnType<typeof interpret>>, peerName: 
       el('b', {}, [shared ? t('outShared') : t('outNothing')]),
       el('span', {}, [shared ? peerName + ' ' + t('outSharedSub') : t('outNothingSub')]),
     ]),
-    // The named introduction, made visible to B (D23/design doc §2): when
-    // the actual answerer is someone other than the peer B asked directly,
-    // `shared.from` (gate.ts's GateInput.identity, threaded through by
-    // whichever hop actually answered) says so by name. Every demo before
-    // this one leaves `from` empty (gate.ts's own former "known gap" note),
-    // so this renders nothing for them -- inert, not new UI to maintain.
-    shared?.from && shared.from !== peerName
-      ? el('p', { class: 'note' }, [t('secondHopAnsweredBy').replace('{who}', shared.from).replace('{via}', peerName)])
-      : null,
+    // REMOVED (DECISIONS.md D27, superseding the former D23 "named
+    // introduction" this comment used to describe): a second-hop answer is
+    // anonymous by default now, so `shared.from` is deliberately left ''
+    // on that path (main.ts's forwardToOwner/resolveRelayPayload) and there
+    // is nothing here to render. For every OTHER demo `shared.from` equals
+    // `peerName` exactly (the direct answerer's own name, via GateInput.identity),
+    // so a naive `shared.from && shared.from !== peerName` guard would have
+    // stayed silent for them regardless -- removed outright rather than kept
+    // as dead code that only looks like it still does something.
     ...(shared?.items ?? []).map((item) =>
       el('div', { class: 'quote' }, [
         item.text,
         el('footer', {}, [t('fromChat') + ' ' + item.context + ' · ' + item.when]),
       ]),
     ),
+    // DECISIONS.md D29: a second-hop accommodation answer is deliberately
+    // vaguer than demo 20's own direct one (the real address stripped
+    // before sealing, main.ts's forwardToOwner) -- said plainly here so it
+    // reads as a design choice, not as a failure to find the exact place.
+    // Gated on the SCENARIO too, not just the template id: demo 20's own
+    // direct answer to this same template legitimately carries the real
+    // address and must keep saying so unchanged.
+    wotScenario() === 'secondHop' && shared?.templateId === ACCOMMODATION_TEMPLATE_ID
+      ? el('p', { class: 'note' }, [t('secondHopVaguerAnswer')])
+      : null,
     // Ladder mode only (demo 6): which rung actually carried this exchange --
     // set by askWith()/askOverWebrtc()/askOverRelayOrQr() just before this
     // screen renders. This IS the demo: the point is not just that a rung 3
@@ -2654,19 +2776,16 @@ async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
 
   // Demo 21 (secondHop) only, and only for a query that arrived VIA A's
   // relay (q.relayed === true -- never true for anyone else, see
-  // types.ts's doc comment on that field). Owner's fixed point 1: Jakob
-  // consenting to answer and consenting to be NAMED to someone he has never
-  // met are bundled into one decision, not implied by having paired with A.
-  // Owner's follow-up, resolved here: declining to be named is a real,
-  // separate LOCAL choice (I6 -- Jakob's own Protokoll only ever shows
-  // 'declined' either way, a deliberate simplification noted in the result
-  // report) but produces the exact SAME wire behaviour as an outright
-  // decline -- `finish(false)` either way. An introduction that hid who it
-  // was FROM the person being introduced would not be the named
-  // introduction the owner asked for; the only choice this app offers is
-  // "answer and be named" or "not this time," and it says so before either
-  // button.
-  const namedRelay = wotScenario() === 'secondHop' && q.relayed === true
+  // types.ts's doc comment on that field). Jakob must still learn, before
+  // he decides, that this came from a stranger via A (I4, design doc
+  // finding 2) -- `secondHopNamedIntroNote` says so. What changed
+  // (DECISIONS.md D27, superseding this app's own former D23): the answer
+  // is anonymous by default, so there is no separate "answer and be named"
+  // choice any more -- consenting to answer NEVER passes his name on. The
+  // three-button branch this comment used to describe is gone; a relayed
+  // query gets the exact same two buttons (decline / share) as any other
+  // query, only the notice above them differs.
+  const relayedFromStranger = wotScenario() === 'secondHop' && q.relayed === true
   const body = el('div', {}, [
     el('h1', {}, [q.from.displayName + ' ' + t('askedYou')]),
     el('p', { class: 'lead' }, ['„' + tpl.question[lang] + '“']),
@@ -2675,7 +2794,9 @@ async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
         has ? (addressBearing ? (lang === 'de' ? accommodationPreviewDe() : accommodationPreviewEn()) : t('foundSomething')) : t('foundNothing'),
       ]),
       has ? el('p', {}, [t('willingShare')]) : null,
-      has && namedRelay ? el('p', { class: 'note' }, [t('secondHopNamedIntroNote').replace('{who}', q.from.displayName)]) : null,
+      has && relayedFromStranger
+        ? el('p', { class: 'note' }, [t('secondHopNamedIntroNote').replace(/\{who\}/g, q.from.displayName)])
+        : null,
     ]),
     // The reveal toggle never renders for the address-bearing template --
     // see isAddressBearingTemplate()'s doc comment above. Every other
@@ -2689,17 +2810,11 @@ async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
       },
     }, [t('seeWhat')]) : null,
     addressBearing ? null : reveal,
-    has && namedRelay
+    has
       ? el('div', { class: 'btnrow' }, [
           el('button', { class: 'btn', onclick: () => finish(false) }, [t('noShare')]),
-          el('button', { class: 'btn', onclick: () => finish(false) }, [t('secondHopShareUnnamed')]),
-          el('button', { class: 'btn primary', onclick: () => finish(true) }, [t('secondHopShareNamed')]),
+          el('button', { class: 'btn primary', onclick: () => finish(true) }, [t('yesShare')]),
         ])
-      : has
-        ? el('div', { class: 'btnrow' }, [
-            el('button', { class: 'btn', onclick: () => finish(false) }, [t('noShare')]),
-            el('button', { class: 'btn primary', onclick: () => finish(true) }, [t('yesShare')]),
-          ])
         : el('button', { class: 'btn primary', onclick: () => finish(false) }, [t('continueBtn')]),
   ])
   shell(t('navAnswer'), body, { back: () => go('answer') })
@@ -2742,42 +2857,101 @@ function secondBrainThread(s: DeviceState, note: SecondBrainNote): ChatThread {
  *  (forwardToOwner's own wait for Jakob's answer) can compute "how much of
  *  the shared window is left" without threading a second copy of the same
  *  timestamp through by hand. */
+/** Which of A's two independent switches (DECISIONS.md D28/D30) governs a
+ *  given resolution: 'direct' when THIS device is the one actually
+ *  answering (a real match against its own stuff, or a genuine immediate
+ *  "nothing" with no note ever in play); 'relay' when an eligible
+ *  second-brain note was in play at all, whether she went on to decline or
+ *  to forward it. See state.ts's own doc comment on the two fields this
+ *  maps to and D30 for why the boundary is drawn at "was a note eligible,"
+ *  not "did she actually forward." */
+type RelayDispatchKind = 'direct' | 'relay'
+
+/** What every second-hop ending holds, never sends directly -- see
+ *  createRelayDispatch's own doc comment just below. `receivedAt` is
+ *  exposed so a caller that itself needs to bound a further wait
+ *  (forwardToOwner's own wait for Jakob's answer) can compute "how much of
+ *  the shared window is left" without threading a second copy of the same
+ *  timestamp through by hand. */
 interface RelayDispatch {
-  resolve: (outcome: LocalOutcome, envelope: AnswerEnvelope, onSent?: () => void) => void
-  /** Convenience wrapper around `resolve()` for a caller holding a
-   *  SharedPayload (or null) rather than an already-sealed envelope --
-   *  see createRelayDispatch's own implementation of it. */
-  resolvePayload: (payload: SharedPayload | null, outcome: LocalOutcome) => Promise<void>
+  resolve: (kind: RelayDispatchKind, outcome: LocalOutcome, envelope: AnswerEnvelope, onSent?: () => void) => void
+  /**
+   * Convenience wrapper around `resolve()` for a caller holding a
+   * SharedPayload (or null) rather than an already-sealed envelope --
+   * see createRelayDispatch's own implementation of it. `payload.from` is
+   * what goes ON THE WIRE (DECISIONS.md D27: anonymous by default, so this
+   * is '' on every caller that forwards to a further hop -- see
+   * forwardToOwner). `localFromLabel`, when given, is what A's OWN local
+   * record (`pushLocalShareItems`, I6) shows instead -- she is entitled to
+   * know who she actually reached (D24) even though B is not told.
+   */
+  resolvePayload: (
+    kind: RelayDispatchKind, payload: SharedPayload | null, outcome: LocalOutcome, localFromLabel?: string,
+  ) => Promise<void>
   receivedAt: number
 }
 
 /**
- * One-shot, fixed-time dispatcher for A's single answer to B on this hop.
- * Armed HERE, at receipt (`receivedAt`), and fires at exactly `receivedAt +
- * RELAY_DEADLINE_MS` REGARDLESS of whether, or when, a human on this device
- * has decided anything -- the same shape `packages/agent-daemon`'s
- * `scheduleAt`/`dispatchOwnerStatus` already uses (content read at fire
- * time, but fire time fixed at receipt, never pushed out by how long a
- * human takes to tap a button or by how long Jakob's own round trip takes).
+ * Dispatcher for A's single answer to B on this hop. TWO INDEPENDENT
+ * switches (DECISIONS.md D28/D30), each read fresh from `state`, each
+ * chosen by WHICH KIND of ending is being resolved (the `kind` argument to
+ * `resolve()`/`resolvePayload()` -- see `RelayDispatchKind`'s own doc
+ * comment):
+ *
+ *  - `kind: 'direct'` reads `s.secondHopUniformModeDirect` (default
+ *    false/unset = FAST -- owner's explicit I9 override for the person
+ *    actually answering, D28's own reasoning).
+ *  - `kind: 'relay'` reads `s.secondHopRevealRelay` (default false/unset =
+ *    UNIFORM/non-revealing, the ORDINARY I9 posture, NOT overridden --
+ *    D30's own reasoning: the person relaying never asked to be involved).
+ *
+ * FAST: `resolve()`/`resolvePayload()` send the moment they are called.
+ * UNIFORM: every such ending is held to the exact same `receivedAt +
+ * RELAY_DEADLINE_MS` instant regardless of how quickly the underlying
+ * decision resolved -- the ORIGINAL mechanism this function shipped with,
+ * kept intact, not deleted, just now scoped per-kind rather than applying
+ * uniformly to the whole dispatch. `resolve()`/`resolvePayload()` only ever
+ * UPDATE what will be sent when in uniform mode; a single `setTimeout`
+ * armed here, at receipt, before any human interaction can happen, is the
+ * only thing that ever calls `fire()` in that case -- the same shape
+ * `packages/agent-daemon`'s `scheduleAt`/`dispatchOwnerStatus` uses
+ * (content read at fire time, fire time fixed at receipt). A `resolve()`
+ * arriving after the timer already fired is simply too late, exactly like
+ * Jakob answering after the deadline already was.
  *
  * Earlier versions of this file called `settleAt(receivedAt,
  * RELAY_DEADLINE_MS)` from INSIDE each ending, AFTER a human had already
- * decided. That is broken: `settleAt` resolves immediately once its target
- * instant has already passed (gate.ts's own doc comment on it says so), so
- * any ending reached after a human took longer than the window to decide
- * fired EARLY, at whatever moment the human happened to act -- turning B's
- * own received-at timestamp into exactly the hop-count oracle I3 exists to
- * rule out ("arrived at 30.0s" = automatic nothing, "arrived later" = a
- * human, somewhere, was involved). Arming the timer here, once, before any
- * human interaction can happen, removes that: `resolve()` only ever updates
- * what WILL be sent when the timer fires; it never itself triggers a send,
- * and a `resolve()` that arrives after the timer already fired is simply
- * too late, exactly like Jakob answering after the deadline already was.
+ * decided -- broken under the OLD unconditional-uniform design (`settleAt`
+ * resolves immediately once its target instant has already passed, so a
+ * slow human decision fired early, reopening the exact hop-count oracle
+ * the deadline existed to close). That bug is why sending only ever
+ * happens from ONE place (`fire()`), armed once, up front, regardless of
+ * mode -- only WHETHER `fire()` also runs the moment `resolve()`/
+ * `resolvePayload()` is called (fast) or waits for the timer alone
+ * (uniform) differs.
+ *
+ * The armed `setTimeout` is never cancelled even when a call site resolves
+ * fast: it is the backstop for "nothing was ever resolved before the
+ * deadline" (dead note, unresolvable template) and for "uniform mode was
+ * on, wait for it" -- `dispatched` makes firing twice impossible either
+ * way.
+ *
+ * D30's own honestly-stated residual: because the two switches' DEFAULTS
+ * point in opposite directions (direct fast, relay uniform/slow), a
+ * relay-eligible ending is, by default, still observably slower than a
+ * direct or no-note one -- the relay switch's own default protects the
+ * FINER signal within that class (how long the round trip actually took,
+ * whether Jakob declined vs never answered) but cannot, by construction,
+ * fully hide the COARSER fact that some note was engaged at all, given the
+ * direct default stays fast. Not fixed silently here; see D30 and the
+ * result report for the full account.
  */
 function createRelayDispatch(
   q: QueryEnvelope, peer: Peer | null, receivedAt: number,
 ): RelayDispatch {
   const s = state as DeviceState
+  const isFast = (kind: RelayDispatchKind): boolean =>
+    kind === 'direct' ? !s.secondHopUniformModeDirect : Boolean(s.secondHopRevealRelay)
   let dispatched = false
   let resolved: { outcome: LocalOutcome; envelope: AnswerEnvelope; onSent?: () => void } | null = null
 
@@ -2829,11 +3003,12 @@ function createRelayDispatch(
   setTimeout(() => { void fire() }, remaining)
 
   return {
-    resolve(outcome, envelope, onSent) {
+    resolve(kind, outcome, envelope, onSent) {
       if (dispatched) return // too late -- see this function's own doc comment
       resolved = { outcome, envelope, onSent }
+      if (isFast(kind)) void fire() // fast for this kind -- send now, not at the deadline
     },
-    async resolvePayload(payload, outcome) {
+    async resolvePayload(kind, payload, outcome, localFromLabel) {
       // Convenience for callers that hold a SharedPayload rather than an
       // already-sealed envelope (forwardToOwner's relay-success ending) --
       // same key this dispatch's own fire() will use (`peer` is the SAME
@@ -2850,8 +3025,11 @@ function createRelayDispatch(
       resolved = {
         outcome,
         envelope,
-        onSent: payload ? () => pushLocalShareItems(payload.from, payload.templateId, payload.items) : undefined,
+        onSent: payload
+          ? () => pushLocalShareItems(localFromLabel ?? payload.from, payload.templateId, payload.items)
+          : undefined,
       }
+      if (isFast(kind)) void fire() // fast for this kind -- send now, not at the deadline
     },
     receivedAt,
   }
@@ -2895,7 +3073,12 @@ async function runSecondHopRelayCeremony(q: QueryEnvelope): Promise<void> {
   ]))
 
   if (!tpl) {
-    // Nothing to resolve -- the dispatch's own deadline fallback covers this.
+    // Nothing to resolve. Resolved EXPLICITLY (not left to the dispatch's
+    // own deadline fallback) so the fast default (D28) fires this near
+    // instantly rather than idling until RELAY_DEADLINE_MS for no reason --
+    // the fallback still exists for uniform mode, and as a genuine backstop
+    // if this call were ever removed.
+    await dispatch.resolvePayload('direct', null, 'no-match')
     return
   }
 
@@ -2911,20 +3094,36 @@ async function runSecondHopRelayCeremony(q: QueryEnvelope): Promise<void> {
   // "nothing" ending a genuine no-match gets, not a separate code path, so
   // neither case is ever distinguishable on the wire (same reasoning as
   // daemon.ts's own D16 fix).
-  const note = !q.relayed ? s.secondBrainNote : undefined
-  const ownerPeer = note
-    ? s.peers.find((p) => p.id === note.ownerPeerId && p.did && p.id !== q.from.id)
-    : undefined
-  const noteMatch: MatchResult = note && ownerPeer
-    ? prune(matchTemplate(tpl, [secondBrainThread(s, note)]))
+  //
+  // A can hold SEVERAL notes (state.ts's own doc comment -- the ladder,
+  // separately the flat, D26/scenario A's own addition). Every eligible one
+  // is fed into ONE matchTemplate() call together, as one synthetic thread
+  // each, exactly like threadsInScope() already scores several real chats
+  // in a single pass -- not one matchTemplate() call per note, which would
+  // let the FIRST note tried silently win ties or take a different code
+  // path than the others. The winning hit's `threadId`
+  // (secondBrainThread()'s own `sb:${note.id}` shape) says which note --
+  // and therefore which owner -- actually scored, since matchTemplate()'s
+  // own contract sorts hits by score descending and prune() (above)
+  // preserves that order.
+  const eligibleNotes = (!q.relayed ? s.secondBrainNotes ?? [] : [])
+    .map((note) => ({ note, ownerPeer: s.peers.find((p) => p.id === note.ownerPeerId && p.did && p.id !== q.from.id) }))
+    .filter((x): x is { note: SecondBrainNote; ownerPeer: Peer } => Boolean(x.ownerPeer))
+  const noteMatch: MatchResult = eligibleNotes.length
+    ? prune(matchTemplate(tpl, eligibleNotes.map((x) => secondBrainThread(s, x.note))))
     : { hits: [], distinctAuthors: 0, aboveThreshold: false }
+  const winner = noteMatch.aboveThreshold
+    ? eligibleNotes.find((x) => `sb:${x.note.id}` === noteMatch.hits[0]?.threadId)
+    : undefined
 
-  if (note && ownerPeer && noteMatch.aboveThreshold) {
-    renderSecondHopRelayCard(q, tpl, noteMatch, note, ownerPeer, peer, dispatch)
+  if (winner) {
+    renderSecondHopRelayCard(q, tpl, noteMatch, winner.note, winner.ownerPeer, peer, dispatch)
     return
   }
 
-  // Nothing eligible -- the dispatch's own deadline fallback covers this.
+  // Nothing eligible. Resolved EXPLICITLY, same reasoning as the `!tpl`
+  // branch above.
+  await dispatch.resolvePayload('direct', null, 'no-match')
 }
 
 /**
@@ -2946,7 +3145,7 @@ function renderSecondHopDirectCard(
       const { outcome, envelope } = await decide({
         query: q, template: tpl, match, consent, blocked: peer?.blocked ?? true, key, identity: s.me,
       })
-      dispatch.resolve(outcome, envelope, outcome === 'shared' ? () => pushLocalShare(tpl, match) : undefined)
+      dispatch.resolve('direct', outcome, envelope, outcome === 'shared' ? () => pushLocalShare(tpl, match) : undefined)
       renderSecondHopPendingScreen()
     })()
   }
@@ -2993,7 +3192,7 @@ function renderSecondHopRelayCard(
         query: q, template: tpl, match: noteMatch, consent: false, blocked: peer?.blocked ?? true, key,
         identity: s.me,
       })
-      dispatch.resolve(outcome, envelope)
+      dispatch.resolve('relay', outcome, envelope)
       renderSecondHopPendingScreen()
     })()
   }
@@ -3091,13 +3290,41 @@ async function forwardToOwner(
   }
 
   const shared = jakobDecoded?.outcome === 'shared' ? jakobDecoded.shared : undefined
+  // DECISIONS.md D27: the answer B receives is anonymous by default, so the
+  // WIRE payload's `from` is always '' here -- never Jakob's real name,
+  // never the `note.ownerDisplayName` fallback this line used to substitute
+  // when his own answer omitted one. `localFrom` is a SEPARATE value, used
+  // only for A's OWN local record (`resolvePayload`'s `localFromLabel`
+  // param, I6/D24): she already knows who she reached (that is the whole
+  // point of D24, the intermediary sees what she carries), and is entitled
+  // to an honest local note of it even though B never learns it.
+  //
+  // DECISIONS.md D29 (owner): a second-hop answer must never carry a real
+  // street address -- a PAYLOAD property, not a rendering one, so it is
+  // stripped HERE, before sealing, never relying on a later screen to
+  // redact it. `q.templateId` is the ORIGINAL query's own id (unchanged as
+  // it crosses to Jakob -- see forwardQ above), so this check is exactly
+  // "was the query that reached Jakob the address-bearing one," regardless
+  // of how many further hops a future version of this app might add.
+  // `accommodationAbstractText()` carries the same free-window fact
+  // `matchAccommodation()`'s own hit does, minus `ADDRESS` -- see that
+  // function's own doc comment. Every OTHER template's items pass through
+  // verbatim, unchanged from before this correction.
+  const addressBearingRelay = q.templateId === ACCOMMODATION_TEMPLATE_ID
   const payload: SharedPayload | null = shared
-    ? { from: shared.from || note.ownerDisplayName, templateId: q.templateId, items: shared.items }
+    ? {
+        from: '',
+        templateId: q.templateId,
+        items: addressBearingRelay
+          ? shared.items.map((it) => ({ ...it, text: accommodationAbstractText() }))
+          : shared.items,
+      }
     : null
+  const localFrom = shared ? (shared.from || note.ownerDisplayName) : undefined
   const localOutcome: LocalOutcome = payload ? 'relayed' : 'relay-nothing'
 
   renderSecondHopPendingScreen()
-  await dispatch.resolvePayload(payload, localOutcome)
+  await dispatch.resolvePayload('relay', payload, localOutcome, localFrom)
 }
 
 /** `q.freeText` is always present for this demo's own free-text ask, but a

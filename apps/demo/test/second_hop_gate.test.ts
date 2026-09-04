@@ -132,10 +132,19 @@ describe('demo 21: A -> B final answer is byte-identical across every "nothing" 
     expect(nothing.plaintext[0]).toBe(0) // tag byte: nothing
   })
 
-  it('carries the true answerer\'s name verbatim on success, not the relaying peer\'s', async () => {
+  it('CORRECTED (DECISIONS.md D27, supersedes the former D23): the answer is ANONYMOUS -- `from` is always empty on the wire, even on a genuine relay success', async () => {
+    // Earlier versions of this test asserted `parsed.from === 'Jakob'`
+    // (the former named-introduction design). The owner reversed that
+    // decision: main.ts's forwardToOwner strips `from` to '' before
+    // building the WIRE payload, regardless of what Jakob's own answer to
+    // A actually carried -- A's own LOCAL record (I6/D24) keeps the real
+    // name, but that never reaches this function's input at all (see
+    // `resolvePayload`'s `localFromLabel`, a SEPARATE parameter, in
+    // main.ts). This test therefore builds `shared.from` as it would
+    // arrive from forwardToOwner: already stripped.
     const key = await derivePairKey('a-nonce', 'b-nonce')
     const shared: SharedPayload = {
-      from: 'Jakob',
+      from: '',
       templateId: TEMPLATE_ID,
       items: [{ text: 'Hab eine 3-Meter-Leiter im Keller.', when: 'Mitte August', context: 'Eigene Notizen' }],
     }
@@ -146,7 +155,37 @@ describe('demo 21: A -> B final answer is byte-identical across every "nothing" 
     const dataLen = ((plain as Uint8Array)[1] << 8) | (plain as Uint8Array)[2]
     const json = new TextDecoder().decode((plain as Uint8Array).slice(3, 3 + dataLen))
     const parsed = JSON.parse(json) as SharedPayload
-    expect(parsed.from).toBe('Jakob')
+    expect(parsed.from).toBe('')
     expect(parsed.items[0].when).toBe('Mitte August') // carried verbatim, never recomputed
+  })
+
+  it('DECISIONS.md D29: a second-hop accommodation answer never carries the real ADDRESS string, only the abstraction', async () => {
+    // Reproduces main.ts's forwardToOwner address-stripping exactly:
+    // ACCOMMODATION_TEMPLATE_ID -> every item's text replaced with
+    // accommodationAbstractText() before this function (the real sealing
+    // primitives) ever sees it. This test does not import main.ts (DOM-
+    // bound); it proves the PRIMITIVE-level claim -- that a plaintext built
+    // from the abstraction cannot possibly contain ADDRESS, structurally,
+    // regardless of what main.ts's own call site does -- and
+    // test/e2e/second_hop.mjs proves the SAME claim against real wire bytes
+    // that crossed the live relay, including main.ts's own call site.
+    const key = await derivePairKey('a-nonce', 'b-nonce')
+    const realAddressBearingText =
+      'Ja, wir sind vom 26. Oktober bis 1. November 2026 nicht da. In dieser Zeit kannst du die Wohnung nutzen: Geologengasse 12, 1030 Wien.'
+    const abstractedText = 'Eine Wohnung in Wien, frei vom 26. Oktober bis 1. November 2026.'
+    expect(abstractedText.includes('Geologengasse')).toBe(false) // sanity: the fixture itself must differ
+
+    const abstracted: SharedPayload = {
+      from: '',
+      templateId: 'wot.vienna.geologengasse.accommodation',
+      items: [{ text: abstractedText, when: 'jetzt', context: 'Kalender' }],
+    }
+    const { envelope } = await finalPlaintextAndEnvelope(abstracted, key)
+    const combined = fromB64u(envelope.body)
+    const plain = await open(key, combined.slice(0, 12), combined.slice(12))
+    expect(plain).not.toBeNull()
+    const plainText = new TextDecoder().decode(plain as Uint8Array)
+    expect(plainText.includes('Geologengasse')).toBe(false)
+    expect(plainText).not.toContain(realAddressBearingText.split(': ')[1]) // the address clause itself
   })
 })

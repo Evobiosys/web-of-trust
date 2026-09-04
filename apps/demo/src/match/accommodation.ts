@@ -93,3 +93,29 @@ export function accommodationPreviewDe(): string {
 export function accommodationPreviewEn(): string {
   return 'The flat is free from 26 October to 1 November 2026. The exact address only appears once you consent.'
 }
+
+/**
+ * What a SECOND-HOP relay carries instead of `matchAccommodation()`'s own
+ * hit text -- owner's own instruction: "if you mean that this might reveal
+ * real street addresses ... yes hide that, only show the abstraction."
+ * Jakob's own consent (`runConsentCeremony`) is still what releases the
+ * real address to A, a direct connection, exactly as demo 20 always has it
+ * -- this function exists ONLY for the further hop, where the recipient is
+ * a stranger Jakob has never met and never separately consented to naming
+ * an address to. Says city and free window, never `ADDRESS`, reusing the
+ * SAME free-window text `accommodationPreviewDe/En` already show before
+ * consent -- the shape differs (a statement, not a promise of what comes
+ * later) but the underlying fact disclosed is identical.
+ *
+ * ALWAYS German, matching `matchAccommodation()`'s own hit text (never
+ * localised per viewer -- wire content in this app is authored once, in
+ * German, by whichever device built it; see that function's own hit for
+ * the same convention). Used by `main.ts`'s `forwardToOwner`, which is the
+ * ONE place a second-hop payload's items are finalised before sealing --
+ * see that function's own doc comment and
+ * test/second_hop_gate.test.ts/test/e2e/second_hop.mjs for the byte-level
+ * proof that `ADDRESS` itself never occurs in the resulting envelope.
+ */
+export function accommodationAbstractText(): string {
+  return `Eine Wohnung in Wien, frei vom ${FREE_WINDOW_DE}.`
+}

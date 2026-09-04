@@ -91,6 +91,17 @@ import { decide, interpret, maskAnswerPlaintext, sealAnswerEnvelope, truncateSha
 import { addInventoryItem, threadsInScope } from '../../src/state.ts'
 import { freeTextTemplate } from '../../src/data/free_text_query.ts'
 import { matchTemplate } from '../../src/match/lexical.ts'
+// Scenario A (the flat) -- reused directly from demo 20's own modules, not
+// copied, same instruction the production code follows (main.ts's
+// templatesForScenario). matchAccommodation() ignores VITE_WOT_ADDRESS
+// entirely at the type/logic level tested here; ADDRESS itself resolves to
+// geologengasse.ts's own placeholder string whenever this test is run
+// without VITE_WOT_ADDRESS set, exactly like an address-free production
+// build -- see this file's own leg 9 assertions for what that implies.
+import {
+  ACCOMMODATION_TEMPLATE, ACCOMMODATION_TEMPLATE_ID, accommodationAbstractText, matchAccommodation,
+} from '../../src/match/accommodation.ts'
+import { ADDRESS } from '../../src/data/geologengasse.ts'
 
 const RELAY_ORIGIN = process.env.RELAY_ORIGIN || 'https://questhub.eco'
 const DELIVERY_TIMEOUT_MS = 15_000
@@ -157,6 +168,9 @@ function secondBrainThread(meDisplayName, note) {
 
 const JAKOB_LADDER_INVENTORY_TEXT = 'Hab eine 3-Meter-Leiter im Keller, kannst sie dir gern ausborgen.'
 const A_NOTE_ABOUT_JAKOB_TEXT = 'Der Jakob hat eine Leiter, hab ich mal bei ihm gesehen.'
+// Scenario A's own note -- see data/second_hop.ts's own copy and doc comment.
+const A_NOTE_ABOUT_JAKOB_FLAT_TEXT =
+  'Wenn der Jakob verreist, ist bei ihm ab und zu die Wohnung frei, falls jemand kurz übernachten will.'
 
 async function main() {
   const t0 = Date.now()
@@ -192,10 +206,19 @@ async function main() {
 
   const aState = makeDevice('a0000000', 'A')
   aState.peers.push({ id: 'jakob', displayName: 'Jakob', did: jakobId.did, nonceSelf: '', noncePeer: '', connectedAt: t0, blocked: false })
-  aState.secondBrainNote = {
-    id: 'note1', text: A_NOTE_ABOUT_JAKOB_TEXT, createdAt: new Date().toISOString(),
-    ownerPeerId: 'jakob', ownerDisplayName: 'Jakob',
-  }
+  // TWO notes -- scenario B (the ladder) and scenario A (the flat) -- see
+  // main.ts's seedSecondHopGuest and state.ts's own doc comment on why this
+  // is an array, not a single note.
+  aState.secondBrainNotes = [
+    {
+      id: 'note1', text: A_NOTE_ABOUT_JAKOB_TEXT, createdAt: new Date().toISOString(),
+      ownerPeerId: 'jakob', ownerDisplayName: 'Jakob',
+    },
+    {
+      id: 'note2', text: A_NOTE_ABOUT_JAKOB_FLAT_TEXT, createdAt: new Date().toISOString(),
+      ownerPeerId: 'jakob', ownerDisplayName: 'Jakob',
+    },
+  ]
 
   const bIdentity = { id: 'b0000000', displayName: 'B' }
 
@@ -238,18 +261,34 @@ async function main() {
     await waitFor(() => aQueries.some((e) => e.qid === q.qid), DELIVERY_TIMEOUT_MS)
     const received = aQueries.find((e) => e.qid === q.qid)
 
-    const tpl = freeTextTemplate(received.freeText)
+    // Resolve the incoming template exactly like main.ts's
+    // resolveIncomingTemplate: free text -> freeTextTemplate(); a fixed
+    // template id -> the matching QueryTemplate (only ACCOMMODATION_TEMPLATE
+    // is exercised by this script's own legs).
+    const tpl = received.freeText
+      ? freeTextTemplate(received.freeText)
+      : received.templateId === ACCOMMODATION_TEMPLATE_ID ? ACCOMMODATION_TEMPLATE : freeTextTemplate('')
     const directMatch = matchTemplate(tpl, threadsInScope(aState))
     if (directMatch.aboveThreshold) throw new Error('unexpected direct match on A -- test fixture bug')
 
-    const note = !received.relayed ? aState.secondBrainNote : undefined
-    const ownerPeer = note ? aState.peers.find((p) => p.id === note.ownerPeerId && p.did) : undefined
-    const noteMatch = note && ownerPeer
-      ? matchTemplate(tpl, [secondBrainThread(aState.me.displayName, note)])
+    // Search ALL of A's eligible notes together, exactly like main.ts's
+    // runSecondHopRelayCeremony now does (state.ts's secondBrainNotes is an
+    // array) -- one matchTemplate() call across every note's own synthetic
+    // thread, the winning hit's threadId says which note (and therefore
+    // which owner) actually scored.
+    const eligibleNotes = (!received.relayed ? aState.secondBrainNotes ?? [] : [])
+      .map((note) => ({ note, ownerPeer: aState.peers.find((p) => p.id === note.ownerPeerId && p.did && p.id !== received.from.id) }))
+      .filter((x) => Boolean(x.ownerPeer))
+    const noteMatch = eligibleNotes.length
+      ? matchTemplate(tpl, eligibleNotes.map((x) => secondBrainThread(aState.me.displayName, x.note)))
       : { hits: [], distinctAuthors: 0, aboveThreshold: false }
+    const winner = noteMatch.aboveThreshold
+      ? eligibleNotes.find((x) => `sb:${x.note.id}` === noteMatch.hits[0]?.threadId)
+      : undefined
 
     let payload = null
-    if (note && ownerPeer && noteMatch.aboveThreshold && wantsToRelay) {
+    if (winner && wantsToRelay) {
+      const { note, ownerPeer } = winner
       const downstreamQid = `qid-2hop-downstream-${Math.random().toString(36).slice(2, 10)}`
       const forwardQ = {
         v: 1, t: 'query', from: aState.me, templateId: received.templateId, templateVersion: received.templateVersion,
@@ -261,8 +300,17 @@ async function main() {
       const jakobReceived = jakobQueries.find((e) => e.qid === downstreamQid)
 
       // ---- Jakob's own device: ordinary consent ceremony, unmodified ----
-      const jTpl = freeTextTemplate(jakobReceived.freeText)
-      const jMatch = matchTemplate(jTpl, threadsInScope(jakobState))
+      // isAddressBearingTemplate's own check, reproduced: the accommodation
+      // template routes to matchAccommodation() (a pure function of
+      // ADDRESS/FREE_FROM/FREE_TO, needs no seeding), every other template
+      // goes through the ordinary lexical matcher against his real
+      // inventory -- exactly main.ts's runConsentCeremony branch.
+      const jTpl = jakobReceived.freeText
+        ? freeTextTemplate(jakobReceived.freeText)
+        : jakobReceived.templateId === ACCOMMODATION_TEMPLATE_ID ? ACCOMMODATION_TEMPLATE : freeTextTemplate('')
+      const jMatch = jTpl.id === ACCOMMODATION_TEMPLATE_ID
+        ? matchAccommodation()
+        : matchTemplate(jTpl, threadsInScope(jakobState))
       const { envelope: jEnv } = await decide({
         query: jakobReceived, template: jTpl, match: jMatch, consent: jakobConsents, blocked: false,
         key: keyAJ, identity: jakobState.me,
@@ -272,7 +320,26 @@ async function main() {
       const jDecoded = await interpret(jEnv, keyAJ)
 
       if (jDecoded.outcome === 'shared') {
-        payload = { from: jDecoded.shared.from || note.ownerDisplayName, templateId: received.templateId, items: jDecoded.shared.items }
+        // DECISIONS.md D27: anonymous by default. The WIRE payload's `from`
+        // is always '' -- never Jakob's real name, matching main.ts's
+        // forwardToOwner/resolvePayload split exactly. `localFrom` mirrors
+        // what A's own LOCAL record would show (I6/D24) -- not asserted on
+        // here (this script does not simulate A's UI state), kept only so
+        // this reproduction stays visibly parallel to production's split.
+        const localFrom = jDecoded.shared.from || note.ownerDisplayName
+        void localFrom
+        // DECISIONS.md D29: a second-hop answer must never carry a real
+        // street address -- stripped HERE, before sealing, matching
+        // main.ts's forwardToOwner exactly (same `q.templateId` check, same
+        // accommodationAbstractText() replacement).
+        const addressBearingRelay = received.templateId === ACCOMMODATION_TEMPLATE_ID
+        payload = {
+          from: '',
+          templateId: received.templateId,
+          items: addressBearingRelay
+            ? jDecoded.shared.items.map((it) => ({ ...it, text: accommodationAbstractText() }))
+            : jDecoded.shared.items,
+        }
       }
     }
 
@@ -294,7 +361,10 @@ async function main() {
   await waitFor(() => bAnswers.some((e) => e.qid === q1.qid), DELIVERY_TIMEOUT_MS)
   const decoded1 = await interpret(env1, keyAB)
   ok('leg 1 (success): B\'s decoded outcome is "shared"', decoded1.outcome === 'shared')
-  ok('leg 1: the named answerer is Jakob, VERBATIM, carried by A, never Jakob himself sending to B', decoded1.shared?.from === 'Jakob')
+  // CORRECTED (DECISIONS.md D27, supersedes this app's own former D23):
+  // the second-hop answer is ANONYMOUS by default -- B never learns that
+  // Jakob, specifically, answered, only that someone A trusts did.
+  ok('leg 1: the answer is ANONYMOUS -- B never learns who actually answered', decoded1.shared?.from === '')
   ok('leg 1: the ladder text reached B unchanged', decoded1.shared?.items?.[0]?.text === JAKOB_LADDER_INVENTORY_TEXT)
   // Structural, not a runtime check: bChannel.onEnvelope above is registered
   // ONLY with keyAB -- Jakob's key/DID is never given to B's channel at all,
@@ -368,54 +438,62 @@ async function main() {
     env7a.body === env7b.body, `${env7a.body.slice(0, 32)}... vs ${env7b.body.slice(0, 32)}...`)
 
   // ===== Leg 8: TIMING WIRING (fixed-at-receipt dispatch, real relay) ======
-  // Reproduces main.ts's createRelayDispatch pattern directly: a timer is
-  // armed HERE, at receipt, BEFORE any "human" decision -- resolve() only
-  // ever updates what gets sent when that timer fires; it never sends
-  // anything itself. A short local deadline (not the real 30s constant)
-  // keeps this live leg fast.
+  // Reproduces main.ts's createRelayDispatch pattern directly, BOTH modes
+  // (DECISIONS.md D28): a timer is armed HERE, at receipt, BEFORE any
+  // "human" decision -- it is the ONLY thing that ever sends in uniform
+  // mode, and the backstop in fast mode. A short local deadline (not the
+  // real 30s constant) keeps this live leg fast.
   const TEST_DEADLINE_MS = 2000
-  function createTestDispatch(qid, receivedAt) {
+  function createTestDispatch(qid, receivedAt, fastMode) {
     let dispatched = false
     let sentAt = null
     let resolved = null
-    const firePromise = new Promise((resolveFire) => {
-      setTimeout(async () => {
-        dispatched = true
-        const payload = resolved
-        const jsonBytes = truncateSharedJson(payload ?? { from: '', templateId: 'x', items: [] })
-        const plaintext = maskAnswerPlaintext(Boolean(payload), jsonBytes)
-        const envelope = await sealAnswerEnvelope(qid, plaintext, keyAB)
-        sentAt = Date.now()
-        await aChannel.send(bId.did, envelope, keyAB)
-        resolveFire()
-      }, Math.max(0, receivedAt + TEST_DEADLINE_MS - Date.now()))
-    })
+    let resolveFireExternal
+    const firePromise = new Promise((resolveFire) => { resolveFireExternal = resolveFire })
+    const fire = async () => {
+      if (dispatched) return
+      dispatched = true
+      const payload = resolved
+      const jsonBytes = truncateSharedJson(payload ?? { from: '', templateId: 'x', items: [] })
+      const plaintext = maskAnswerPlaintext(Boolean(payload), jsonBytes)
+      const envelope = await sealAnswerEnvelope(qid, plaintext, keyAB)
+      sentAt = Date.now()
+      await aChannel.send(bId.did, envelope, keyAB)
+      resolveFireExternal()
+    }
+    setTimeout(() => { void fire() }, Math.max(0, receivedAt + TEST_DEADLINE_MS - Date.now()))
     return {
-      resolve(payload) { if (!dispatched) resolved = payload },
+      resolve(payload) {
+        if (dispatched) return
+        resolved = payload
+        if (fastMode) void fire()
+      },
       firePromise,
       get dispatchedAt() { return sentAt },
     }
   }
 
-  // 8a: FAST resolve -- must still wait for the deadline, not fire early.
+  // 8a: UNIFORM mode, fast resolve -- must still wait for the deadline, not
+  // fire early (the opt-in mode's whole point).
   const q8a = { ...q1, qid: `qid-2hop-leg8a-${Math.random().toString(36).slice(2, 10)}` }
   const receivedAt8a = Date.now()
-  const dispatch8a = createTestDispatch(q8a.qid, receivedAt8a)
+  const dispatch8a = createTestDispatch(q8a.qid, receivedAt8a, false)
   dispatch8a.resolve({ from: 'Jakob', templateId: 'x', items: [{ text: 'sofort', when: 'jetzt', context: 'test' }] })
   await dispatch8a.firePromise
   const elapsed8a = dispatch8a.dispatchedAt - receivedAt8a
-  ok('leg 8a (fast resolve): send happened at-or-after the fixed deadline, not immediately',
+  ok('leg 8a (uniform mode, fast resolve): send happened at-or-after the fixed deadline, not immediately',
     elapsed8a >= TEST_DEADLINE_MS - 50, `elapsed=${elapsed8a}ms, deadline=${TEST_DEADLINE_MS}ms`)
   await waitFor(() => bAnswers.some((e) => e.qid === q8a.qid), DELIVERY_TIMEOUT_MS)
   const decoded8a = await interpret(bAnswers.find((e) => e.qid === q8a.qid), keyAB)
   ok('leg 8a: content resolved before the deadline DOES reach B', decoded8a.outcome === 'shared')
 
-  // 8b: SLOW resolve -- deliberately arrives AFTER the deadline already
-  // fired. The dispatch must already have sent "nothing"; the late
-  // resolve() call must be a documented no-op, never a second message.
+  // 8b: UNIFORM mode, SLOW resolve -- deliberately arrives AFTER the
+  // deadline already fired. The dispatch must already have sent "nothing";
+  // the late resolve() call must be a documented no-op, never a second
+  // message.
   const q8b = { ...q1, qid: `qid-2hop-leg8b-${Math.random().toString(36).slice(2, 10)}` }
   const receivedAt8b = Date.now()
-  const dispatch8b = createTestDispatch(q8b.qid, receivedAt8b)
+  const dispatch8b = createTestDispatch(q8b.qid, receivedAt8b, false)
   await new Promise((r) => setTimeout(r, TEST_DEADLINE_MS + 200)) // wait past the window, then poll for fire()
   // completing (its own async seal+network-send work runs after the deadline
   // instant itself, so poll rather than assume it finished within +200ms).
@@ -435,6 +513,92 @@ async function main() {
     dispatchedBeforeLateResolve - receivedAt8b < TEST_DEADLINE_MS + 800,
     `sent at t+${dispatchedBeforeLateResolve - receivedAt8b}ms`)
   nothingBodies.leg8b_late_resolve_is_noop = b8bAnswers[0].body
+
+  // 8c: FAST mode (the DEFAULT, DECISIONS.md D28) -- resolve() must send
+  // IMMEDIATELY, not wait for the deadline at all. This is the leg that
+  // would catch a regression back to the old unconditional-uniform
+  // behaviour becoming the silent default again.
+  const q8c = { ...q1, qid: `qid-2hop-leg8c-${Math.random().toString(36).slice(2, 10)}` }
+  const receivedAt8c = Date.now()
+  const dispatch8c = createTestDispatch(q8c.qid, receivedAt8c, true)
+  dispatch8c.resolve({ from: 'Jakob', templateId: 'x', items: [{ text: 'schnell', when: 'jetzt', context: 'test' }] })
+  await dispatch8c.firePromise
+  const elapsed8c = dispatch8c.dispatchedAt - receivedAt8c
+  ok('leg 8c (fast mode, the default): send happened WELL BEFORE the fixed deadline, not at it',
+    elapsed8c < TEST_DEADLINE_MS - 200, `elapsed=${elapsed8c}ms, deadline=${TEST_DEADLINE_MS}ms`)
+  await waitFor(() => bAnswers.some((e) => e.qid === q8c.qid), DELIVERY_TIMEOUT_MS)
+  const decoded8c = await interpret(bAnswers.find((e) => e.qid === q8c.qid), keyAB)
+  ok('leg 8c: content resolved fast DOES reach B, quickly', decoded8c.outcome === 'shared')
+
+  // 8d: FAST mode, nothing ever resolves -- the armed timer is still the
+  // backstop (a dead note, an unresolvable template): B still gets exactly
+  // one "nothing" answer, at the deadline, never left hanging forever.
+  const q8d = { ...q1, qid: `qid-2hop-leg8d-${Math.random().toString(36).slice(2, 10)}` }
+  const receivedAt8d = Date.now()
+  const dispatch8d = createTestDispatch(q8d.qid, receivedAt8d, true)
+  await dispatch8d.firePromise
+  const elapsed8d = dispatch8d.dispatchedAt - receivedAt8d
+  ok('leg 8d (fast mode, nothing ever resolved): the armed timer still fires, at the deadline',
+    elapsed8d >= TEST_DEADLINE_MS - 50, `elapsed=${elapsed8d}ms`)
+  await waitFor(() => bAnswers.some((e) => e.qid === q8d.qid), DELIVERY_TIMEOUT_MS)
+  const decoded8d = await interpret(bAnswers.find((e) => e.qid === q8d.qid), keyAB)
+  ok('leg 8d: outcome is "nothing"', decoded8d.outcome === 'nothing')
+
+  // ===== Leg 9: SCENARIO A -- the flat, via two hops =========================
+  // The owner's own "one iphone scans from the laptop, johannes is in my
+  // net, a second phone connects to johannes and can reach the flat" --
+  // reusing demo 20's own accommodation template/matcher directly (not
+  // copied). B asks the FIXED template (not free text, unlike scenario B's
+  // ladder) -> A has no direct match -> A's FLAT note (note2, NOT the
+  // ladder note) scores against ACCOMMODATION_TEMPLATE's own matchTerms and
+  // wins the two-notes-at-once matchTemplate() call -> A forwards ->
+  // Jakob's device routes to matchAccommodation() (not the ordinary lexical
+  // matcher, since isAddressBearingTemplate(tpl) is true) -> the
+  // address-bearing item flows back to B, anonymous (D27) exactly like
+  // scenario B's ladder leg -- the anonymous default applies identically
+  // regardless of what is actually being shared.
+  const q9 = {
+    v: 1, t: 'query', from: bIdentity, templateId: ACCOMMODATION_TEMPLATE_ID, templateVersion: 1,
+    qid: `qid-2hop-leg9-${Math.random().toString(36).slice(2, 10)}`, issuedAt: Date.now(),
+  }
+  await bChannel.send(aId.did, q9, keyAB)
+  const env9 = await aHandlesQuery(q9)
+  await waitFor(() => bAnswers.some((e) => e.qid === q9.qid), DELIVERY_TIMEOUT_MS)
+  const decoded9 = await interpret(env9, keyAB)
+  ok('leg 9 (scenario A, the flat): B\'s decoded outcome is "shared"', decoded9.outcome === 'shared')
+  ok('leg 9: the FLAT note won the two-notes-at-once match, not the ladder note (item text is the accommodation hit, not the ladder text)',
+    decoded9.shared?.items?.[0]?.text !== JAKOB_LADDER_INVENTORY_TEXT)
+  ok('leg 9: still ANONYMOUS -- B never learns who actually answered, same default as scenario B',
+    decoded9.shared?.from === '')
+  // DECISIONS.md D29 (owner correction): a second-hop answer must NEVER
+  // carry the real street address -- a PAYLOAD property, proven here at
+  // the byte level against the REAL WIRE BYTES that actually crossed the
+  // live relay, not just against a local object. The plaintext byte-level
+  // check (below) is the strict form of this claim; the decoded-item check
+  // here is the same claim at the decoded-content level.
+  ok('leg 9: the DECODED item text is the ABSTRACTION (city + free window), never the real ADDRESS',
+    decoded9.shared?.items?.[0]?.text === accommodationAbstractText()
+    && !decoded9.shared?.items?.[0]?.text?.includes(ADDRESS),
+    decoded9.shared?.items?.[0]?.text)
+  const combined9 = fromB64u(env9.body)
+  const plain9 = await open(keyAB, combined9.slice(0, 12), combined9.slice(12))
+  // Raw BYTE search, not a text-decode-then-substring search: the plaintext
+  // is [tag, len-hi, len-lo, JSON bytes..., zero padding], and the JSON
+  // bytes are UTF-8 (see gate.ts's truncateSharedJson). ADDRESS can contain
+  // non-ASCII characters (ä/ö/ü/ß are ordinary in an Austrian street
+  // address) -- decoding the buffer as latin1 (a 1:1 byte-to-codepoint
+  // mapping, NOT a UTF-8 decoder) would mangle those multi-byte UTF-8
+  // sequences and could report "not present" for an address that IS present
+  // in the actual bytes that crossed the wire. Buffer#includes with a Buffer
+  // needle searches raw bytes directly, so this holds regardless of what
+  // encoding ADDRESS's own characters happen to need, and regardless of the
+  // trailing zero-padding after the JSON region.
+  const addressBytes = Buffer.from(ADDRESS, 'utf8')
+  const plain9Buf = plain9 ? Buffer.from(plain9) : null
+  ok('leg 9: the RAW PLAINTEXT BYTES of the sealed envelope do not contain the ADDRESS string anywhere '
+    + '(proves the redaction happened in the PAYLOAD, before sealing -- not only in how a screen renders it; '
+    + 'checked as raw UTF-8 bytes, not a latin1-decoded string, so multi-byte characters cannot hide a leak)',
+    plain9Buf !== null && !plain9Buf.includes(addressBytes))
 
   // ===== THE PROOF: every "nothing" cause decrypts to the identical
   // all-zero plaintext, independently, under the real A<->B pair key -- the
