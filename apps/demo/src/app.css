@@ -372,6 +372,13 @@ video.scanner {
 @media (prefers-reduced-motion: reduce) { .netbubble.grew { animation: none; } }
 /* Lifted clear of the chat screen's pinned composer -- see .composer below. */
 .netbubble.above-composer { bottom: 92px; }
+/* The pending-request bubble (main.ts's pendingRequestBubble()) and the
+   network-count bubble (netBubble()) can both be on screen at once -- e.g.
+   Jakob already has one accepted peer AND a second guest's request just
+   arrived, which is exactly the case this bubble exists to fix -- so it
+   stacks above the network bubble rather than sharing its fixed spot. */
+.netbubble.pending { bottom: 84px; }
+.netbubble.pending.above-composer { bottom: 162px; }
 
 /* ---------- chat (Signal-shaped conversation) ---------- */
 /*

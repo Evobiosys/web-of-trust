@@ -303,13 +303,42 @@ export interface RelayChannel {
    * successfully decrypts -- callers must apply their own filtering (e.g.
    * "only while a connect-link ceremony is pending") rather than assuming
    * this only ever fires for bootstrap wires. A wire is acked once EITHER
-   * this callback is registered (any registration is treated as "handled",
-   * mirroring `onEnvelope`'s "register before connect()" convention) or
-   * `onEnvelope` successfully decrypts it -- see `handleWire`'s
+   * this callback reports it actually recognised the wire (returns `true`)
+   * OR `onEnvelope` successfully decrypts it -- see `handleWire`'s
    * implementation. Only one registration is kept, matching `onEnvelope`'s
    * and `onStatus`'s single-registration convention.
+   *
+   * RETURN VALUE, root-caused 2026-09-05 (the residual ~1-in-8 "second
+   * guest misses a broadcast query" loss, after the single-flight relay
+   * channel fix closed the dominant cause): this callback USED to be typed
+   * `=> void` and `handleWire` treated merely REGISTERING a raw sink --
+   * `if (rawSink) { rawSink(...); handled = true }` -- as proof the wire
+   * was handled, regardless of what the callback's own body actually did
+   * with it. That was fine for its one intended case, the connect-link
+   * bootstrap wire (`main.ts`'s `handleRawWire`), for exactly as long as it
+   * only fired during a brief pairing window -- but `onRawWire` is
+   * registered UNCONDITIONALLY for a channel's entire lifetime (every
+   * relay-mode device does this once, in `bringUpRelayChannel`), so this
+   * blanket "registered = handled" rule applied to EVERY wire the channel
+   * ever received, ordinary encrypted queries and answers included --
+   * `handleRawWire`'s own body recognises nothing but a `connect-ack` and
+   * returns (does nothing) for anything else, so this was pure luck, not a
+   * safety net, for every other wire type. The one case this mattered: a
+   * wire whose `onEnvelope` decrypt genuinely fails on its FIRST delivery
+   * attempt (an as-yet-unresolvable pair key being the likeliest cause --
+   * see `pairKey`'s callers) is SUPPOSED to be left un-acked so the relay
+   * redelivers it on the next authenticated drain (relay_server.ts's
+   * at-least-once design, this file's own module header) -- but the old
+   * "registered = handled" rule acked it anyway, on the strength of a raw
+   * sink that never actually looked at it meaningfully, turning a
+   * self-healing transient failure into a silent, permanent loss. The
+   * callback now returns `true` only when it genuinely recognised and
+   * processed this specific wire; anything else (`false` or `void`,
+   * covering every pre-existing implementation that returned nothing) no
+   * longer counts as handled on its own -- restoring the un-acked/redeliver
+   * safety net for the one case it was ever supposed to cover.
    */
-  onRawWire(cb: (fromDid: string, payload: string) => void): void
+  onRawWire(cb: (fromDid: string, payload: string) => boolean | void): void
   /**
    * Registers a callback for connection status changes: `'connecting'` when
    * a drain attempt (first or a reconnect) starts, `'connected'` on
@@ -375,7 +404,7 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
   let backoff = reconnectBaseMs
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let sink: { resolveKey: PairKeyResolver; cb: (envelope: Envelope, fromDid: string) => void } | null = null
-  let rawSink: ((fromDid: string, payload: string) => void) | null = null
+  let rawSink: ((fromDid: string, payload: string) => boolean | void) | null = null
   let statusCb: ((status: RelayStatus, at: number) => void) | null = null
 
   function emitStatus(status: RelayStatus): void {
@@ -386,17 +415,19 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
    * Decrypt+parse one drained wire and, only on success, hand it to the
    * registered sink and report "ack this id". See {@link RelayChannel}'s
    * `onEnvelope` doc for why a failure here must NOT ack -- UNLESS a raw
-   * sink is registered, in which case that sink's own cleartext view counts
-   * as "handled" regardless of whether the encrypted sink could decrypt it
-   * (see `onRawWire`'s doc comment).
+   * sink is registered AND reports it genuinely recognised this wire (see
+   * `onRawWire`'s doc comment for why merely being REGISTERED no longer
+   * counts -- that used to silently ack, and therefore permanently drop,
+   * any ordinary encrypted wire whose decrypt happened to fail on its first
+   * delivery attempt).
    */
   async function handleWire(rawWire: string): Promise<boolean> {
     const outer = parseOuterWire(rawWire)
     if (!outer) return false
     let handled = false
     if (rawSink) {
-      rawSink(outer.from, outer.payload)
-      handled = true
+      const rawHandled = rawSink(outer.from, outer.payload)
+      if (rawHandled) handled = true
     }
     if (sink) {
       const key = await sink.resolveKey(outer.from)
@@ -606,7 +637,7 @@ export function createRelayChannel(opts: RelayChannelOptions = {}): RelayChannel
     sink = { resolveKey, cb }
   }
 
-  function onRawWire(cb: (fromDid: string, payload: string) => void): void {
+  function onRawWire(cb: (fromDid: string, payload: string) => boolean | void): void {
     rawSink = cb
   }
 

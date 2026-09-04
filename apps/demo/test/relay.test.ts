@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildOuterWire,
+  createRelayChannel,
   decryptEnvelope,
   encryptEnvelope,
   parseOuterWire,
 } from '../src/relay'
+import type { RelayWebSocketLike } from '../src/relay'
 import { decide } from '../src/gate'
+import { createIdentity } from '../src/did'
 import { derivePairKey, randomBytes, seal, toB64u } from '../src/crypto'
 import type { MatchHit, MatchResult, QueryTemplate } from '../src/types'
 import type { AnswerEnvelope, QueryEnvelope } from '../src/types'
@@ -250,5 +253,168 @@ describe('wire-level indistinguishability: what the RELAY sees', () => {
       expect(parsed?.to).toBe(toDid)
       expect(parsed?.from).toBe(fromDid)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// handleWire's ack decision -- root-caused 2026-09-05: the residual "second
+// guest misses a broadcast query" loss that survived the single-flight relay
+// channel fix. `onRawWire`'s callback used to be typed `=> void`, and
+// `handleWire` (relay.ts, not exported -- exercised here only through the
+// public `RelayChannel` surface, via a scripted mock drain socket) treated
+// merely REGISTERING a raw sink as proof a wire was "handled", regardless of
+// what that callback's body actually did with it. Since every relay-mode
+// device registers a raw sink unconditionally for its whole lifetime
+// (main.ts's `bringUpRelayChannel`), this silently acked -- and therefore
+// permanently dropped instead of leaving for redelivery -- ANY ordinary
+// encrypted wire whose `onEnvelope` decrypt happened to fail on its first
+// delivery attempt (an as-yet-unresolvable pair key being the likeliest
+// real-world trigger). `onRawWire`'s callback now returns `true` only when
+// it genuinely recognised the wire; `handleWire` only counts THAT as
+// handled. These tests drive a scripted mock drain socket end to end (auth
+// handshake, a pushed `wire` frame, and asserting on what the channel sends
+// back) to prove the ack decision directly, deterministically, with no live
+// relay involved.
+// ---------------------------------------------------------------------------
+
+describe("handleWire's ack decision (via a scripted mock drain socket)", () => {
+  /** Minimal scriptable stand-in for the drain WebSocket: records every
+   *  frame the channel sends, and lets the test push server frames in by
+   *  calling the listener the channel itself registered. */
+  class MockDrainSocket implements RelayWebSocketLike {
+    readyState = 1 // WS_OPEN
+    sent: unknown[] = []
+    private listeners = new Map<string, ((event: { data: unknown }) => void)[]>()
+    send(data: string): void {
+      this.sent.push(JSON.parse(data))
+    }
+    close(): void {
+      this.readyState = 3
+      this.emit('close', {})
+    }
+    addEventListener(type: string, listener: (event: { data: unknown }) => void): void {
+      const list = this.listeners.get(type) ?? []
+      list.push(listener)
+      this.listeners.set(type, list)
+    }
+    emit(type: string, event: { data?: unknown }): void {
+      for (const l of this.listeners.get(type) ?? []) l(event as { data: unknown })
+    }
+    serverSend(msg: unknown): void {
+      this.emit('message', { data: JSON.stringify(msg) })
+    }
+  }
+
+  /** Boots a channel against a mock socket, drives the auth handshake (the
+   *  mock isn't a real relay so it accepts any signature -- irrelevant to
+   *  what this suite is testing), and returns the socket plus a settled
+   *  channel ready to receive scripted `wire` frames. */
+  async function connectedChannel() {
+    const identity = createIdentity('https://example.invalid/relay')
+    const sockets: MockDrainSocket[] = []
+    const wsCtor = function (this: MockDrainSocket) {
+      const s = new MockDrainSocket()
+      sockets.push(s)
+      return s
+    } as unknown as new (url: string) => RelayWebSocketLike
+
+    const channel = createRelayChannel({ wsCtor, fetchImpl: undefined })
+    const connectPromise = channel.connect(identity)
+    // The mock's constructor already pushed itself into `sockets`
+    // synchronously (createRelayChannel calls `new wsCtor(url)` inside
+    // connect()), so it's available immediately, before challenge/auth_ok.
+    const socket = sockets[0]
+    socket.serverSend({ type: 'challenge', nonce: 'bW9jay1ub25jZQ' }) // 'mock-nonce' base64url-ish, content unchecked by this mock
+    // Let the channel's signChallenge()+send('auth') round trip run.
+    await Promise.resolve()
+    socket.serverSend({ type: 'auth_ok' })
+    await connectPromise
+    return { identity, channel, socket }
+  }
+
+  /** Pushes one `{type:'wire', id, wire}` frame in and waits long enough for
+   *  `handleWire`'s async chain (an `await` for the resolver, another for
+   *  decrypt) to settle before the test inspects `socket.sent`. */
+  async function pushWireAndSettle(socket: MockDrainSocket, id: string, wire: string): Promise<void> {
+    socket.serverSend({ type: 'wire', id, wire })
+    // handleWire is `void`-dispatched from the message handler
+    // (`void handleWire(...).then(...)`), and its chain includes a REAL
+    // `crypto.subtle.decrypt` call (decryptEnvelope), which does not
+    // necessarily settle within pure microtask turns -- a macrotask tick is
+    // the reliable way to let it fully resolve before asserting.
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+
+  function acksFor(socket: MockDrainSocket, id: string): boolean {
+    return socket.sent.some((m) => {
+      const msg = m as { type?: string; ids?: string[] }
+      return msg.type === 'ack' && Array.isArray(msg.ids) && msg.ids.includes(id)
+    })
+  }
+
+  it('acks a wire when onEnvelope successfully decrypts it (baseline, unaffected by this fix)', async () => {
+    const { identity, channel, socket } = await connectedChannel()
+    const pairKey = await derivePairKey('sender-nonce', 'recipient-nonce')
+    const received: QueryEnvelope[] = []
+    channel.onEnvelope(pairKey, (envelope) => {
+      if (envelope.t === 'query') received.push(envelope)
+    })
+    const payload = await encryptEnvelope(makeQuery('qid-baseline-ok1'), pairKey)
+    const outer = buildOuterWire(identity.did, 'did:peer:2.Vsender.Esender.Ssender', payload)
+
+    await pushWireAndSettle(socket, 'wire-001', outer)
+
+    expect(received).toHaveLength(1)
+    expect(acksFor(socket, 'wire-001')).toBe(true)
+  })
+
+  it('does NOT ack a wire when onEnvelope fails to decrypt it and no raw sink is registered (baseline: un-acked means the relay will redeliver it)', async () => {
+    const { identity, channel, socket } = await connectedChannel()
+    const wrongKey = await derivePairKey('some-other-nonce', 'entirely-unrelated')
+    const rightKey = await derivePairKey('sender-nonce', 'recipient-nonce')
+    channel.onEnvelope(wrongKey, () => { /* never fires -- decrypt fails under the wrong key */ })
+    const payload = await encryptEnvelope(makeQuery('qid-baseline-fail1'), rightKey)
+    const outer = buildOuterWire(identity.did, 'did:peer:2.Vsender.Esender.Ssender', payload)
+
+    await pushWireAndSettle(socket, 'wire-002', outer)
+
+    expect(acksFor(socket, 'wire-002')).toBe(false)
+  })
+
+  it(
+    'THE BUG (pre-fix would have failed here): a raw sink that does NOT recognise a wire must not cause it to be acked -- ' +
+    'main.ts\'s handleRawWire returns false/void for every wire that is not a connect-ack, i.e. every ordinary query/answer',
+    async () => {
+      const { identity, channel, socket } = await connectedChannel()
+      const wrongKey = await derivePairKey('some-other-nonce', 'entirely-unrelated')
+      const rightKey = await derivePairKey('sender-nonce', 'recipient-nonce')
+      channel.onEnvelope(wrongKey, () => { /* never fires -- decrypt fails under the wrong key, simulating an as-yet-unresolvable pair key */ })
+      // The exact shape of main.ts's handleRawWire for a non-connect-ack wire:
+      // it looks, does not recognise the payload, and returns without acting.
+      channel.onRawWire(() => { /* looked, did nothing -- returns void, same as handleRawWire's early `return` */ })
+      const payload = await encryptEnvelope(makeQuery('qid-the-bug-1'), rightKey)
+      const outer = buildOuterWire(identity.did, 'did:peer:2.Vsender.Esender.Ssender', payload)
+
+      await pushWireAndSettle(socket, 'wire-003', outer)
+
+      // A wire nothing actually processed must stay un-acked so the relay
+      // redelivers it on the next authenticated drain -- see relay_server.ts's
+      // at-least-once design. Acking it here (the pre-fix behaviour, since a
+      // raw sink was registered at all) would silently and permanently drop it.
+      expect(acksFor(socket, 'wire-003')).toBe(false)
+    },
+  )
+
+  it('a raw sink that DOES recognise a wire (returns true) still acks it, even though onEnvelope could not decrypt it (the one legitimate case this exists for: the connect-ack bootstrap)', async () => {
+    const { identity, channel, socket } = await connectedChannel()
+    const wrongKey = await derivePairKey('some-other-nonce', 'entirely-unrelated')
+    channel.onEnvelope(wrongKey, () => { /* no key known yet for this brand-new peer */ })
+    channel.onRawWire(() => true) // recognised and processed it, e.g. a connect-ack
+    const payload = await encryptEnvelope(makeQuery('qid-recognised-1'), wrongKey) // content irrelevant -- onRawWire doesn't decrypt
+    const outer = buildOuterWire(identity.did, 'did:peer:2.Vsender.Esender.Ssender', payload)
+
+    await pushWireAndSettle(socket, 'wire-004', outer)
+
+    expect(acksFor(socket, 'wire-004')).toBe(true)
   })
 })

@@ -394,7 +394,13 @@ function handleRawWire(fromDid: string, payload: string): boolean {
     const idx = pendingAcceptRequests.findIndex((r) => r.did === env.did)
     if (idx >= 0) pendingAcceptRequests[idx] = req
     else pendingAcceptRequests.push(req)
+    // Full re-render only where the card itself lives (unchanged: still
+    // avoids wiping an in-progress chat draft elsewhere -- see
+    // pendingRequestBubble()'s doc comment). The bubble refresh below is
+    // unconditional, so the request is visible from EVERY screen, not just
+    // these two, even when no full render happens.
     if (screen === 'connect' || screen === 'home') render()
+    else refreshPendingRequestBubble()
     return true
   }
   upsertPeer(s, {
@@ -719,6 +725,8 @@ function shell(title: string, body: HTMLElement, opts: { back?: () => void } = {
   const nb = netBubble()
   root.append(bar, el('main', {}, [body]))
   if (nb) root.append(nb)
+  const prb = pendingRequestBubble()
+  if (prb) root.append(prb)
 }
 
 
@@ -750,6 +758,71 @@ function netBubble(): HTMLElement | null {
     el('small', {}, [n === 1 ? t('netGrew') : t('netPeople')]),
   ])
   return bubble
+}
+
+/**
+ * A second corner marker, root-caused 2026-09-05 alongside the ack fix
+ * (relay.ts's onRawWire doc comment): `pendingRequestCard()` only ever
+ * renders on `screenHome()`/`screenConnect()`, and the wire that queues an
+ * entry into `pendingAcceptRequests` (`handleRawWire`) only calls `render()`
+ * when `screen === 'connect' || screen === 'home'` -- deliberately, because
+ * `render()` fully rebuilds the DOM (`shell()`'s `clear(root)`), which would
+ * wipe an in-progress, unsent chat composer draft (`renderComposer()` in
+ * screens/chat.ts is a plain uncontrolled `<textarea>`, not backed by any
+ * JS state -- see that module).
+ *
+ * The bug this shipped as: the ONE screen a person is overwhelmingly likely
+ * to be on when a SECOND guest's request arrives is exactly the one that
+ * gate excludes -- `'link'`, the chat screen `acceptPendingRequest()` sends
+ * the FIRST guest's acceptor to (`go('link')`). The wire was correctly
+ * received and queued (and, after the ack fix above, correctly acked
+ * because it WAS genuinely handled) -- it simply never became visible,
+ * because nothing ever re-rendered `screenHome()`/`screenConnect()` to show
+ * it, and `pendingAcceptRequests` is plain in-memory state (never persisted
+ * via `saveState`), so even a reload could not recover it: reproduced live,
+ * deterministically (5/5), against the deployed build.
+ *
+ * The fix: a second bubble, exactly like `netBubble()` above but for
+ * `pendingAcceptRequests` instead of `state.peers`, mounted the same way
+ * (returned from here, appended by `shell()`) SO IT APPEARS ON EVERY
+ * SCREEN'S NEXT NATURAL RENDER -- but that alone still requires a render to
+ * happen. `refreshPendingRequestBubble()` below is the other half: it
+ * inserts/updates/removes this exact element DIRECTLY in the live DOM,
+ * without calling `render()`, so a request that arrives while the person
+ * sits on `'link'` (or any other screen) becomes visible IMMEDIATELY without
+ * touching -- and therefore without clearing -- whatever they were doing.
+ */
+function pendingRequestBubble(): HTMLElement | null {
+  if (wotScenario() !== 'geologengasse' || pendingAcceptRequests.length === 0) return null
+  const n = pendingAcceptRequests.length
+  return el('button', {
+    class: 'netbubble pending' + (screen === 'link' ? ' above-composer' : ''),
+    onclick: () => go('home'),
+    'aria-label': t('geoPendingTitle'),
+  }, [
+    el('b', {}, [String(n)]),
+    el('small', {}, [t('geoPendingTitle')]),
+  ])
+}
+
+/** Out-of-band counterpart to {@link pendingRequestBubble} -- see its doc
+ *  comment. Mutates the live DOM directly (insert/update/remove one
+ *  `.netbubble.pending` element) instead of going through `render()`, so
+ *  calling this is always safe, from any code path, on any screen, without
+ *  the composer-wipe risk a full re-render carries. Idempotent: safe to
+ *  call after every change to `pendingAcceptRequests` (add, accept,
+ *  decline), whether or not a `render()` is ALSO about to happen for other
+ *  reasons -- the next `shell()` call will simply reconcile to the same
+ *  element via `pendingRequestBubble()`. */
+function refreshPendingRequestBubble(): void {
+  const existing = root.querySelector('.netbubble.pending')
+  const next = pendingRequestBubble()
+  if (!next) {
+    existing?.remove()
+    return
+  }
+  if (existing) existing.replaceWith(next)
+  else root.appendChild(next)
 }
 
 function go(s: Screen): void { screen = s; render() }
