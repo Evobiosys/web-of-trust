@@ -12,6 +12,13 @@
 #   app.idea2.site/wot/demo20/ Jakob's own flat, opt-in only (apps/demo, VITE_WOT_MODE=relay,
 #                              VITE_WOT_SCENARIO=geologengasse -- see below, NOT built or
 #                              pushed by a plain run of this script)
+#   app.idea2.site/wot/demo21/ a question travels one hop further, with    (apps/demo,
+#                              consent at each hop                         VITE_WOT_MODE=relay,
+#                                                                          VITE_WOT_SCENARIO=secondHop)
+#                              Built and pushed by a plain run, same as demo1/2/3/6: its
+#                              seed content (a ladder, data/second_hop.ts) is generic, not
+#                              the owner's real address the way demo20's is, so it does NOT
+#                              need demo20's opt-in gate. DEVLOG/handover-demo21-two-hop.md.
 #   app.idea2.site/wot/demo4/  full app mockup               (demos/app-mockup.html)
 #   app.idea2.site/wot/demo5/  gating prototype              (demos/gating-prototype.html)
 #   app.idea2.site/wot/app/    mobile-UI LAN alpha client    (apps/mobile-ui)
@@ -98,6 +105,10 @@ echo "building and pushing demo6 (base /wot/demo6/, the ladder)"
 ( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo6/ VITE_WOT_MODE=ladder npx vite build >/dev/null )
 push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo6"
 
+echo "building and pushing demo21 (base /wot/demo21/, a question travels one hop further)"
+( cd "$REPO/apps/demo" && WOT_BASE=/wot/demo21/ VITE_WOT_MODE=relay VITE_WOT_SCENARIO=secondHop npx vite build >/dev/null )
+push_dir  "$REPO/apps/demo/dist"               "$REMOTE_APP/demo21"
+
 # Demo 20 (Jakob's own flat, his own web of trust) is DELIBERATELY opt-in:
 # a plain `./scripts/deploy_wot.sh` run never touches it, never requires
 # VITE_WOT_ADDRESS, and never risks publishing the owner's real address
@@ -156,6 +167,7 @@ verify_urls=(
   "https://app.idea2.site/wot/demo2"
   "https://app.idea2.site/wot/demo3/"
   "https://app.idea2.site/wot/demo6/"
+  "https://app.idea2.site/wot/demo21/"
   "https://app.idea2.site/wot/demo4/"
   "https://app.idea2.site/wot/demo5/"
   "https://app.idea2.site/wot/app/"

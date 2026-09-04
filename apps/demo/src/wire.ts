@@ -66,6 +66,14 @@ function parseQuery(o: Record<string, unknown>): QueryEnvelope | null {
     if (o.freeText.length > FREE_TEXT_MAX_LEN) return null
   }
   const freeText = isNonEmptyString(o.freeText) ? o.freeText : undefined
+  // `relayed` (demo 21, types.ts's QueryEnvelope.relayed doc comment): same
+  // strictness convention as `did`/`freeText` above -- ABSENT is fine (every
+  // ordinary query, including demo 21's own first-hop ask), but a PRESENT
+  // value that is not exactly `true` rejects the whole envelope rather than
+  // being coerced or silently dropped. `false` is deliberately not accepted
+  // either: this field only ever means one thing when present at all.
+  if ('relayed' in o && o.relayed !== true) return null
+  const relayed = o.relayed === true ? (true as const) : undefined
   return {
     v: WIRE_VERSION,
     t: 'query',
@@ -75,6 +83,7 @@ function parseQuery(o: Record<string, unknown>): QueryEnvelope | null {
     qid: o.qid,
     issuedAt: o.issuedAt,
     ...(freeText ? { freeText } : {}),
+    ...(relayed ? { relayed } : {}),
   }
 }
 

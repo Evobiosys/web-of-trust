@@ -56,6 +56,30 @@ export interface Peer {
   pairing?: 'nonce' | 'ecdh'
 }
 
+/**
+ * Demo 21 (secondHop scenario) only: A's own, private "I know X has this"
+ * note -- `packages/agent-daemon`'s `provenance.kind === 'second_brain'`
+ * shape (D13/D15/D16), re-enacting the exact story `verification/alpha-run.txt`
+ * leg (g) already ran live (a ladder). Lives only on the ONE device that was
+ * seeded as the first hop (main.ts's `completeConnectLinkIfPending` branch
+ * that checks `pendingConnectLink.from.id === 'jakob'`) -- never on Jakob's
+ * own device, never on a second-hop guest's, and never editable in-app (see
+ * docs/query-traversal.md section 1c's own caveat: no in-app composer exists
+ * for this anywhere in the project yet; this is a fixed demo seed, the same
+ * honest limitation the daemon's live-run leg (g) already had).
+ */
+export interface SecondBrainNote {
+  id: string
+  text: string
+  createdAt: string
+  /** Peer.id of the person this note is ABOUT (Jakob, always 'jakob' in this
+   *  scenario -- see main.ts's seedJakob()). Relaying requires a LIVE trust
+   *  edge to this id (D16): `state.peers` must hold a reachable peer for it,
+   *  checked at relay time, never assumed from the note's mere existence. */
+  ownerPeerId: string
+  ownerDisplayName: string
+}
+
 export interface DeviceState {
   me: Identity
   threads: ChatThread[]
@@ -79,6 +103,10 @@ export interface DeviceState {
    * mint on demand.
    */
   relayIdentity?: SerializedIdentityV1
+  /** See SecondBrainNote's own doc comment. Absent on every device except
+   *  demo 21's own first hop -- `withDefaults` does not need to backfill
+   *  it, same reasoning as `relayIdentity` above. */
+  secondBrainNote?: SecondBrainNote
 }
 
 /** Exported so test/state_defaults.test.ts can write a legacy-shaped record

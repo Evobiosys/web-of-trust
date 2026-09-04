@@ -256,6 +256,9 @@ const S: Table = {
   logOutcomeBelowK:   { de: 'Gefunden, zu wenige Stimmen für die Anonymität', en: 'Found, too few voices for anonymity' },
   logOutcomeNoMatch:  { de: 'Nichts gefunden', en: 'Nothing found' },
   logOutcomeBlocked:  { de: 'Blockiert', en: 'Blocked' },
+  // Demo 21 (secondHop) only.
+  logOutcomeRelayed:      { de: 'Weitergeleitet, beantwortet', en: 'Forwarded, answered' },
+  logOutcomeRelayNothing: { de: 'Weitergeleitet, keine Antwort', en: 'Forwarded, no answer' },
 
   // camera
   // relay mode: connection status, waiting states, errors
@@ -409,6 +412,91 @@ const S: Table = {
     de: 'Wichtig: Wer über diesen Link dazukommt, kann nur dieses Gerät fragen, nicht dich. Eine Frage geht in dieser Vorführung nie einen Schritt weiter, egal wie oft der Link weitergegeben wird.',
     en: 'Important: whoever joins through this link can only query THIS device, never you. In this demo a question never travels one hop further, no matter how many times the link is passed on.',
   },
+
+  // ---------------------------------------------------------------------
+  // demo 21 (secondHop scenario, mode.ts's wotScenario()): a question that
+  // travels one hop further, through someone the asker trusts, with
+  // consent at every hop. Every key below is used only when
+  // wotScenario() === 'secondHop' -- unreferenced in every other demo,
+  // including demo 20 (geoChainHonesty above is untouched and still says
+  // what it always said, for geologengasse specifically).
+  //
+  // THIS is the honest chaining statement for demo 21, and it says the
+  // OPPOSITE of geoChainHonesty on purpose: here, a question CAN travel one
+  // hop further, through one specific person the first hop already trusts,
+  // and only with that person's own separate consent to relay it. Never
+  // more than one hop (I8, types.ts's QueryEnvelope.relayed doc comment),
+  // and never at the asker's request -- the asker has no say in whether it
+  // happens, only in whether they ask at all.
+  // ---------------------------------------------------------------------
+  secondHopChainHonesty: {
+    de: 'Wichtig: Deine Frage kann höchstens einen Schritt weitergehen, über eine Person, die du bereits kennst, an eine Person, die diese Person kennt. Nie weiter als das, und nur wenn die vermittelnde Person selbst zustimmt.',
+    en: 'Important: your question can travel at most one step further, through a person you already know, to a person THEY know. Never further than that, and only if the relaying person consents to it themselves.',
+  },
+  secondHopInvitedNote: {
+    de: 'Der Link, den du geöffnet hast, verbindet dich mit diesem Gerät. Gib deinen Namen ein, dann seid ihr verbunden. Verbunden zu sein heißt nicht, dass jede Frage beantwortet wird: es bedeutet nur, dass du fragen kannst.',
+    en: 'The link you opened connects you with this device. Enter your name, and you are connected. Being connected does not mean every question gets answered: it only means you can ask.',
+  },
+  // The design doc's prescribed sentence (docs/two-hop-decisions.md §3),
+  // used verbatim, on B's own ask screen, BEFORE B sends -- this is a
+  // consent-affecting fact (it may change whether B wants to ask at all),
+  // not a status update shown only afterwards. `relayExplain` above stays
+  // true and unchanged: this is a DIFFERENT sentence, about a person, not
+  // about the server. `{who}` is the peer B is actually paired with (A);
+  // "Jakob" is named directly because this demo's own topology has exactly
+  // one possible second hop and the audience can see his laptop on the
+  // table -- naming him is not a claim this app makes in general.
+  secondHopAskHonesty: {
+    de: 'Deine Frage geht nicht direkt an Jakob. {who} bekommt sie zuerst zu lesen und entscheidet, ob sie sie weitergibt. Wenn sie das tut, sieht sie auch die Antwort. Der Server sieht in beiden Fällen nur unlesbaren Text; {who} nicht.',
+    en: 'Your question does not go straight to Jakob. {who} reads it first and decides whether to pass it on. If she does, she also sees the answer. The server still sees only unreadable text either way; {who} does not.',
+  },
+  // Same sentence, addressed to A herself (design doc §3 placement 2): at
+  // or before the moment she is shown B's question and asked whether to
+  // forward it -- D24 (the intermediary sees what she carries) made
+  // legible to the one person it actually constrains, before she acts on
+  // it, not after.
+  secondHopRelayHonesty: {
+    de: 'Diese Frage geht nicht direkt an Jakob weiter. Du liest sie zuerst und entscheidest, ob du sie weiterleitest. Tust du das, siehst du auch die Antwort. Der Vermittlungsserver sieht in beiden Fällen nur unlesbaren Text, du aber nicht.',
+    en: 'This question does not go straight to Jakob. You read it first and decide whether to forward it. If you do, you also see the answer. The relay server still sees only unreadable text either way; you do not.',
+  },
+  secondHopRelayFound: {
+    de: 'Auf deinem Gerät gibt es nichts dazu. Du weißt aber, dass {who} das haben könnte.',
+    en: 'There is nothing on your device about this. But you know {who} might have it.',
+  },
+  secondHopRelayDecline: { de: 'Nicht weiterleiten', en: 'Do not forward' },
+  secondHopRelayAccept:  { de: 'Weiterleiten und fragen', en: 'Forward and ask' },
+  secondHopForwarding: {
+    de: 'Frage geht an {who}…', en: 'Question going to {who}…',
+  },
+  // Jakob's own screen, shown BEFORE he decides -- design doc finding 2: he
+  // must know this did not come directly from A, and that answering with
+  // his name means a stranger learns it, before he commits, not after (the
+  // daemon's own shipped order, INTRO after CONSENT, is the mistake this
+  // sentence exists to not repeat). Deliberately does not name B: he does
+  // not need her identity to decide, only that she is not A (design doc §5).
+  secondHopNamedIntroNote: {
+    de: 'Diese Frage kommt nicht direkt von {who}. {who} hat sie von jemandem bekommen, den du nicht kennst, und leitet sie dir weiter. Antwortest du und lässt dich nennen, erfährt diese Person deinen Namen.',
+    en: 'This question does not come directly from {who}. {who} received it from someone you do not know and is forwarding it to you. If you answer and allow your name to be given, that person learns your name.',
+  },
+  secondHopShareNamed:   { de: 'Ja, antworten und mich nennen', en: 'Yes, answer and name me' },
+  secondHopShareUnnamed: { de: 'Ja, aber ohne meinen Namen', en: 'Yes, but without my name' },
+  // B's waiting screen (demo 21 only): the wait itself is part of the
+  // demonstration, not a delay to apologise for -- see gate.ts's
+  // RELAY_DEADLINE_MS doc comment. Saying so plainly is the honest
+  // alternative to a generic spinner that would otherwise let elapsed time
+  // read as a hint about how far the question went.
+  secondHopWaitHonesty: {
+    de: 'Das dauert bis zu 30 Sekunden, unabhängig davon, was am Ende herauskommt oder wie weit die Frage gekommen ist.',
+    en: 'This takes up to 30 seconds either way, regardless of the outcome or how far the question travelled.',
+  },
+  // B's result screen, only when the true answerer differs from the peer B
+  // asked directly (screenResult's own guard) -- the named introduction
+  // made visible (D23).
+  secondHopAnsweredBy: {
+    de: 'Tatsächlich beantwortet von {who}, eingeführt über {via}.',
+    en: 'Actually answered by {who}, introduced via {via}.',
+  },
+
   camDenied:      { de: 'Ohne Kamera geht das Scannen nicht. Du kannst den Code auch als Text übertragen.',
                     en: 'Scanning needs the camera. You can also transfer the code as text.' },
   camPaste:       { de: 'Code als Text einfügen', en: 'Paste code as text' },

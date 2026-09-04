@@ -45,10 +45,24 @@ export function wotMode(): WotMode {
  * Demos 1/2/3/6 never set `VITE_WOT_SCENARIO`, so `wotScenario()` there is
  * always `'default'` -- every scenario-gated branch in main.ts is a no-op for
  * them, and their code paths stay byte-identical to before this flag existed.
+ *
+ *   VITE_WOT_MODE=relay VITE_WOT_SCENARIO=secondHop WOT_BASE=/wot/demo21/ npx vite build
+ *
+ * `'secondHop'` (demo 21, DEVLOG/handover-demo21-two-hop.md) is a THIRD,
+ * separate value, not a modifier on `'geologengasse'` -- demo 20 must keep
+ * its exact existing behaviour (`wotScenario() === 'geologengasse'` stays
+ * false for a demo21 build, and vice versa), so every `geologengasse`-gated
+ * branch in main.ts is unaffected by this value existing. Where a demo21
+ * screen needs behaviour demo 20 also needs (free-text-name entry on an
+ * invited device, a multi-peer relay pair-key resolver), main.ts checks
+ * BOTH values explicitly (see e.g. `usesFreeIdentity()`) rather than folding
+ * `secondHop` into the `geologengasse` check, so each scenario's own
+ * behaviour stays independently readable and independently changeable.
  */
-export type WotScenario = 'default' | 'geologengasse'
+export type WotScenario = 'default' | 'geologengasse' | 'secondHop'
 
 export function wotScenario(): WotScenario {
   const v = import.meta.env?.VITE_WOT_SCENARIO
-  return v === 'geologengasse' ? 'geologengasse' : 'default'
+  if (v === 'geologengasse' || v === 'secondHop') return v
+  return 'default'
 }

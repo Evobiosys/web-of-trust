@@ -241,6 +241,24 @@ export interface QueryEnvelope {
   issuedAt: number
   /** Present only for a free-text ask. See this interface's doc comment. */
   freeText?: string
+  /**
+   * Demo 21 (secondHop scenario) only. Present and `true` ONLY on the fresh
+   * QueryEnvelope a relaying hop composes when forwarding someone else's
+   * question one step further (main.ts's `forwardToOwner`/D13-D16 shape,
+   * `packages/agent-daemon`'s `forwardRelay`). Every ordinary query --
+   * everything demos 1/2/3/6/20 ever send, and the ORIGINAL query the asker
+   * themselves sends in demo 21 -- omits this field entirely; `undefined`
+   * and `false` are never distinguished, only `true` means anything.
+   *
+   * THE DEPTH CAP (I8 "one hop, not N"): a device handling an incoming query
+   * with `relayed === true` must never itself offer to relay it a second
+   * time, regardless of whether it happens to hold a second-brain note that
+   * would otherwise be eligible. Enforced in main.ts's relay-eligibility
+   * check, not by scenario topology alone -- see that check's own comment.
+   * No field anywhere lets the ASKER request a hop count; this flag is only
+   * ever set by a relaying hop's own one-time local decision.
+   */
+  relayed?: true
 }
 
 /** Bound for QueryEnvelope.freeText, same reasoning as wire.ts's CHAT_MAX_LEN
@@ -309,8 +327,20 @@ export interface PingEnvelope {
   back: boolean
 }
 
-/** Reasons live only on the answering device. They are never serialised. */
-export type LocalOutcome = 'no-match' | 'below-k' | 'declined' | 'blocked' | 'shared'
+/**
+ * Reasons live only on the answering device. They are never serialised.
+ *
+ * `'relayed'`/`'relay-nothing'` (demo 21 / secondHop only): a hop that chose
+ * to forward someone else's question one step further, recorded locally
+ * (I6) so its OWN Protokoll can distinguish "I relayed and it came back
+ * shared" from "I relayed and got nothing back" -- a distinction that must
+ * never leak onto the wire (see gate.ts's module doc for why LocalOutcome
+ * existing at all is safe: nothing here is ever serialised into an
+ * AnswerEnvelope). A device that answers directly, with no relay involved,
+ * never produces these two -- it keeps using the five reasons above,
+ * unchanged, exactly as every other demo already does.
+ */
+export type LocalOutcome = 'no-match' | 'below-k' | 'declined' | 'blocked' | 'shared' | 'relayed' | 'relay-nothing'
 
 /** What the asking device is allowed to learn. */
 export type VisibleOutcome = 'nothing' | 'shared'
