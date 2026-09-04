@@ -295,7 +295,65 @@ const S: Table = {
                            en: 'Rung 3 · over the server (direct connection was not reachable)' },
   rungQr: { de: 'Stufe 1 · nur QR-Code', en: 'Rung 1 · QR code only' },
 
-  camAsk:         { de: 'Kamera erlauben', en: 'Allow camera' },
+  // demo 20 (geologengasse scenario, mode.ts's wotScenario()): the owner's
+  // own flat, his own web of trust. Every key below is used only when
+  // wotScenario() === 'geologengasse' -- unreferenced in demos 1/2/3/6.
+  geoInvitedNote: {
+    de: 'Der Link, den du geöffnet hast, verbindet dich mit diesem Gerät. Gib deinen Namen ein, dann schickst du eine Anfrage. Verbunden bist du erst, wenn die andere Seite sie bestätigt.',
+    en: 'The link you opened connects you with this device. Enter your name, then you send a request. You are only connected once the other side confirms it.',
+  },
+  geoNameTitle:   { de: 'Wie heißt du?', en: 'What is your name?' },
+  geoNamePh:      { de: 'Dein Name', en: 'Your name' },
+  geoNameSend:    { de: 'Anfrage senden', en: 'Send request' },
+  geoRequestSentTitle: { de: 'Anfrage gesendet', en: 'Request sent' },
+  geoRequestSentBody: {
+    de: 'Die andere Seite muss die Anfrage noch bestätigen. Sobald das passiert, seid ihr verbunden.',
+    en: 'The other side still has to confirm the request. Once that happens, you are connected.',
+  },
+  // The laptop's pending-request card: default is NOT accepted, and it must
+  // stay visibly waiting until Jakob taps the confirm button. Nobody joins
+  // his graph without that tap.
+  geoPendingTitle: { de: 'Anfrage wartet', en: 'Request waiting' },
+  geoPendingBody: {
+    de: 'möchte sich mit dir verbinden. Noch nicht bestätigt, noch nicht in deinem Netz.',
+    en: 'wants to connect with you. Not confirmed yet, not in your network yet.',
+  },
+  geoAcceptBtn:   { de: 'Anfrage bestätigen', en: 'Confirm request' },
+  geoDeclineBtn:  { de: 'Ablehnen', en: 'Decline' },
+  geoAcceptedTitle: { de: 'Verbunden', en: 'Connected' },
+  geoAcceptedBody: { de: 'ist jetzt in deinem Netz.', en: 'is now in your network.' },
+  geoGraphNav:    { de: 'Mein Netz', en: 'My network' },
+  geoNetworkCount: { de: 'Personen in deinem Netz', en: 'people in your network' },
+  geoNetworkCountOne: { de: 'Person in deinem Netz', en: 'person in your network' },
+  geoGraphTitle:  { de: 'Vertrauensnetz', en: 'Trust network' },
+  geoGraphLead: {
+    de: 'Wer wen kennt, und wie nah. Der Abstand hier bedeutet etwas: ein Ring weiter heißt, du kennst die Person nur über jemand anderen.',
+    en: 'Who knows whom, and how closely. The distance here means something: one ring further out means you only know that person through someone else.',
+  },
+  geoGraphYou:    { de: 'Jakob', en: 'Jakob' },
+  geoGraphUnknownNote: {
+    de: 'Steht für jemanden, den du noch nicht kennst.', en: 'Stands for someone you do not know yet.',
+  },
+  geoGraphRing2Note: {
+    de: 'Zwei Ringe entfernt: kennst du nur über Alex, nicht direkt.',
+    en: 'Two rings out: you only know this person through Alex, not directly.',
+  },
+  // The demo-crutch k-threshold, said plainly rather than left implicit --
+  // see match/accommodation.ts's own comment on why k=1 here is not an
+  // anonymity floor.
+  geoKHonesty: {
+    de: 'Für diese Vorführung: Der Datensatz ist eine einzige Wohnung, darum reicht hier schon eine Übereinstimmung. Das übliche Anonymitäts-Minimum aus mehreren Personen greift hier nicht.',
+    en: 'For this demo: the dataset is a single flat, so one match is enough here. The usual anonymity floor across several people does not apply here.',
+  },
+  // The honest chaining limit -- read docs/query-traversal.md before ever
+  // touching this string. A third person paired to the invited phone can
+  // query THAT PHONE, never Jakob through it: hop 2 exists in
+  // packages/agent-daemon but not in this demo app.
+  geoNextQuery:   { de: 'Nächste Anfrage', en: 'Next request' },
+  geoChainHonesty: {
+    de: 'Wichtig: Wer über diesen Link dazukommt, kann nur dieses Gerät fragen, nicht dich. Eine Frage geht in dieser Vorführung nie einen Schritt weiter, egal wie oft der Link weitergegeben wird.',
+    en: 'Important: whoever joins through this link can only query THIS device, never you. In this demo a question never travels one hop further, no matter how many times the link is passed on.',
+  },
   camDenied:      { de: 'Ohne Kamera geht das Scannen nicht. Du kannst den Code auch als Text übertragen.',
                     en: 'Scanning needs the camera. You can also transfer the code as text.' },
   camPaste:       { de: 'Code als Text einfügen', en: 'Paste code as text' },

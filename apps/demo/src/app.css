@@ -302,3 +302,34 @@ video.scanner {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
+
+/* ---------- demo 20: the trust-graph bubble view ---------- */
+/* Plain SVG + absolutely-positioned avatar divs, following the visual
+   grammar of overnight/stub/trust-graph.html (dashed concentric rings, a
+   filled avatar circle with initials, "Du" fixed in the middle) at a
+   fraction of that stub's complexity -- see main.ts's screenGraph(). */
+.geo-graph-card { padding: 18px; }
+.geo-graph-frame {
+  position: relative; width: min(100%, 420px); aspect-ratio: 1/1; margin: 0 auto;
+}
+.geo-graph-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.geo-ring { fill: none; stroke: var(--line); stroke-width: 0.6; stroke-dasharray: 1.6 3; }
+.geo-thread { stroke: var(--ink-faint); stroke-width: 0.6; opacity: .7; }
+.geo-thread-placeholder { stroke-dasharray: 1.5 2; opacity: .45; }
+.geo-node-layer { position: absolute; inset: 0; }
+.geo-node, .geo-you {
+  position: absolute; transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  width: 84px; text-align: center;
+}
+.geo-you { left: 50%; top: 50%; }
+.geo-avatar {
+  width: 46px; height: 46px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 700; color: var(--accent-ink);
+  background: var(--accent); border: 2px solid var(--bg-raised);
+}
+.geo-avatar-you { background: var(--warn); width: 56px; height: 56px; font-size: 17px; }
+.geo-node-placeholder .geo-avatar { background: var(--bg-sunken); color: var(--ink-faint); border-style: dashed; }
+.geo-name { font-size: 11.5px; font-weight: 600; color: var(--ink); line-height: 1.2; }
+.geo-node-placeholder .geo-name { color: var(--ink-faint); }

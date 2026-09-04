@@ -16,8 +16,8 @@ import { encodeForQr, decodeFromQr } from './wire'
 import type { Envelope } from './wire'
 import { SEED_DIRECT_IOS } from './data/seed_direct'
 import seedGroupRaw from './data/seed-wien-wohnen.txt?raw'
-import type { ChatThread, QueryEnvelope, AnswerEnvelope, MatchResult, QueryTemplate } from './types'
-import { wotMode } from './mode'
+import type { ChatThread, QueryEnvelope, AnswerEnvelope, MatchResult, QueryTemplate, Identity } from './types'
+import { wotMode, wotScenario } from './mode'
 import { createRelayChannel } from './relay'
 import type { RelayChannel, RelayStatus } from './relay'
 import { ensureRelayIdentity } from './relay_identity'
@@ -27,6 +27,9 @@ import { buildConnectAck, buildConnectLinkUrl, parseConnectLinkParams } from './
 import type { ConnectLinkParams } from './connect_link'
 import { createWebrtcChannel, decodeRtcPayload, encodeAnswerPayload, encodeOfferPayload } from './webrtc'
 import type { WebrtcChannel, WebrtcStatus } from './webrtc'
+import { ACCOMMODATION_TEMPLATE, ACCOMMODATION_TEMPLATE_ID, accommodationPreviewDe, accommodationPreviewEn, matchAccommodation } from './match/accommodation'
+import { SEED_GRAPH_NODES } from './data/geologengasse'
+import type { GraphNode } from './data/geologengasse'
 
 // ---------------------------------------------------------------------------
 // shell
@@ -36,7 +39,7 @@ const root = document.getElementById('app') as HTMLElement
 let state: DeviceState | null = null
 let releaseWake: () => void = () => {}
 
-type Screen = 'start' | 'home' | 'chats' | 'profile' | 'inventory' | 'connect' | 'ask' | 'answer' | 'link'
+type Screen = 'start' | 'home' | 'chats' | 'profile' | 'inventory' | 'connect' | 'ask' | 'answer' | 'link' | 'graph'
 let screen: Screen = 'start'
 
 // ---------------------------------------------------------------------------
@@ -53,8 +56,23 @@ let relayStatusAt = 0
  *  written into a detached DOM node. */
 let relayStatusBadgeEl: HTMLElement | null = null
 /** Set by handleIncomingEnvelope() when a QueryEnvelope arrives before the
- *  user has navigated to 'answer' themselves; screenAnswer() consumes it. */
+ *  user has navigated to 'answer' themselves; screenAnswer() consumes it.
+ *  Default scenario only -- see `pendingGeoQueries` below for demo 20. */
 let pendingIncomingQuery: QueryEnvelope | null = null
+/**
+ * Demo 20 only. Several people can query Jakob independently, so a second
+ * query arriving while he is still mid-consent-ceremony for a first one
+ * must not silently clobber it (the default scenario's single
+ * `pendingIncomingQuery` slot would do exactly that). Queued, FIFO;
+ * screenAnswer() and the "next request" action after answering both drain
+ * it one at a time.
+ */
+let pendingGeoQueries: QueryEnvelope[] = []
+/** True from the moment a geo consent ceremony starts (runConsentCeremony)
+ *  until its answer has actually been sent (emitAnswer's promise settles).
+ *  See handleIncomingEnvelope's query branch for why this, not `screen`, is
+ *  the correct "is a human decision pending right now" signal. */
+let geoCeremonyBusy = false
 /** The one query this device is currently waiting on an answer for, if any. */
 let awaitingAnswer: { qid: string; resolve: (env: AnswerEnvelope) => void } | null = null
 
@@ -69,6 +87,21 @@ let awaitingAnswer: { qid: string; resolve: (env: AnswerEnvelope) => void } | nu
  */
 let pendingConnectLink: ConnectLinkParams | null =
   typeof location !== 'undefined' ? parseConnectLinkParams(location.search) : null
+
+/**
+ * Demo 20 only (`wotScenario() === 'geologengasse'`): every connect-ack that
+ * has arrived over the relay but that Jakob has not yet tapped "Anfrage
+ * bestätigen" for. `handleRawWire` pushes onto this list instead of
+ * upserting a peer straight away -- see that function's scenario branch.
+ *
+ * Demo 20 is not a two-device demo: several people (the one excited relative,
+ * then her friends) each open the same connect link and each send their own
+ * request. Every request waits here, visibly, confirmed SEPARATELY -- one
+ * "Anfrage bestätigen" tap per person, never a bulk accept. Keyed by `did`
+ * (unique per requester's relay identity); a second ack from a did already
+ * pending replaces that one entry rather than adding a duplicate card.
+ */
+let pendingAcceptRequests: { did: string; from: Identity }[] = []
 
 // ---------------------------------------------------------------------------
 // webrtc mode (demo 3) and ladder mode (demo 6): rung 2, a data channel with
@@ -155,13 +188,39 @@ function updateRelayStatusBadge(): void {
   if (relayStatusBadgeEl) relayStatusBadgeEl.textContent = relayStatusText()
 }
 
-/** (Re-)registers the drain sink for the current peer's pair key. Must be
- *  called again whenever that key can have changed -- a real connect
- *  ceremony overwrites nonceSelf/noncePeer, and onEnvelope() only ever keeps
- *  one registration (relay.ts), so a stale key here means inbound wires
- *  silently fail to decrypt and are never acked. */
+/**
+ * (Re-)registers the drain sink. Must be called again whenever a pair key
+ * can have changed -- a real connect ceremony overwrites nonceSelf/noncePeer
+ * (or adds a new peer), and onEnvelope() only ever keeps one registration
+ * (relay.ts), so a stale registration here means inbound wires silently
+ * fail to decrypt and are never acked.
+ *
+ * Two shapes, picked by scenario:
+ *
+ *  - Every OTHER demo (default scenario): unchanged from before demo 20 --
+ *    exactly one peer (`peers[0]`), one fixed key, registered once.
+ *  - Demo 20 (`wotScenario() === 'geologengasse'`): Jakob's laptop can hold
+ *    several peers at once (the excited relative, then her friends, each
+ *    pairing separately -- see the coordinator's scope note this function
+ *    exists to satisfy). relay.ts's `onEnvelope` now accepts a
+ *    `PairKeyResolver` for exactly this: instead of one fixed key, a
+ *    function that looks the right peer up by the wire's cleartext sender
+ *    DID and derives THEIR pair key. It closes over `state` (not a copy of
+ *    `state.peers`), so peers accepted after this registration are found
+ *    too without needing to re-register -- `acceptPendingRequest()` still
+ *    calls this again anyway, belt-and-suspenders, see its own doc comment.
+ */
 async function registerRelaySink(): Promise<void> {
   if (!relayChannel || !state) return
+  if (wotScenario() === 'geologengasse') {
+    const s = state
+    relayChannel.onEnvelope(async (fromDid: string) => {
+      const peer = s.peers.find((p) => p.did === fromDid)
+      if (!peer) return null
+      return pairKey(peer)
+    }, handleIncomingEnvelope)
+    return
+  }
   const peer = state.peers[0]
   if (!peer) return
   const key = await pairKey(peer)
@@ -215,9 +274,31 @@ function handleIncomingEnvelope(env: Envelope, _fromDid?: string): void {
     return
   }
   if (env.t === 'query') {
-    // Nothing here narrows this to the peer that is actually paired -- the
-    // demo pairs exactly one peer at a time (state.ts's Peer[0] convention),
-    // so any arriving query is by construction from that one peer.
+    if (wotScenario() === 'geologengasse') {
+      // Several peers can query Jakob independently -- queue rather than
+      // clobber a ceremony already on screen. runConsentCeremony's own
+      // `finish()` looks up the ANSWERING peer by `q.from.id`
+      // (`s.peers.find(p => p.id === q.from.id)`), never `peers[0]`, so this
+      // already routes the answer back to whoever actually asked.
+      pendingGeoQueries.push(env)
+      // `screen === 'answer'` is NOT a reliable "a ceremony is actively on
+      // screen right now" signal on its own: runConsentCeremony() and
+      // emitAnswer() draw the checking/consent/outcome beats with direct
+      // shell() calls, never going through go(), so `screen` sits frozen at
+      // 'answer' for the ENTIRE ceremony including its final "Antwort
+      // gesendet" confirmation -- found by testing two guests asking close
+      // together: the second query queued silently and stayed invisible
+      // because this check saw 'answer' and did nothing. `geoCeremonyBusy`
+      // is the real signal: true only while a consent decision is actually
+      // pending a human tap. Idle elsewhere OR sitting on an already-
+      // finished confirmation screen -> safe to (re)route here now.
+      if (!geoCeremonyBusy) go('answer')
+      return
+    }
+    // Default scenario: nothing here narrows this to the peer that is
+    // actually paired -- these demos pair exactly one peer at a time
+    // (state.ts's Peer[0] convention), so any arriving query is by
+    // construction from that one peer.
     pendingIncomingQuery = env
     go('answer')
     return
@@ -273,6 +354,24 @@ function handleRawWire(fromDid: string, payload: string): void {
   if (env.did !== fromDid) return
   const s = state
   if (!s) return
+  if (wotScenario() === 'geologengasse') {
+    // Demo 20: nobody joins Jakob's graph without an explicit tap on
+    // "Anfrage bestätigen" -- see acceptPendingRequest() below. Several
+    // people can have a request open at once; each one is confirmed
+    // separately. A did already accepted (a resend of the same ack, e.g.
+    // after a reload) never re-queues -- just make sure the multi-peer sink
+    // still covers it.
+    if (s.peers.some((p) => p.did === env.did)) {
+      void registerRelaySink()
+      return
+    }
+    const req = { did: env.did, from: env.from }
+    const idx = pendingAcceptRequests.findIndex((r) => r.did === env.did)
+    if (idx >= 0) pendingAcceptRequests[idx] = req
+    else pendingAcceptRequests.push(req)
+    if (screen === 'connect' || screen === 'home') render()
+    return
+  }
   upsertPeer(s, {
     id: env.from.id,
     displayName: env.from.displayName,
@@ -289,6 +388,53 @@ function handleRawWire(fromDid: string, payload: string): void {
   })
   void saveState(s).then(() => registerRelaySink())
   if (screen === 'connect') render()
+}
+
+/**
+ * Demo 20's accept gesture: the button labelled "Anfrage bestätigen" on ONE
+ * person's pending-request card. Only after this runs does that requester
+ * become one of `state.peers` (appended -- see state.ts's `upsertPeer`,
+ * which pushes rather than replaces) AND does the graph screen show them as
+ * a live, first-ring bubble -- see screenGraph()'s doc comment on why it
+ * reads `state.peers` directly rather than a separate list.
+ *
+ * All three steps matter and must happen in this order: upsert the peer,
+ * persist it, THEN re-register the relay sink. Skipping the third step is
+ * the failure mode that looks like it worked -- the bubble appears, but the
+ * multi-peer resolver (registerRelaySink()'s geologengasse branch) has
+ * nothing telling it a new pair key now exists, so every query the newly
+ * accepted person sends afterwards silently fails to decrypt and is never
+ * acked. In practice `registerRelaySink()`'s resolver closes over `state`
+ * itself and re-reads `state.peers` on every inbound wire, so a single
+ * registration already covers peers accepted later too -- this call is
+ * belt-and-suspenders, not load-bearing on every acceptance, but kept
+ * explicit so that invariant is never assumed silently.
+ */
+async function acceptPendingRequest(did: string): Promise<void> {
+  const s = state
+  const idx = pendingAcceptRequests.findIndex((r) => r.did === did)
+  if (!s || idx < 0) return
+  const req = pendingAcceptRequests[idx]
+  pendingAcceptRequests.splice(idx, 1)
+  upsertPeer(s, {
+    id: req.from.id,
+    displayName: req.from.displayName,
+    nonceSelf: randomId(16),
+    noncePeer: randomId(16),
+    connectedAt: Date.now(),
+    blocked: false,
+    seeded: false,
+    did: req.did,
+    pairing: 'ecdh',
+  })
+  await saveState(s)
+  await registerRelaySink()
+  render()
+}
+
+function declinePendingRequest(did: string): void {
+  pendingAcceptRequests = pendingAcceptRequests.filter((r) => r.did !== did)
+  render()
 }
 
 /**
@@ -491,6 +637,7 @@ function render(): void {
     case 'ask':     return screenAsk()
     case 'answer':  return screenAnswer()
     case 'link':    return screenLink()
+    case 'graph':   return screenGraph()
     default:        return screenHome()
   }
 }
@@ -499,7 +646,56 @@ function render(): void {
 // start: pick a persona, seed the device
 // ---------------------------------------------------------------------------
 
+/**
+ * Demo 20's start screen: no persona picker, ever.
+ *
+ * By construction this only ever renders on an INVITED device (a phone that
+ * opened the connect link) -- boot() auto-seeds Jakob's own laptop straight
+ * to `home` the moment it sees geologengasse scenario + no pending link +
+ * no existing state, so the laptop never shows a start screen at all. See
+ * boot()'s doc comment.
+ *
+ * "The invited device asks for a NAME, free text, and uses it as their
+ * identity" (handover). Reuses `completeConnectLinkIfPending()` completely
+ * unmodified for the actual pairing -- this only decides WHAT identity gets
+ * created before that runs.
+ */
+function screenGeoNameEntry(): void {
+  const invitedBy = pendingConnectLink?.from.displayName ?? ''
+  const nameInput = el('input', {
+    type: 'text',
+    class: 'field',
+    placeholder: t('geoNamePh'),
+    autofocus: true,
+    style: 'width:100%;border-radius:14px;border:1px solid var(--line);background:var(--bg-raised);color:var(--ink);padding:12px;font:inherit;margin-bottom:14px',
+  }) as HTMLInputElement
+  const submit = (): void => { void seedGeoGuest(nameInput.value) }
+  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit() })
+  const body = el('div', {}, [
+    el('h1', {}, [t('geoNameTitle')]),
+    el('div', { class: 'card' }, [
+      el('h3', {}, [t('invitedBy') + ' ' + invitedBy]),
+      el('p', {}, [t('geoInvitedNote')]),
+    ]),
+    nameInput,
+    el('button', { class: 'btn primary', onclick: submit }, [t('geoNameSend')]),
+  ])
+  clear(root)
+  root.append(
+    el('div', { class: 'topbar' }, [
+      el('div', { class: 'who' }, [t('appName')]),
+      el('button', { class: 'langtoggle', onclick: () => { toggleLang(); render() } }, [
+        getLang() === 'de' ? el('b', {}, ['DE']) : document.createTextNode('DE'),
+        document.createTextNode(' / '),
+        getLang() === 'en' ? el('b', {}, ['EN']) : document.createTextNode('EN'),
+      ]),
+    ]),
+    el('main', {}, [body]),
+  )
+}
+
 function screenStart(): void {
+  if (wotScenario() === 'geologengasse') { screenGeoNameEntry(); return }
   const lang = getLang()
   // A device that arrived by connect link lands HERE first, not on a
   // connection. Without this line it reads as a plain start screen and the
@@ -614,6 +810,69 @@ const DEMO_NONCE: Record<string, string> = {
 }
 
 // ---------------------------------------------------------------------------
+// demo 20: Jakob's own device, and an invited guest's device. Two separate
+// seed functions instead of PERSONAS -- see PERSONAS' own doc comment ("the
+// two demo personas") for why that list is deliberately not reused here:
+// this scenario is the owner's real flat, not a fictional persona, and the
+// invited side's identity is typed in by a real person, not picked from a
+// list.
+// ---------------------------------------------------------------------------
+
+/**
+ * Jakob's own laptop. No pre-seeded peer -- unlike seedPersona()'s two
+ * personas, which pair with each other before any ceremony runs, Jakob
+ * starts with `peers: []`. Every peer he ever has came from a real connect
+ * link and a real tap on "Anfrage bestätigen" (acceptPendingRequest()) --
+ * there is no fictional counterpart to fake a pairing with. Called from
+ * boot() the moment a fresh visit has geologengasse scenario, no state yet,
+ * and no pending connect link -- i.e. this IS the laptop opening the demo
+ * for the first time, not a phone that just scanned a link (that case is
+ * seedGeoGuest() below).
+ */
+async function seedJakob(): Promise<void> {
+  state = {
+    me: { id: 'jakob', displayName: 'Jakob' },
+    threads: [],
+    peers: [],
+    profile: { displayName: 'Jakob', bio: '', neighbourhood: 'Wien', languages: ['Deutsch'] },
+    inventory: [],
+  }
+  await saveState(state)
+  void initRelaySession()
+}
+
+/**
+ * An invited phone, after it types in a free-text name (screenGeoNameEntry
+ * above) and taps "Anfrage senden". Also starts with `peers: []` --
+ * `completeConnectLinkIfPending()` (unmodified, reused exactly) adds Jakob
+ * as this device's own peer once the connect-ack is sent, which is a
+ * separate step from Jakob accepting THIS device on his side (see
+ * acceptPendingRequest()'s doc comment on why that asymmetry is correct:
+ * the guest already knows who they are requesting to connect to; Jakob is
+ * the one who has to decide whether to let them in).
+ */
+async function seedGeoGuest(rawName: string): Promise<void> {
+  const displayName = rawName.trim().slice(0, 60)
+  if (!displayName) return
+  state = {
+    me: { id: randomId(8), displayName },
+    threads: [],
+    peers: [],
+    profile: { displayName, bio: '', neighbourhood: '', languages: [] },
+    inventory: [],
+  }
+  await saveState(state)
+  if (pendingConnectLink) {
+    await completeConnectLinkIfPending()
+  } else {
+    // Should not happen -- screenGeoNameEntry only renders when a connect
+    // link is pending -- but a demo must never hang on an impossible state.
+    void initRelaySession()
+    go('home')
+  }
+}
+
+// ---------------------------------------------------------------------------
 // home
 // ---------------------------------------------------------------------------
 
@@ -631,17 +890,53 @@ function peerStatusLine(peer: Peer | undefined): string {
   return t('connectedWith') + ' ' + peer.displayName
 }
 
+/**
+ * One pending request card: name, and its own separate "Anfrage
+ * bestätigen"/"Ablehnen" pair. Rendered once per entry in
+ * `pendingAcceptRequests` -- several people can be waiting at once (the one
+ * excited relative, then her friends), and each is confirmed on its own,
+ * never in bulk.
+ */
+function pendingRequestCard(req: { did: string; from: Identity }): HTMLElement {
+  return el('div', { class: 'card' }, [
+    el('h3', {}, [t('geoPendingTitle')]),
+    el('p', {}, [
+      el('b', {}, [req.from.displayName]),
+      document.createTextNode(' ' + t('geoPendingBody')),
+    ]),
+    el('div', { class: 'btnrow' }, [
+      el('button', { class: 'btn', onclick: () => declinePendingRequest(req.did) }, [t('geoDeclineBtn')]),
+      el('button', { class: 'btn primary', onclick: () => void acceptPendingRequest(req.did) }, [t('geoAcceptBtn')]),
+    ]),
+  ])
+}
+
 function screenHome(): void {
   const s = state as DeviceState
   const peer = s.peers[0]
+  const geo = wotScenario() === 'geologengasse'
   const body = el('div', {}, [
     el('h1', {}, [t('appName')]),
-    el('div', { class: 'card' }, [
-      el('h3', {}, [t('navConnect')]),
-      el('p', {}, [peerStatusLine(peer)]),
-      peer?.seeded ? el('p', { class: 'seeded' }, [t('seededNote')]) : null,
-      el('button', { class: 'btn', onclick: () => go('connect') }, [t('navConnect')]),
-    ]),
+    ...(geo ? pendingAcceptRequests.map(pendingRequestCard) : []),
+    geo
+      ? el('div', { class: 'card' }, [
+          el('h3', {}, [t('geoGraphNav')]),
+          el('p', {}, [
+            s.peers.length
+              ? `${s.peers.length} ${s.peers.length === 1 ? t('geoNetworkCountOne') : t('geoNetworkCount')}`
+              : t('noConnection'),
+          ]),
+          el('div', { class: 'btnrow' }, [
+            el('button', { class: 'btn', onclick: () => go('connect') }, [t('navConnect')]),
+            el('button', { class: 'btn primary', onclick: () => go('graph') }, [t('geoGraphNav')]),
+          ]),
+        ])
+      : el('div', { class: 'card' }, [
+          el('h3', {}, [t('navConnect')]),
+          el('p', {}, [peerStatusLine(peer)]),
+          peer?.seeded ? el('p', { class: 'seeded' }, [t('seededNote')]) : null,
+          el('button', { class: 'btn', onclick: () => go('connect') }, [t('navConnect')]),
+        ]),
     el('button', { class: 'btn primary', onclick: () => go('ask') }, [t('navAsk')]),
     el('button', { class: 'btn', onclick: () => go('answer') }, [t('navAnswer')]),
     // Only in the modes that actually hold a connection. In qr mode there is
@@ -778,18 +1073,38 @@ function screenConnect(): void {
   const peer = s.peers[0]
   const relay = wotMode() === 'relay'
   const webrtc = wotMode() === 'webrtc' || wotMode() === 'ladder'
+  const geo = wotScenario() === 'geologengasse'
+  const isJakob = geo && s.me.id === 'jakob'
   const body = el('div', {}, [
     el('h1', {}, [t('connectTitle')]),
     el('p', { class: 'lead' }, [t('connectLead')]),
     relay ? el('p', { class: 'note' }, [t('relayExplain')]) : null,
     relay ? el('div', { class: 'card' }, [mountRelayStatusBadge()]) : null,
     wotMode() === 'ladder' ? el('p', { class: 'note' }, [t('ladderExplain')]) : null,
-    peer ? el('div', { class: 'card' }, [
-      el('h3', {}, [peerStatusLine(peer)]),
-      peer.seeded
-        ? el('p', { class: 'seeded' }, [t('seededNote')])
-        : el('p', {}, [new Date(peer.connectedAt).toLocaleString(getLang() === 'de' ? 'de-AT' : 'en-GB')]),
-    ]) : null,
+    // Demo 20, Jakob's side: every pending request, each confirmed
+    // separately -- see pendingRequestCard()'s doc comment.
+    ...(isJakob ? pendingAcceptRequests.map(pendingRequestCard) : []),
+    // Demo 20, several peers at once (isJakob): a plain list, not the
+    // single-peer card below. Every other case (every other demo, and a
+    // demo-20 GUEST device, which only ever has Jakob as its one peer)
+    // keeps the original single-peer card unchanged.
+    isJakob
+      ? el('div', { class: 'card' }, [
+          el('h3', {}, [t('geoGraphNav')]),
+          s.peers.length
+            ? el('ul', {}, s.peers.map((p) => el('li', {}, [p.displayName])))
+            : el('p', {}, [t('noConnection')]),
+        ])
+      : peer ? el('div', { class: 'card' }, [
+          el('h3', {}, [peerStatusLine(peer)]),
+          peer.seeded
+            ? el('p', { class: 'seeded' }, [t('seededNote')])
+            : el('p', {}, [new Date(peer.connectedAt).toLocaleString(getLang() === 'de' ? 'de-AT' : 'en-GB')]),
+          // Demo 20, guest side: there is no signal telling this device
+          // whether Jakob has tapped "Anfrage bestätigen" yet -- say that
+          // honestly rather than implying a live connection already exists.
+          geo ? el('p', { class: 'note' }, [t('geoRequestSentTitle') + ': ' + t('geoRequestSentBody')]) : null,
+        ]) : null,
     // The one-scan connect link (connect_link.ts): relay mode only, and the
     // PRIMARY affordance there -- it is the whole reason this feature exists
     // (a phone whose camera can only open a link, GrapheneOS, cannot use the
@@ -797,6 +1112,11 @@ function screenConnect(): void {
     // for every other mode and as a fallback.
     relay ? el('button', { class: 'btn primary', onclick: () => void showConnectLinkCode() }, [t('showConnectLink')]) : null,
     relay ? el('p', { class: 'note' }, [t('connectLinkExplain')]) : null,
+    // The honest chaining limit (docs/query-traversal.md): whoever joins
+    // through this same link can query the device that showed it to them,
+    // never anyone further up the chain. Shown wherever the link itself is
+    // shown, not buried in a separate screen nobody visits.
+    geo && relay ? el('p', { class: 'note' }, [t('geoChainHonesty')]) : null,
     // The two ceremonies are different things and used to sit as adjacent
     // buttons, which cost a real session: the owner pressed "Meinen Code
     // zeigen" expecting the direct connection, got the relay pairing, and
@@ -902,7 +1222,14 @@ async function showConnectLinkCode(): Promise<void> {
   // back at the domain root instead of this build.
   const origin = window.location.origin + window.location.pathname.replace(/[^/]*$/, '')
   const url = buildConnectLinkUrl(origin, identity.did, s.me)
-  const footnote = t('connectLinkHonesty') + (storageIsEphemeral() ? ' ' + t('connectLinkEphemeralNote') : '')
+  const footnote = t('connectLinkHonesty')
+    + (storageIsEphemeral() ? ' ' + t('connectLinkEphemeralNote') : '')
+    // The chaining limit, right on the screen someone hands to a third
+    // person: whoever pairs through THIS link can query THIS device, never
+    // any further up the chain -- docs/query-traversal.md, and the
+    // handover's own "getting this wrong would be the worst possible
+    // failure in front of this audience".
+    + (wotScenario() === 'geologengasse' ? ' ' + t('geoChainHonesty') : '')
   await showCodeScreen(t('showConnectLink'), url, t('connectLinkHint'), () => go('connect'), undefined, footnote)
 }
 
@@ -1107,8 +1434,153 @@ function screenWebrtcFailed(): void {
 }
 
 // ---------------------------------------------------------------------------
+// graph (demo 20 only): the bubble view of Jakob's real trust graph.
+//
+// Plain SVG, no charting library -- the handover's own constraint, and
+// legible from a couple of metres because the audience will be looking at
+// this over Jakob's shoulder. Modelled on overnight/stub/trust-graph.html's
+// concentric-ring layout (a dashed ring per hop, avatars as filled circles
+// with initials, "Du" fixed in the centre): this keeps the same visual
+// grammar -- ring distance means hop distance -- with a fraction of that
+// stub's interactivity, because the query IS the demo, not the graph.
+// ---------------------------------------------------------------------------
+
+interface GraphBubble {
+  id: string
+  label: string
+  ring: 1 | 2
+  via?: string
+  placeholder?: boolean
+}
+
+/** Seed nodes (data/geologengasse.ts) PLUS every real, accepted peer --
+ *  reads `state.peers` directly rather than a separate list, which is what
+ *  makes "the new person appears in the graph, live, without a reload" true
+ *  by construction: render() already re-runs screenGraph() on every state
+ *  change (acceptPendingRequest() calls it), so a peer accepted a moment
+ *  ago is simply already in this array the next time this function runs. */
+function graphBubbles(s: DeviceState): GraphBubble[] {
+  const seeded: GraphBubble[] = SEED_GRAPH_NODES.map((n: GraphNode) => ({
+    id: n.id,
+    label: n.label[getLang()],
+    ring: n.ring === 'ring2' ? 2 : 1,
+    via: n.via,
+    placeholder: n.placeholder,
+  }))
+  const live: GraphBubble[] = s.peers.map((p) => ({ id: p.id, label: p.displayName, ring: 1 }))
+  return [...seeded, ...live]
+}
+
+function polarPercent(ring: 1 | 2, index: number, count: number, angleOffsetDeg = 0): { x: number; y: number } {
+  const r = ring === 1 ? 32 : 44
+  const step = 360 / Math.max(count, 1)
+  const angleDeg = index * step + angleOffsetDeg - 90
+  const rad = (angleDeg * Math.PI) / 180
+  return { x: 50 + r * Math.cos(rad), y: 50 + r * Math.sin(rad) }
+}
+
+function initialsOf(name: string): string {
+  return name.split(/\s+/).filter(Boolean).map((w) => w[0]).slice(0, 2).join('').toUpperCase() || '?'
+}
+
+function screenGraph(): void {
+  const s = state as DeviceState
+  const bubbles = graphBubbles(s)
+  const ring1 = bubbles.filter((b) => b.ring === 1)
+  const ring2 = bubbles.filter((b) => b.ring === 2)
+  const posOf = new Map<string, { x: number; y: number }>()
+  ring1.forEach((b, i) => posOf.set(b.id, polarPercent(1, i, ring1.length)))
+  ring2.forEach((b, i) => {
+    // Anchor near the parent's angle rather than spreading independently --
+    // "the distance in the picture should mean something" (handover): a
+    // ring-2 node should read as "out past" its ring-1 connector, not as an
+    // unrelated point on its own ring.
+    const parent = b.via ? posOf.get(b.via) : undefined
+    if (parent) {
+      const angle = (Math.atan2(parent.y - 50, parent.x - 50) * 180) / Math.PI
+      posOf.set(b.id, polarPercent(2, 0, 1, angle + 90))
+    } else {
+      posOf.set(b.id, polarPercent(2, i, ring2.length))
+    }
+  })
+
+  const svgNS = 'http://www.w3.org/2000/svg'
+  const svg = document.createElementNS(svgNS, 'svg')
+  svg.setAttribute('viewBox', '0 0 100 100')
+  svg.setAttribute('class', 'geo-graph-svg')
+
+  const ring = (r: number): void => {
+    const c = document.createElementNS(svgNS, 'circle')
+    c.setAttribute('cx', '50'); c.setAttribute('cy', '50'); c.setAttribute('r', String(r))
+    c.setAttribute('class', 'geo-ring')
+    svg.appendChild(c)
+  }
+  ring(32); ring(44)
+
+  for (const b of bubbles) {
+    const pos = posOf.get(b.id)
+    if (!pos) continue
+    const from = b.via ? posOf.get(b.via) : { x: 50, y: 50 }
+    if (!from) continue
+    const line = document.createElementNS(svgNS, 'line')
+    line.setAttribute('x1', String(from.x)); line.setAttribute('y1', String(from.y))
+    line.setAttribute('x2', String(pos.x)); line.setAttribute('y2', String(pos.y))
+    line.setAttribute('class', b.placeholder ? 'geo-thread geo-thread-placeholder' : 'geo-thread')
+    svg.appendChild(line)
+  }
+
+  const nodeLayer = el('div', { class: 'geo-node-layer' })
+  for (const b of bubbles) {
+    const pos = posOf.get(b.id)
+    if (!pos) continue
+    nodeLayer.appendChild(el('div', {
+      class: 'geo-node' + (b.placeholder ? ' geo-node-placeholder' : ''),
+      style: `left:${pos.x}%;top:${pos.y}%`,
+    }, [
+      el('span', { class: 'geo-avatar' }, [b.placeholder ? '?' : initialsOf(b.label)]),
+      el('span', { class: 'geo-name' }, [b.placeholder ? t('geoGraphUnknownNote').split('.')[0] : b.label]),
+    ]))
+  }
+
+  const frame = el('div', { class: 'geo-graph-frame' }, [
+    svg,
+    nodeLayer,
+    el('div', { class: 'geo-you' }, [
+      el('span', { class: 'geo-avatar geo-avatar-you' }, [t('geoGraphYou').slice(0, 2)]),
+      el('span', { class: 'geo-name' }, [t('geoGraphYou')]),
+    ]),
+  ])
+
+  const body = el('div', {}, [
+    el('h1', {}, [t('geoGraphTitle')]),
+    el('p', { class: 'lead' }, [t('geoGraphLead')]),
+    el('div', { class: 'card geo-graph-card' }, [frame]),
+    el('p', { class: 'note' }, [t('geoGraphUnknownNote')]),
+    ring2.length ? el('p', { class: 'note' }, [t('geoGraphRing2Note')]) : null,
+    el('button', { class: 'btn quiet', onclick: () => go('home') }, [t('back')]),
+  ])
+  shell(t('geoGraphNav'), body, { back: () => go('home') })
+}
+
+// ---------------------------------------------------------------------------
 // ask (person B)
 // ---------------------------------------------------------------------------
+
+/** Which query templates a screen offers: demo 20's own single "place to
+ *  stay" template, or every other demo's five-template chat catalogue. Kept
+ *  as one function used by both screenAsk() and runConsentCeremony()'s
+ *  template lookup (via resolveTemplate()) so the two can never drift. */
+function templatesForScenario(): QueryTemplate[] {
+  return wotScenario() === 'geologengasse' ? [ACCOMMODATION_TEMPLATE] : TEMPLATES
+}
+
+/** getTemplate() (data/templates.ts) only knows the five chat templates --
+ *  deliberately unchanged, see match/accommodation.ts's module doc on "do
+ *  not fork the matcher". This resolves against whichever list the current
+ *  scenario actually offers instead. */
+function resolveTemplate(id: string): QueryTemplate | undefined {
+  return templatesForScenario().find((tpl) => tpl.id === id) ?? getTemplate(id)
+}
 
 function screenAsk(): void {
   const s = state as DeviceState
@@ -1131,10 +1603,11 @@ function screenAsk(): void {
     peer && wotMode() === 'webrtc' && webrtcNotOpen
       ? el('p', { class: 'note' }, [t('webrtcCardTitle') + ': ' + t('noConnection')])
       : null,
-    ...TEMPLATES.map((tpl: QueryTemplate) =>
+    ...templatesForScenario().map((tpl: QueryTemplate) =>
       el('div', { class: 'card' }, [
         el('h3', {}, [tpl.title[lang]]),
         el('p', {}, ['„' + tpl.question[lang] + '“']),
+        wotScenario() === 'geologengasse' ? el('p', { class: 'note' }, [t('geoKHonesty')]) : null,
         el('button', {
           class: 'btn primary',
           ...(peer ? {} : { disabled: true }),
@@ -1388,6 +1861,13 @@ function screenResult(decoded: Awaited<ReturnType<typeof interpret>>, peerName: 
 // ---------------------------------------------------------------------------
 
 function screenAnswer(): void {
+  // Demo 20: several people can have queried Jakob; drain one at a time,
+  // oldest first -- see pendingGeoQueries's doc comment.
+  if (wotScenario() === 'geologengasse' && pendingGeoQueries.length) {
+    const q = pendingGeoQueries.shift() as QueryEnvelope
+    void runConsentCeremony(q)
+    return
+  }
   // A query that arrived over the relay while the user was elsewhere jumps
   // straight into the consent ceremony -- see handleIncomingEnvelope(). Read
   // once and cleared immediately so a later re-render of this same screen
@@ -1448,10 +1928,21 @@ function prune(m: MatchResult): MatchResult {
   return { ...m, hits: m.hits.filter((h) => h.score >= floor).slice(0, MAX_SHARED) }
 }
 
+/** The accommodation template's hit carries the exact address in
+ *  `hit.message.text` (match/accommodation.ts's module doc). That text must
+ *  never reach the DOM before consent -- so this template gets no
+ *  "Zeigen, was geteilt würde" reveal at all, ever, and the "gefunden" card
+ *  shows only the address-free preview sentence instead. */
+function isAddressBearingTemplate(tpl: QueryTemplate): boolean {
+  return tpl.id === ACCOMMODATION_TEMPLATE_ID
+}
+
 async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
   const s = state as DeviceState
-  const tpl = getTemplate(q.templateId)
+  const tpl = resolveTemplate(q.templateId)
   const lang = getLang()
+  const geo = wotScenario() === 'geologengasse'
+  if (geo) geoCeremonyBusy = true
 
   // 1. A fixed-length "checking" beat. The match itself is far faster than this;
   //    the delay is here so the machine's answer time does not depend on whether
@@ -1464,14 +1955,23 @@ async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
   ]))
 
   let match: MatchResult = { hits: [], distinctAuthors: 0, aboveThreshold: false }
-  if (tpl) match = prune(matchTemplate(tpl, threadsInScope(s)))
+  if (tpl && isAddressBearingTemplate(tpl)) {
+    // Not matchTemplate()/threadsInScope(): this corpus is a calendar and a
+    // flat, not a chat -- see match/accommodation.ts's module doc on why
+    // this is a second, separate matcher rather than a fork of the lexical
+    // one gate.ts's every other caller still uses unmodified.
+    match = matchAccommodation()
+  } else if (tpl) {
+    match = prune(matchTemplate(tpl, threadsInScope(s)))
+  }
   await settleAt(t0, GATE_BUDGET_MS)
 
-  if (!tpl) { go('answer'); return }
+  if (!tpl) { geoCeremonyBusy = false; go('answer'); return }
 
   // 2. The ask. One tap either way, and the same page furniture either way.
   const peer = s.peers.find((p) => p.id === q.from.id) ?? null
   const has = match.aboveThreshold
+  const addressBearing = isAddressBearingTemplate(tpl)
 
   let revealed = false
   const reveal = el('div', {})
@@ -1486,16 +1986,29 @@ async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
     }
   }
 
-  const finish = (consent: boolean) => void emitAnswer(q, tpl, match, consent, peer)
+  const finish = (consent: boolean) => {
+    void emitAnswer(q, tpl, match, consent, peer).finally(() => {
+      // The decision has been made and the answer sent (or the send has
+      // failed onto its own honest fallback screen) -- from here on a NEW
+      // arriving query is safe to route to, not something to steal focus
+      // from. See handleIncomingEnvelope's query branch.
+      geoCeremonyBusy = false
+    })
+  }
 
   const body = el('div', {}, [
     el('h1', {}, [q.from.displayName + ' ' + t('askedYou')]),
     el('p', { class: 'lead' }, ['„' + tpl.question[lang] + '“']),
     el('div', { class: 'card' }, [
-      el('p', { class: 'lead' }, [has ? t('foundSomething') : t('foundNothing')]),
+      el('p', { class: 'lead' }, [
+        has ? (addressBearing ? (lang === 'de' ? accommodationPreviewDe() : accommodationPreviewEn()) : t('foundSomething')) : t('foundNothing'),
+      ]),
       has ? el('p', {}, [t('willingShare')]) : null,
     ]),
-    has ? el('button', {
+    // The reveal toggle never renders for the address-bearing template --
+    // see isAddressBearingTemplate()'s doc comment above. Every other
+    // template keeps the exact existing behaviour.
+    has && !addressBearing ? el('button', {
       class: 'btn quiet',
       onclick: (e: Event) => {
         revealed = !revealed
@@ -1503,7 +2016,7 @@ async function runConsentCeremony(q: QueryEnvelope): Promise<void> {
         renderReveal()
       },
     }, [t('seeWhat')]) : null,
-    reveal,
+    addressBearing ? null : reveal,
     has
       ? el('div', { class: 'btnrow' }, [
           el('button', { class: 'btn', onclick: () => finish(false) }, [t('noShare')]),
@@ -1633,6 +2146,7 @@ async function sendAnswerOverRelay(envelope: AnswerEnvelope, peer: Peer, pairKey
   }
   // This confirmation screen is the SAME for every outcome -- it only ever
   // says "sent", never what was sent or whether anything was found.
+  const moreQueued = wotScenario() === 'geologengasse' && pendingGeoQueries.length > 0
   const body = el('div', {}, [
     el('div', { class: 'outcome shared' }, [
       el('div', { class: 'glyph' }, ['✓']),
@@ -1644,6 +2158,12 @@ async function sendAnswerOverRelay(envelope: AnswerEnvelope, peer: Peer, pairKey
       class: 'btn quiet',
       onclick: () => void showCodeScreen(t('showAnswer'), encodeForQr(envelope), t('answerHint'), () => go('home'), undefined, t('identicalNote')),
     }, [t('showQrInstead')]),
+    // Demo 20: another person's question is already queued -- offer to go
+    // straight to it instead of forcing a detour through home. Never
+    // renders for any other demo (pendingGeoQueries is always empty there).
+    moreQueued
+      ? el('button', { class: 'btn primary', onclick: () => go('answer') }, [t('geoNextQuery')])
+      : null,
     el('button', { class: 'btn', onclick: () => go('home') }, [t('done')]),
   ])
   shell(t('navAnswer'), body, { back: () => go('home') })
@@ -1930,6 +2450,18 @@ async function boot(): Promise<void> {
   registerWorker()
   initI18n()
   state = await loadState()
+  // Demo 20: "no persona picker" on the laptop (handover) means the laptop
+  // never shows screenStart() at all. The one case that reaches boot() with
+  // no state AND no pending connect link IS the laptop opening this build
+  // for the first time -- an invited phone always arrives WITH a connect
+  // link (screenGeoNameEntry handles that case via the ordinary
+  // `screen = 'start'` path below). Auto-seeding here, rather than adding a
+  // silent branch inside screenStart(), is what keeps screenStart() itself
+  // simple: by the time it could ever render in this scenario, a connect
+  // link is always pending.
+  if (!state && wotScenario() === 'geologengasse' && !pendingConnectLink) {
+    await seedJakob()
+  }
   screen = state ? 'home' : 'start'
   render()
   // A returning session (state already on disk) that ALSO happens to have

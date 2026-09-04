@@ -26,3 +26,29 @@ export function wotMode(): WotMode {
   if (v === 'relay' || v === 'webrtc' || v === 'ladder') return v
   return 'qr'
 }
+
+/**
+ * Build-time SCENARIO switch, orthogonal to `wotMode()` above.
+ *
+ * `wotMode()` picks the transport (qr/relay/webrtc/ladder); this picks WHICH
+ * content and screens run on top of it. Kept as a second flag rather than a
+ * fifth `WotMode` value on purpose: nearly every relay-mode call site in
+ * main.ts branches on the literal string `wotMode() === 'relay'`
+ * (`completeConnectLinkIfPending`, `initRelaySession`, `screenConnect`,
+ * `askWith`, `emitAnswer`, …). A new `WotMode` value would silently fall
+ * through every one of those checks -- no error, just a demo that never
+ * pairs -- so demo 20 is built as `VITE_WOT_MODE=relay` (it needs the exact
+ * same transport demo 2 already proves live) PLUS this second env var:
+ *
+ *   VITE_WOT_MODE=relay VITE_WOT_SCENARIO=geologengasse WOT_BASE=/wot/demo20/ npx vite build
+ *
+ * Demos 1/2/3/6 never set `VITE_WOT_SCENARIO`, so `wotScenario()` there is
+ * always `'default'` -- every scenario-gated branch in main.ts is a no-op for
+ * them, and their code paths stay byte-identical to before this flag existed.
+ */
+export type WotScenario = 'default' | 'geologengasse'
+
+export function wotScenario(): WotScenario {
+  const v = import.meta.env?.VITE_WOT_SCENARIO
+  return v === 'geologengasse' ? 'geologengasse' : 'default'
+}
