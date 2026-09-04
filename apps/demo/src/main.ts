@@ -3,7 +3,7 @@ import { initI18n, t, getLang, toggleLang } from './i18n'
 import { el, clear, coarseWhen } from './ui/dom'
 import { renderQr, keepAwake } from './ui/qr'
 import { scanQr, cameraPlausible } from './ui/scanner'
-import { loadState, saveState, resetAll, threadsInScope, upsertPeer, appendQueryLog, PERSONAS } from './state'
+import { loadState, saveState, resetAll, threadsInScope, upsertPeer, appendQueryLog, findPeerByDid, PERSONAS } from './state'
 import type { DeviceState, Peer } from './state'
 import { renderProfile } from './screens/profile'
 import { renderInventory } from './screens/inventory'
@@ -229,7 +229,7 @@ async function registerRelaySink(): Promise<void> {
   if (!relayChannel || !state) return
   const s = state
   relayChannel.onEnvelope(async (fromDid: string) => {
-    const peer = s.peers.find((p) => p.did === fromDid)
+    const peer = findPeerByDid(s, fromDid)
     if (!peer) return null
     return pairKey(peer)
   }, handleIncomingEnvelope)
@@ -1815,17 +1815,26 @@ async function handleAmbientQuery(q: QueryEnvelope): Promise<void> {
       if (!geoCeremonyBusy) go('answer')
       return
     }
-    // Default scenario: several peers can now be paired at once (the whole
-    // point of askNetwork()'s broadcast), so a second peer's query arriving
-    // while the first is mid-ceremony is a real case, not just demo 20's.
-    // The single `pendingIncomingQuery` slot only ever holds the NEXT one to
-    // show; screenAnswer() drains it the same way it always did. A query
-    // that arrives while a ceremony is already on screen simply overwrites
-    // the slot with itself if nothing has consumed the previous one yet --
-    // acceptable for a demo (this app pairs at most a handful of peers), and
-    // strictly better than the alternative of silently dropping it.
+    // Default scenario: unconditional go('answer'), exactly as this branch
+    // always did. Tempting to guard this the way the geo branch guards its
+    // own go() (`if (!geoCeremonyBusy)`), but `screen === 'answer'` is NOT a
+    // safe stand-in for "no ceremony is active" here: sitting idle on
+    // screenAnswer()'s own waiting card (`relayWaitingQuery`, demo 2/6's
+    // ordinary posture -- tap "Anfrage beantworten", then wait) ALSO leaves
+    // `screen === 'answer'`. Guarding on it would mean a query arriving
+    // while genuinely idle on that screen never calls go(), never
+    // re-renders, and the ceremony never starts -- Marlene's screen would
+    // keep saying "waiting" forever while the query sits unanswered in
+    // `pendingIncomingQuery`. The geo branch gets to guard because it has
+    // its own dedicated `geoCeremonyBusy` signal for "a decision is actually
+    // pending a human tap"; this branch has no equivalent (yet), so it keeps
+    // the same unconditional call the original single-peer code always
+    // made. A second peer's query arriving while the first is mid-ceremony
+    // simply overwrites the slot with itself if nothing has consumed the
+    // previous one yet -- a pre-existing limitation of the single-slot
+    // design, not something this change makes worse.
     pendingIncomingQuery = q
-    if (screen !== 'answer') go('answer')
+    go('answer')
     return
   }
 
@@ -1850,7 +1859,7 @@ function screenAsk(): void {
   freeTextInput.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') submitFreeText() })
   const body = el('div', {}, [
     el('h1', {}, [t('askTitle')]),
-    el('p', { class: 'lead' }, [t('askLead')]),
+    el('p', { class: 'lead' }, [t(wotScenario() === 'geologengasse' ? 'askLeadGeo' : 'askLead')]),
     !peer ? el('div', { class: 'err' }, [t('noConnection')]) : null,
     peer && wotMode() === 'relay' && !relayReady
       ? el('p', { class: 'note' }, [t('relayNoPeerDid')])
@@ -1868,16 +1877,25 @@ function screenAsk(): void {
     // branch), matched against inventory AND chat content exactly like a
     // fixed template, through the same consent gate. Shown first: this is
     // the capability the owner asked for by name.
-    el('div', { class: 'card' }, [
-      el('h3', {}, [t('askFreeTextTitle')]),
-      el('p', { class: 'note' }, [t('askFreeTextPrivacy')]),
-      freeTextInput,
-      el('button', {
-        class: 'btn primary',
-        ...(peer ? {} : { disabled: true }),
-        onclick: submitFreeText,
-      }, [t('askFreeTextSubmit')]),
-    ]),
+    //
+    // Excluded for demo 20 (geologengasse): that scenario is live and being
+    // demonstrated the day this landed, askWith()'s broadcast branch is
+    // itself excluded for it (see that function's doc comment), and this
+    // card has not had a browser pass on Jakob's specific screen -- keeping
+    // his "Fragen" screen pixel-for-pixel what it already was is the safe
+    // default. Lift alongside the askWith() exclusion.
+    wotScenario() === 'geologengasse'
+      ? null
+      : el('div', { class: 'card' }, [
+          el('h3', {}, [t('askFreeTextTitle')]),
+          el('p', { class: 'note' }, [t('askFreeTextPrivacy')]),
+          freeTextInput,
+          el('button', {
+            class: 'btn primary',
+            ...(peer ? {} : { disabled: true }),
+            onclick: submitFreeText,
+          }, [t('askFreeTextSubmit')]),
+        ]),
     ...templatesForScenario().map((tpl: QueryTemplate) =>
       el('div', { class: 'card' }, [
         el('h3', {}, [tpl.title[lang]]),
@@ -1908,11 +1926,24 @@ function screenAsk(): void {
  * addition, not a behaviour change, for demos 1/2/3/6. webrtc/ladder/qr keep
  * addressing `peers[0]` only: a single already-open data channel or a QR
  * code only ever reaches one peer regardless of how many are paired.
+ *
+ * EXCLUDED for demo 20 (geologengasse): Jakob's laptop is the one place in
+ * this app that already legitimately holds several relay peers today (each
+ * accepted guest, via acceptPendingRequest()), so `relayPeers.length > 1` is
+ * routinely true there -- but demo 20 is live and being demonstrated the day
+ * this branch landed, and askNetwork()/screenNetworkResult() have not yet
+ * been exercised in a browser (only against the live relay directly, no
+ * DOM). Rather than risk an untested code path on running software, Jakob's
+ * "Fragen" keeps its exact existing single-peer askOverRelay behaviour --
+ * this is a narrowing, not a new capability, so it cannot regress what demo
+ * 20 already does. Lift this exclusion once askNetwork has a real browser
+ * pass on the geologengasse scenario specifically.
  */
 async function askWith(tpl: QueryTemplate, freeText?: string): Promise<void> {
   const s = state as DeviceState
   const mode = wotMode()
-  const relayPeers = mode === 'relay' ? s.peers.filter((p) => p.did) : []
+  const geo = wotScenario() === 'geologengasse'
+  const relayPeers = mode === 'relay' && !geo ? s.peers.filter((p) => p.did) : []
   if (relayChannel && relayPeers.length > 1) {
     await askNetwork(tpl, freeText, relayPeers)
     return

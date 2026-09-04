@@ -213,6 +213,79 @@ theoretical concern, before switching to the resolver form).
   (`VITE_WOT_MODE=relay`), demo 6 (`VITE_WOT_MODE=ladder`), and demo 20
   (`VITE_WOT_MODE=relay VITE_WOT_SCENARIO=geologengasse`).
 
+## A second advisor pass caught a blocking regression before this shipped
+
+Before declaring done, a second advisor review (this is a two-pass task,
+not a one-shot) found a real bug in the first draft, not a style note:
+
+**`handleAmbientQuery`'s default-scenario branch guarded `go('answer')`
+with `if (screen !== 'answer')`.** That guard is copy-adjacent to the geo
+branch's own `if (!geoCeremonyBusy) go('answer')`, but the geo branch earns
+its guard from a dedicated "is a human decision actually pending" signal;
+`screen === 'answer'` is not that signal for the default scenario -- it is
+ALSO true when a person is sitting idle on the ordinary "waiting for a
+question" card (`screenAnswer()`'s `relayWaitingQuery`), which is demo 2's
+and demo 6's normal posture: tap "Anfrage beantworten", then wait. With the
+guard in place, a query arriving in exactly that posture set
+`pendingIncomingQuery` but never called `go()`, so `render()` never ran and
+the consent ceremony never appeared -- the query sat answered-never in the
+slot while the screen kept saying "waiting," live, in a demo. `seven_steps.mjs`
+is QR-mode and never calls `handleIncomingEnvelope` at all, so it could not
+have caught this.
+
+Fixed by reverting to the same unconditional `go('answer')` this branch
+always had (advisor's own recommended minimal fix), with a doc comment
+explaining explicitly why this branch may NOT copy the geo branch's guard.
+Also fixed in the same pass, both flagged by the same review:
+
+- **`p.did === fromDid` in `registerRelaySink()`'s new resolver** could match
+  a SEEDED peer (which has no `did` at all) against an empty/undefined
+  `fromDid` (`undefined === undefined` is `true`), handing out a fixed
+  DEMO_NONCE-derived key for traffic that named no real sender. Extracted a
+  truthy-guarded `findPeerByDid()` into `state.ts`, used it in
+  `registerRelaySink()`, and added three unit tests
+  (`test/peer_seeded.test.ts`) pinning the seeded-peer/empty/undefined cases
+  shut.
+- **`askNetwork()`'s broadcast path was reachable on demo 20 today** (Jakob's
+  laptop routinely holds more than one relay peer, which is exactly the
+  condition that triggers it), and neither `askNetwork()` nor
+  `screenNetworkResult()` had a browser pass. Since demo 20 is live today,
+  narrowed `askWith()`'s broadcast branch and the free-text ask card to
+  exclude the geologengasse scenario until that gets its own verification --
+  a narrowing, so it cannot regress what demo 20 already does. Jakob's "Fragen"
+  screen is unchanged, pixel for pixel, from before this branch.
+
+I attempted to build a genuine two-browser-context reproduction of the fixed
+scenario (headless Playwright, relay mode, real two-scan pairing ceremony,
+Marlene idle on the answer screen, Nora asking live) to confirm the fix
+visually rather than by code inspection alone. It could not complete: the
+relay's own CORS policy blocks its websocket handshake from a page not
+actually served from `questhub.eco` -- exactly the constraint
+`connect_link_relay.mjs`'s own header comment already documents, and the
+reason every live-relay proof in this repo, including the new one, runs
+against the app's modules directly in Node rather than through a browser.
+This was a genuine attempt, not a shortcut -- it independently confirmed
+there is no existing (or buildable, within this constraint) way to test this
+particular interaction through a live browser DOM, which the "Known
+residual" section below already said plainly before this attempt was made.
+
+After these fixes: `tsc --noEmit` clean, **295** vitest tests green (was 292
+in the first pass, 279 before this branch), `seven_steps.mjs` 23/23
+unchanged, and `call_into_the_web.mjs` still 25/25 against the live relay
+(re-run verbatim below, unchanged from the first pass since none of these
+fixes touch the free-text-ask/log/classify logic that script exercises).
+
+**Correction to the first pass's regression claim:** I originally wrote that
+`registerRelaySink`'s unification was "covered" by
+`relay_query_answer.mjs`/`connect_link_relay.mjs`. That was wrong -- neither
+script calls `registerRelaySink()` at all; both build their own channels and
+register `onEnvelope` directly. The function is now covered by
+`findPeerByDid`'s own unit tests (the lookup it delegates to) plus code
+inspection confirming behavioural equivalence to the old fixed-key branch
+for the single-peer case; it still has no test exercising it end to end
+inside `main.ts` itself. Stated here rather than left as an uncorrected
+overclaim.
+
 ## Known residual, stated plainly
 
 No browser-driven (two live Playwright contexts) confirmation of the

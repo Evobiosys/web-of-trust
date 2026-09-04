@@ -253,6 +253,22 @@ export function findPeer(s: DeviceState, id: string): Peer | undefined {
 }
 
 /**
+ * Look a peer up by their relay did:peer:2 (Peer.did). Truthy-guarded on
+ * purpose: a SEEDED pairing has no `did` at all (Peer.did's own doc comment
+ * -- there is no ceremony a seed could have minted one from), so `p.did ===
+ * fromDid` alone would match a seeded peer against an `undefined`/empty
+ * `fromDid` (`undefined === undefined` is `true`). That match would hand a
+ * caller the seeded peer's fixed DEMO_NONCE-derived key for traffic that
+ * named no real sender at all -- main.ts's registerRelaySink() is the one
+ * caller this protects; a bare `.find((p) => p.did === fromDid)` there was
+ * the bug this function exists to close.
+ */
+export function findPeerByDid(s: DeviceState, did: string | undefined | null): Peer | undefined {
+  if (!did) return undefined
+  return s.peers.find((p) => p.did === did)
+}
+
+/**
  * Upsert a peer, keeping the earliest connectedAt so the trust history stays
  * honest.
  *
