@@ -1758,13 +1758,32 @@ interface GraphBubble {
  *  change (acceptPendingRequest() calls it), so a peer accepted a moment
  *  ago is simply already in this array the next time this function runs. */
 function graphBubbles(s: DeviceState): GraphBubble[] {
-  const seeded: GraphBubble[] = SEED_GRAPH_NODES.map((n: GraphNode) => ({
-    id: n.id,
-    label: n.label[getLang()],
-    ring: n.ring === 'ring2' ? 2 : 1,
-    via: n.via,
-    placeholder: n.placeholder,
-  }))
+  // The seeded people are JAKOB'S contacts, and they belong only on Jakob's
+  // device.
+  //
+  // They were being rendered on every device, so a guest who had just paired
+  // opened "Mein Netz" and saw Alex and Alex's friend -- two people she has
+  // never met, belonging to someone else's web. Caught on real devices, and it
+  // is a straight violation of the rule the owner set: nobody sees another
+  // person's contacts unless both of them agree to it. A demo about consent
+  // cannot leak a contact list on its own first screen.
+  //
+  // A guest's graph is therefore exactly her own peers. The placeholder is the
+  // one seeded node everyone still gets: it stands for "someone you have not
+  // met yet", names nobody, and is what makes an otherwise empty graph legible.
+  const isOwner = s.me.id === 'jakob'
+  const seeded: GraphBubble[] = SEED_GRAPH_NODES
+    .filter((n: GraphNode) => isOwner || n.placeholder)
+    .map((n: GraphNode) => ({
+      id: n.id,
+      label: n.label[getLang()],
+      ring: n.ring === 'ring2' ? 2 : 1,
+      // A ring-2 node hangs off a ring-1 node. If that parent was filtered out
+      // above, the child must not claim a connector to a bubble that is not
+      // there, so drop the `via` rather than render a line to nothing.
+      via: isOwner ? n.via : undefined,
+      placeholder: n.placeholder,
+    }))
   const live: GraphBubble[] = s.peers.map((p) => ({ id: p.id, label: p.displayName, ring: 1 }))
   return [...seeded, ...live]
 }
