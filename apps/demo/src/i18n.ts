@@ -581,6 +581,16 @@ const S: Table = {
   },
   modeDefaultBadge: { de: '(vorausgewählt)', en: '(preselected)' },
   modePickerContinue: { de: 'Los geht’s', en: 'Get started' },
+  // Profile screen ONLY (screens/profile.ts), never on an onboarding
+  // picker: at onboarding nothing is included yet, so there is nothing this
+  // note would need to qualify. Here, changing mode does NOT retroactively
+  // re-exclude anything already switched on -- said explicitly so the
+  // Sicher copy above ("ist erst sichtbar, wenn du es einzeln freigibst")
+  // is never read as a promise this screen would break (I7).
+  modeChangeScopeNote: {
+    de: 'Das gilt ab jetzt, für Neues. Was du schon freigegeben hast, bleibt freigegeben, bis du es einzeln wieder ausschaltest.',
+    en: 'This applies from now on, for anything new. Whatever you already released stays released until you switch it off individually.',
+  },
   modeCurrentLabel: { de: 'Aktueller Modus', en: 'Current mode' },
 
   modeSicherTitle:    { de: 'Sicher', en: 'Safe' },

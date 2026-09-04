@@ -69,9 +69,19 @@ export function renderProfile(s: DeviceState, onSave: () => void, onIdentityChan
   // (state.ts) -- the ONE place a mode bundle actually gets applied -- then
   // re-renders the whole app via onIdentityChange, same as the display-name
   // field above, so the change takes visibly immediately.
+  //
+  // modeChangeScopeNote, not modePickerNote (main.ts's onboarding screens
+  // use that one instead): "you can change this later under My Profile"
+  // makes no sense while already ON that screen. What matters HERE is the
+  // opposite fact -- Sicher's own copy above promises previously-included
+  // content stays hidden "until you switch it on", which is only true going
+  // FORWARD from a mode change made here (applyModePosture never touches
+  // existing ChatThread.included/InventoryItem.included values) -- I7:
+  // never let this screen imply more privacy than switching modes actually
+  // delivers.
   const modeSection = el('div', {}, [
     el('h2', {}, [t('modeCurrentLabel') + ': ' + t(modeTitleKey(deviceMode(s)))]),
-    el('p', { class: 'note' }, [t('modePickerNote')]),
+    el('p', { class: 'note' }, [t('modeChangeScopeNote')]),
     renderModePicker(deviceMode(s), (m) => {
       applyModePosture(s, m)
       onIdentityChange()

@@ -34,8 +34,7 @@ reset just because `mode` happens to be absent on load.
 | Mechanism (file) | **Sicher** | **Standard** (default) | **Pro** |
 |---|---|---|---|
 | Free-text ask, composing (`screenAsk`, `data/free_text_query.ts`) | Card hidden. This device cannot compose a free-text ask. | Shown (today's existing behaviour, unchanged). | Shown. |
-| Free-text ask, receiving via ambient delivery — relay/webrtc auto-arrival, no scan (`resolveIncomingTemplate`, `handleAmbientQuery`, `incoming_query.ts`) | Never resolves. Folds into the exact same silent "nothing" a corrupt/unknown template already gets (`classifyIncomingQuery`'s `templateResolved:false` branch) — no ceremony, no interruption, regardless of who sent it or what mode they picked. | Resolves and matches normally. | Resolves and matches normally. |
-| Free-text ask, receiving via **manual QR/paste scan** (`runConsentCeremony`) | **Not gated** — see Gaps below. A person who deliberately scans/pastes a code still sees whatever it contains, same as every other manually-scanned query (existing app design: "choosing to scan is choosing to look"). | Unaffected. | Unaffected. |
+| Free-text ask, receiving — ambient delivery (relay/webrtc auto-arrival), manual QR/paste scan, AND demo 21's relay-aware ceremony (`resolveIncomingTemplate`, shared by `handleAmbientQuery`, `runConsentCeremony`, `runSecondHopRelayCeremony`) | **Never resolves, on any of the three entry points.** All three callers resolve a query through this one function, so a Sicher device folds a free-text ask into the exact same "unresolvable template" nothing a corrupt/unknown templateId already gets — regardless of whether it arrived ambiently, was manually scanned/pasted, or came via a relay ceremony, and regardless of who sent it or what mode they picked. | Resolves and matches normally, on every entry point. | Resolves and matches normally. |
 | Group chat thread, seed-time default (`seedPersona`'s holder branch) | Starts **excluded**; must be switched on deliberately. | Starts included (existing default, unchanged). | Starts included (unchanged). |
 | Seeded/imported inventory, seed-time default (`seedPersona`'s `inventorySeed`, `seedSecondHopRoot`'s ladder item) | Starts **excluded**. | Starts included (unchanged). | Starts included (unchanged). |
 | A freshly-imported chat file (`onImport`) | Starts **excluded**, overriding the parser's own group/direct split. | Parser's existing default (group on, direct off). | Same as Standard. |
@@ -118,27 +117,29 @@ This is the point of the task, so stated plainly, not softened:
    exposed to that same broadcast. The awkwardness is distributed by whoever is least careful
    present, not chosen by whoever is exposed.
 
-7. **The manual QR/paste-scan path is not gated by mode at all.** Demo 1's whole flow, and demo
-   2's "scan instead" fallback, go through `runConsentCeremony` directly — this app's own
-   existing design treats a deliberate scan as "choosing to look," so it was never gated the way
-   the ambient (relay/webrtc auto-delivery) path is. A Sicher person handed a phone with a
-   free-text code already on it, or a pasted string, still sees it. This is consistent with how
-   the app already worked before this feature, but it means Sicher's own promise ("nothing
-   free-text") is not universal — it only fully holds on the ambient delivery paths (demos
-   2/3/6/20/21's relay/webrtc traffic), not on demo 1/2's manual scan.
-
-8. **Switching to Sicher later does not retroactively hide anything already shared.** Mode only
+7. **Switching to Sicher later does not retroactively hide anything already shared.** Mode only
    sets *default* scope for content seeded or imported from that point on. Anything a person
    already switched to "included" before changing their mode stays included after switching to
    Sicher — `applyModePosture` never touches existing `ChatThread.included`/`InventoryItem.included`
    values, only the mode field and the two timing switches. A person who picks Sicher expecting
-   it to re-tighten everything they had previously opened up will be wrong about that.
+   it to re-tighten everything they had previously opened up will be wrong about that. The
+   profile screen says this explicitly (`modeChangeScopeNote`, i18n.ts) so it is at least stated
+   to the person, not only true in the code and silent on screen.
 
-9. **No enforcement, only local restraint.** A device's mode is self-reported, local-only state,
+8. **No enforcement, only local restraint.** A device's mode is self-reported, local-only state,
    never transmitted, never checked by a peer. Nothing stops a compromised or misconfigured
    Standard/Pro device from sending free text to a Sicher peer's connected chain regardless of
-   what that peer chose — closed at the *receiving* end (resolveIncomingTemplate's own gate),
-   never at the sending end of someone else's device.
+   what that peer chose — closed at the *receiving* end (`resolveIncomingTemplate`'s own gate,
+   which does hold on every entry point this app has, ambient AND manual scan alike — see the
+   table above), never at the sending end of someone else's device.
+
+9. **The mode badge can go stale.** A mode is a starting posture, not a lock (the handover's own
+   requirement) — every switch it sets stays individually re-toggleable afterward. So a person
+   can pick Sicher, then individually uncheck the uniform-timing switch on A's own home screen
+   (still shown, still independently settable), and continue to see "Aktueller Modus: Sicher"
+   everywhere while one of the things Sicher promised is no longer actually true of this device.
+   This is the direct, deliberate cost of "every individual switch stays individually settable" —
+   not a bug, but a concrete way the UI can tell a person their exposure is tighter than it is.
 
 ## Regression evidence
 
@@ -187,4 +188,6 @@ zero-tap or the new one-tap shape.
   `onImport`; honest fallback text (`UNRESOLVED_TEMPLATE.question`) instead of a raw template id
   on the two manual-scan "checking" screens, since Sicher can now be the reason `tpl` is
   undefined there.
-- `apps/demo/src/i18n.ts` — all mode copy, `de`/`en`.
+- `apps/demo/src/i18n.ts` — all mode copy, `de`/`en`, including `modeChangeScopeNote` (profile
+  screen only — see gap 7).
+- `DECISIONS.md` — D31, the append-only record for everything in this report.
