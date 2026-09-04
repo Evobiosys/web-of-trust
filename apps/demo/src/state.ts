@@ -56,6 +56,30 @@ export interface Peer {
   pairing?: 'nonce' | 'ecdh'
 }
 
+/**
+ * Demo 21 (secondHop scenario) only: A's own, private "I know X has this"
+ * note -- `packages/agent-daemon`'s `provenance.kind === 'second_brain'`
+ * shape (D13/D15/D16), re-enacting the exact story `verification/alpha-run.txt`
+ * leg (g) already ran live (a ladder). Lives only on the ONE device that was
+ * seeded as the first hop (main.ts's `completeConnectLinkIfPending` branch
+ * that checks `pendingConnectLink.from.id === 'jakob'`) -- never on Jakob's
+ * own device, never on a second-hop guest's, and never editable in-app (see
+ * docs/query-traversal.md section 1c's own caveat: no in-app composer exists
+ * for this anywhere in the project yet; this is a fixed demo seed, the same
+ * honest limitation the daemon's live-run leg (g) already had).
+ */
+export interface SecondBrainNote {
+  id: string
+  text: string
+  createdAt: string
+  /** Peer.id of the person this note is ABOUT (Jakob, always 'jakob' in this
+   *  scenario -- see main.ts's seedJakob()). Relaying requires a LIVE trust
+   *  edge to this id (D16): `state.peers` must hold a reachable peer for it,
+   *  checked at relay time, never assumed from the note's mere existence. */
+  ownerPeerId: string
+  ownerDisplayName: string
+}
+
 export interface DeviceState {
   me: Identity
   threads: ChatThread[]
@@ -79,6 +103,63 @@ export interface DeviceState {
    * mint on demand.
    */
   relayIdentity?: SerializedIdentityV1
+  /**
+   * See SecondBrainNote's own doc comment. Absent on every device except
+   * demo 21's own first hop -- `withDefaults` does not need to backfill it,
+   * same reasoning as `relayIdentity` above. An ARRAY, not a single note
+   * (this field used to be `secondBrainNote?: SecondBrainNote`, singular):
+   * A can privately know more than one separate thing about Jakob (the
+   * ladder, and separately that his flat is sometimes free -- see
+   * data/second_hop.ts's own doc comment on why these are two notes, not
+   * one fused sentence). `runSecondHopRelayCeremony` matches a query
+   * against ALL of them at once (via secondBrainThread(), one synthetic
+   * ChatThread per note, fed into matchTemplate() together, exactly like
+   * threadsInScope() already does for several real chats at once) and
+   * relays through whichever note actually scored the hit.
+   */
+  secondBrainNotes?: SecondBrainNote[]
+  /**
+   * Demo 21 (secondHop scenario) only, DECISIONS.md D28/D30: TWO
+   * INDEPENDENT switches, held by two different roles this device can
+   * play, each read fresh from `state` by `main.ts`'s createRelayDispatch
+   * at the moment a query is actually received -- never transmitted, never
+   * known to anyone but this device.
+   *
+   * `secondHopUniformModeDirect` governs endings where THIS device is the
+   * one actually answering -- a real match against its own stuff, or a
+   * genuine immediate "nothing" (no note ever came into play at all).
+   * Absent/false is the DEFAULT and means FAST: an answer goes out the
+   * moment it is decided, and the asker can roughly infer how far the
+   * question travelled from how long it took -- the owner's own explicit
+   * departure from this project's usual I9 posture (D28), because a demo
+   * people will actually sit through was worth more here than the
+   * conservative default. `true` opts back into the original uniform
+   * behaviour.
+   *
+   * `secondHopRevealRelay` governs a DIFFERENT ending: THIS device holding
+   * an eligible second-brain note and having to decide what to do about it
+   * -- decline, or forward and wait for Jakob. Absent/false is the DEFAULT
+   * and means UNIFORM/NON-REVEALING (the ordinary I9 posture, NOT
+   * overridden here) -- D30's own reasoning: the person relaying never
+   * asked to be involved in this exchange at all, unlike the person
+   * actually answering, who at least gets asked "do you want to share
+   * this." `true` is HER OWN opt-in to let a relay-carrying answer move as
+   * fast as it can, same as a direct one.
+   *
+   * See D30 for the honestly-stated residual: because these two switches
+   * default to OPPOSITE postures (direct fast, relay slow), a relay-
+   * eligible ending is, BY DEFAULT, still observably slower than a direct
+   * or no-note one -- the relay switch's own default protects the FINER
+   * signal (how long the round trip actually took, whether Jakob answered
+   * quickly or Jakob declined) but cannot, by construction, fully hide the
+   * COARSER one (that SOME note was engaged at all) while the direct
+   * default stays fast. Not fixed silently; said here and in D30.
+   *
+   * `withDefaults` does not need to backfill either: absent reads as
+   * `false` for both, which is already each field's own correct default.
+   */
+  secondHopUniformModeDirect?: boolean
+  secondHopRevealRelay?: boolean
 }
 
 /** Exported so test/state_defaults.test.ts can write a legacy-shaped record
@@ -164,13 +245,28 @@ let cached: DeviceState | null = null
  * missing them; every reader in this module and in main.ts assumes they are
  * present, so this is the one place that guarantee gets made, rather than
  * every call site defending itself with `s.inventory ?? []`.
+ *
+ * `secondBrainNotes` migration (advisor-flagged, this branch's own history):
+ * this field used to be `secondBrainNote` (singular, one object, not an
+ * array) before the D26/scenario-A change gave A a second note. A device
+ * that ran an EARLIER BUILD OF THIS SAME BRANCH -- not a hypothetical, this
+ * is exactly the kind of state a phone used for a rehearsal run would carry
+ * into the actual show -- has `secondBrainNote` on disk and no
+ * `secondBrainNotes` at all. Without this branch, `s.secondBrainNotes?.length`
+ * reads falsy, `isLeafAsker` (main.ts) silently flips true, and the whole
+ * relay path goes dead with no error anywhere on screen. The legacy shape is
+ * read via a narrow, locally-scoped cast (never exported, never given a
+ * shared type) precisely because it must not exist anywhere else in the
+ * codebase -- this is the one place that is allowed to know the old name.
  */
 function withDefaults(s: DeviceState): DeviceState {
+  const legacy = s as DeviceState & { secondBrainNote?: SecondBrainNote }
   return {
     ...s,
     inventory: s.inventory ?? [],
     profile: s.profile ?? emptyProfile(s.me.displayName),
     queryLog: s.queryLog ?? [],
+    secondBrainNotes: s.secondBrainNotes ?? (legacy.secondBrainNote ? [legacy.secondBrainNote] : s.secondBrainNotes),
   }
 }
 

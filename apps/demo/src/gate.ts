@@ -43,6 +43,7 @@ import { ivFromQid, open, seal, toB64u, fromB64u } from './crypto'
 import type {
   AnswerEnvelope,
   DecodedAnswer,
+  Identity,
   LocalOutcome,
   MatchResult,
   QueryEnvelope,
@@ -61,6 +62,20 @@ export interface GateInput {
   /** A has blocked this requester. */
   blocked: boolean
   key: CryptoKey
+  /**
+   * The answering device's own identity, for `SharedPayload.from`. OPTIONAL,
+   * additive (every existing caller omits it and keeps getting `from: ""`,
+   * exactly as before this field existed) -- see buildSharedJsonBytes'
+   * former "known gap" note, now closed: demo 21 (secondHop) is the first
+   * caller that actually NEEDS the answering device's name to reach the
+   * asker (Jakob's name, carried inside the encrypted payload rather than
+   * as a new wire field -- see main.ts's relay finalisation). Safe to leave
+   * unset elsewhere: no demo before this one ever reads `shared.from` at
+   * all (grep confirms; screenResult/screenNetworkResult only ever render
+   * `item.text`/`item.context`/`item.when`), so this changes zero visible
+   * behaviour for demos 1/2/3/6/20.
+   */
+  identity?: Identity
 }
 
 /**
@@ -82,6 +97,45 @@ export type WirePayload = SharedPayload & { tr?: 1 }
  * same regardless of which branch fired.
  */
 export const GATE_BUDGET_MS = 900
+
+/**
+ * Demo 21 (secondHop scenario) only: the fixed offset from RECEIPT of a
+ * query to A sending ITS OWN answer back, covering the entire relay
+ * round-trip (A's own tap, the forward to Jakob, Jakob's own tap and his
+ * GATE_BUDGET_MS, the trip back) -- not just decide()'s CPU cost the way
+ * GATE_BUDGET_MS above equalises for every other demo.
+ *
+ * Why this exists at all, and why it is not just a bigger GATE_BUDGET_MS:
+ * a relay hop has FIVE reasons to end up sending B nothing (A has no note,
+ * A declines to relay, Jakob declines, Jakob has nothing, Jakob never
+ * answers in time) and each one resolves at a wildly different point in
+ * time -- some near-instantly (no note at all), some only after a second
+ * human, on a second device, has looked at a prompt and tapped. If A sent
+ * the moment ITS OWN decision was final, the fast cases and the slow cases
+ * would arrive at B seconds apart and the gap itself would tell B which
+ * kind of "nothing" it was -- exactly the failure this project's I3 exists
+ * to rule out, one hop further than gate.ts's own byte-identity mechanism
+ * reaches on its own. See main.ts's relay ceremony: it computes its OWN
+ * content (`maskAnswerPlaintext`/`truncateSharedJson`) at FIRE time, at
+ * `t0 + RELAY_DEADLINE_MS`, exactly the same discipline
+ * `packages/agent-daemon`'s `dispatchOwnerStatus` already uses for its own
+ * single uniform STATUS dispatch (`statusDispatchAt`) -- content computed
+ * when the timer fires, never when the underlying decision became known.
+ *
+ * The value itself is not invented for this demo: I3's own stated default
+ * ("byte-identical PASS wire messages on a uniform reply schedule, default
+ * 30 s, no jitter" -- this repo's own CLAUDE.md) is reused verbatim rather
+ * than picking a new number with no prior standing in this project. A live
+ * demo operator should have Jakob's phone already unlocked and in hand
+ * before B asks -- see DEVLOG/result-report-demo21.md's presenter note.
+ * `settleAt` (below) already resolves immediately if this instant has
+ * already passed, so a genuinely slow relay round-trip that overruns this
+ * window is handled the same way D15 handles a late downstream CONSENT:
+ * B already has its answer (nothing, sent right at the deadline); a late
+ * arrival from Jakob after that point is recorded locally (I6) and never
+ * given a second message to B (see main.ts's relay ceremony doc comment).
+ */
+export const RELAY_DEADLINE_MS = 30_000
 
 const HEADER_LEN = 3 // tag byte + 2-byte length
 const MAX_PAYLOAD_BYTES = ANSWER_BODY_LEN - HEADER_LEN
@@ -118,11 +172,9 @@ function coarseWhen(ts: string): string {
  * item list until it fits in MAX_PAYLOAD_BYTES. Called unconditionally on
  * every `decide()` invocation -- see the module doc comment.
  *
- * NOTE / known gap: SharedPayload.from should identify the answering device
- * (A), but GateInput carries no identity for A (only `query.from`, which is
- * B, the asker). Left as an empty string rather than guessing wrong; a real
- * build should add an `identity: Identity` field to GateInput and thread it
- * through here.
+ * `SharedPayload.from` identifies the answering device, from `input.identity`
+ * when the caller supplied one (GateInput's own doc comment) -- empty string
+ * otherwise, same as every call site before that field existed.
  */
 function buildSharedJsonBytes(input: GateInput): Uint8Array {
   const items: SharedItem[] = input.match.hits.map((hit) => ({
@@ -141,11 +193,12 @@ function buildSharedJsonBytes(input: GateInput): Uint8Array {
   // wrapper by hand from pre-encoded item strings keeps this O(hits log hits).
   const itemJsons = items.map((it) => JSON.stringify(it))
   const templateIdJson = JSON.stringify(input.template.id)
+  const fromJson = JSON.stringify(input.identity?.displayName ?? '')
 
   const encodeWith = (n: number): Uint8Array => {
     const truncated = n < items.length
     const json =
-      `{"from":"","templateId":${templateIdJson},"items":[` +
+      `{"from":${fromJson},"templateId":${templateIdJson},"items":[` +
       itemJsons.slice(0, n).join(',') +
       ']' +
       (truncated ? ',"tr":1' : '') +
@@ -188,6 +241,96 @@ function buildPlain(tag: 0 | 1, jsonBytes: Uint8Array): Uint8Array {
   return buf
 }
 
+/**
+ * The byte-wise mask itself (module doc point 3), factored out so a second
+ * caller can reuse the EXACT same construction rather than a re-typed copy
+ * of it. `decide()` below is still the only caller for demos 1/2/3/6/20;
+ * demo 21's relay hop (main.ts's `finalizeRelayAnswer`) is the second one --
+ * see that function's doc comment for why it cannot go through `decide()`
+ * itself (it has no local `MatchResult` to build `jsonBytes` from: what it
+ * has is a SharedPayload that already arrived, pre-built, from a second
+ * hop's own `decide()` call).
+ */
+export function maskAnswerPlaintext(wouldShare: boolean, jsonBytes: Uint8Array): Uint8Array {
+  const sharedPlain = buildPlain(1, jsonBytes)
+  const nothingPlain = new Uint8Array(ANSWER_BODY_LEN) // all-zero: tag 0, len 0, pad 0
+  const maskByte = wouldShare ? 0xff : 0x00
+  const invMaskByte = (~maskByte) & 0xff
+  const plaintext = new Uint8Array(ANSWER_BODY_LEN)
+  for (let i = 0; i < ANSWER_BODY_LEN; i++) {
+    plaintext[i] = (sharedPlain[i] & maskByte) | (nothingPlain[i] & invMaskByte)
+  }
+  return plaintext
+}
+
+/**
+ * Same truncate-to-fit construction `buildSharedJsonBytes` uses, driven by
+ * an ALREADY-BUILT `SharedPayload` (e.g. one decoded from a second hop's own
+ * AnswerEnvelope) instead of a local `MatchResult`. Deliberately does NOT
+ * call `coarseWhen` on anything -- every `SharedItem.when` here already IS a
+ * coarse label, computed once by whichever device actually held the raw
+ * timestamp. Recomputing it a second time from a fabricated `ts` was
+ * considered and rejected: there is no honest `ts` to fabricate on a relay
+ * hop that never saw the original message, and a wrong recomputed label
+ * (a relayed "Mitte August" silently becoming "Anfang September" because a
+ * relaying hop's own clock, not the source message's, drove the bucketing)
+ * would be a factual error shown to the asker, not merely a missed
+ * optimisation. See main.ts's `finalizeRelayAnswer`.
+ */
+export function truncateSharedJson(payload: SharedPayload): Uint8Array {
+  const fromJson = JSON.stringify(payload.from)
+  const templateIdJson = JSON.stringify(payload.templateId)
+  const itemJsons = payload.items.map((it) => JSON.stringify(it))
+
+  const encodeWith = (n: number): Uint8Array => {
+    const truncated = n < itemJsons.length
+    const json =
+      `{"from":${fromJson},"templateId":${templateIdJson},"items":[` +
+      itemJsons.slice(0, n).join(',') +
+      ']' +
+      (truncated ? ',"tr":1' : '') +
+      '}'
+    return new TextEncoder().encode(json)
+  }
+
+  let lo = 0
+  let hi = itemJsons.length
+  let best = encodeWith(0)
+  if (best.length > MAX_PAYLOAD_BYTES) return best.slice(0, MAX_PAYLOAD_BYTES)
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    const candidate = encodeWith(mid)
+    if (candidate.length <= MAX_PAYLOAD_BYTES) {
+      best = candidate
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
+  }
+  return best
+}
+
+/**
+ * Seal an already-built plaintext (ANSWER_BODY_LEN bytes, from
+ * `maskAnswerPlaintext`) into the same AnswerEnvelope shape `decide()`
+ * produces -- same deterministic-IV-from-qid scheme, same base64url framing.
+ * Factored out so `decide()` and demo 21's relay finalisation share one
+ * sealing path rather than two copies of the AEAD framing.
+ */
+export async function sealAnswerEnvelope(
+  qid: string,
+  plaintext: Uint8Array,
+  key: CryptoKey,
+  ivOverride?: Uint8Array,
+): Promise<AnswerEnvelope> {
+  const iv = ivOverride ?? (await ivFromQid(qid))
+  const ciphertext = await seal(key, iv, plaintext)
+  const combined = new Uint8Array(iv.length + ciphertext.length)
+  combined.set(iv, 0)
+  combined.set(ciphertext, iv.length)
+  return { v: 1, t: 'answer', qid, body: toB64u(combined) }
+}
+
 // ---------------------------------------------------------------------------
 // decide / interpret
 // ---------------------------------------------------------------------------
@@ -218,29 +361,8 @@ export async function decide(
 
   // Always do the full "what would we share" work -- see module doc.
   const jsonBytes = buildSharedJsonBytes(input)
-  const sharedPlain = buildPlain(1, jsonBytes)
-  const nothingPlain = new Uint8Array(ANSWER_BODY_LEN) // all-zero: tag 0, len 0, pad 0
-
-  const maskByte = wouldShare ? 0xff : 0x00
-  const invMaskByte = (~maskByte) & 0xff
-  const plaintext = new Uint8Array(ANSWER_BODY_LEN)
-  for (let i = 0; i < ANSWER_BODY_LEN; i++) {
-    plaintext[i] = (sharedPlain[i] & maskByte) | (nothingPlain[i] & invMaskByte)
-  }
-
-  const iv = ivOverride ?? (await ivFromQid(input.query.qid))
-  const ciphertext = await seal(input.key, iv, plaintext)
-
-  const combined = new Uint8Array(iv.length + ciphertext.length)
-  combined.set(iv, 0)
-  combined.set(ciphertext, iv.length)
-
-  const envelope: AnswerEnvelope = {
-    v: 1,
-    t: 'answer',
-    qid: input.query.qid,
-    body: toB64u(combined),
-  }
+  const plaintext = maskAnswerPlaintext(wouldShare, jsonBytes)
+  const envelope = await sealAnswerEnvelope(input.query.qid, plaintext, input.key, ivOverride)
 
   return { outcome, envelope }
 }

@@ -224,6 +224,27 @@ describe('encodeForQr / decodeFromQr round trip', () => {
     expect(decodeFromQr(encodeForQr(withFreeText))).toEqual(withFreeText)
   })
 
+  // Demo 21 (secondHop): QueryEnvelope.relayed, the I8 depth-cap marker --
+  // types.ts's own doc comment on that field.
+  it('round-trips a QueryEnvelope carrying relayed: true', () => {
+    const relayed: QueryEnvelope = { ...QUERY, relayed: true }
+    expect(decodeFromQr(encodeForQr(relayed))).toEqual(relayed)
+  })
+
+  it('a QueryEnvelope with no relayed field parses with relayed left undefined -- every demo before 21', () => {
+    const decoded = decodeFromQr(encodeForQr(QUERY))
+    expect(decoded).not.toBeNull()
+    expect((decoded as QueryEnvelope).relayed).toBeUndefined()
+    expect('relayed' in (decoded as QueryEnvelope)).toBe(false)
+  })
+
+  it('rejects a QueryEnvelope whose relayed field is present but not exactly true', () => {
+    for (const bad of [false, 1, 0, 'true', null, {}, []]) {
+      const raw = JSON.stringify({ ...QUERY, relayed: bad })
+      expect(decodeFromQr(raw)).toBeNull()
+    }
+  })
+
   it('round-trips an AnswerEnvelope', () => {
     expect(decodeFromQr(encodeForQr(ANSWER))).toEqual(ANSWER)
   })
