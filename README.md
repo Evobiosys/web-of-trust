@@ -1,4 +1,4 @@
-# Ecstatic World — Web of Trust (combined branch)
+# Web of Trust (combined branch)
 
 A web-of-trust for real, in-person community: people meet face to face, confirm each other, and a
 trust graph gates what each person can see and share — events, offers, housing, people. This branch
