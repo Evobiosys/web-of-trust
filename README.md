@@ -1,4 +1,39 @@
-# Web of Trust (combined branch)
+# TrustWeb (Web of Trust codebase)
+
+**TrustWeb is an open-source app that lets people ask their community's notes a question.**
+
+After a conversation you save a few notes about the person and what they offer or need. Later, anyone
+in the pilot group can ask ("who is hiring a researcher?"). The person who holds the matching note sees
+the question, not who asked it. They are alerted once a day, and only when something matches, and they
+approve or decline. A decline looks exactly like "nothing found".
+
+- **Notes stay on each phone.** You can also import them from your own Swapcard connections export.
+- **Record only what you would happily pass on in a warm introduction.** Anyone can have items about
+  them deleted.
+- **Works alongside** Swapcard and the EA Forum People Directory, and needs nothing from conference
+  organisers.
+
+**Try the demo:** [app.idea2.site/trustweb](https://app.idea2.site/trustweb) (the app) and
+[idea2.site/trustweb](https://idea2.site/trustweb) (the overview page).
+
+**Plan.** Effective altruism (EA) groups first, a test event in April 2027, then an opt-in pilot at EA
+Global London (May 2027). We publish what we learn either way. If querying does not catch on, the
+note-taking stays usable as open-source code.
+
+**Status.** A demo and a research prototype, not a finished product. See the
+[Privacy Honesty Box](#privacy-honesty-box) below for what it does and does not protect against today.
+
+---
+
+## Longer-term scope
+
+TrustWeb is the first, narrowest use of a wider project, the Web of Trust (Ecstatic World): people meet
+face to face, confirm each other, and a trust graph gates what each person can see and share, such as
+events, offers, housing, loans and people. The same core can carry other app skins (ecstatic / housing /
+family / business), and it is related to QuestHub, a resource-sharing platform. None of that is part of
+the EA pilot above. The rest of this README describes that wider codebase as it stands.
+
+### About this codebase (combined branch)
 
 A web-of-trust for real, in-person community: people meet face to face, confirm each other, and a
 trust graph gates what each person can see and share — events, offers, housing, people. This branch
