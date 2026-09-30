@@ -27,7 +27,7 @@ note-taking stays usable as open-source code.
 
 ## Longer-term scope
 
-TrustWeb is the first, narrowest use of a wider project, the Web of Trust (Ecstatic World): people meet
+TrustWeb is the first, narrowest use of a wider project, the Web of Trust: people meet
 face to face, confirm each other, and a trust graph gates what each person can see and share, such as
 events, offers, housing, loans and people. The same core can carry other app skins (ecstatic / housing /
 family / business), and it is related to QuestHub, a resource-sharing platform. None of that is part of
