@@ -27,6 +27,9 @@ note-taking stays usable as open-source code.
 **Status.** A demo and a research prototype, not a finished product. See the
 [Privacy Honesty Box](#privacy-honesty-box) below for what it does and does not protect against today.
 
+**Licence and contact.** AGPL-3.0-or-later by default (see [LICENSE](LICENSE) and [LICENSING.md](LICENSING.md)).
+Contact: connect@trustintheweb.org
+
 ---
 
 ## Longer-term scope
