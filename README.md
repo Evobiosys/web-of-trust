@@ -1,5 +1,9 @@
 # TrustWeb (Web of Trust codebase)
 
+> **Pause notice (2026-10-07):** this public copy is paused while development continues offline.
+> See the most recent version at https://idea2.site/trustweb/ (the app: https://app.idea2.site/trustweb/).
+> TrustWeb is part of EvoBioSys (https://evobiosys.org).
+
 **TrustWeb is an open-source app that lets people ask their community's notes a question.**
 
 After a conversation you save a few notes about the person and what they offer or need. Later, anyone
